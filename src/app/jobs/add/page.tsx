@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Link2, FileText, Loader2, Target, CheckCircle2, XCircle,
@@ -70,6 +70,17 @@ function CategoryBar({ label, score }: { label: string; score: number }) {
 // ─── Main page ──────────────────────────────────────────────────
 
 export default function AddJobPage() {
+  useEffect(() => {
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((d) => {
+        if (!d.settings?.onboardingComplete) {
+          window.location.href = '/';
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const [tab, setTab] = useState<Tab>('url');
   const [url, setUrl] = useState('');
   const [extracting, setExtracting] = useState(false);

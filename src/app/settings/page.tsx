@@ -33,6 +33,10 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((data) => {
         const s = data.settings;
+        if (!s.onboardingComplete) {
+          window.location.href = '/';
+          return;
+        }
         setUserName(s.userName || '');
         setPreferredRoles(s.preferredRoles || []);
         setPreferredLocations(s.preferredLocations || []);

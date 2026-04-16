@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
+import { getSettings } from "@/lib/db";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,23 +14,28 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: "Job Application Assistant",
   description: "Track and manage job applications across portals",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const settings = await getSettings();
+  const onboardingDone = settings.onboardingComplete;
+
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-screen flex">
-        <Sidebar />
+        {onboardingDone && <Sidebar />}
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>

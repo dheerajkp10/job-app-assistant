@@ -249,7 +249,13 @@ export default function ListingsPage() {
     loadListings();
     fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
     fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
-    fetch('/api/settings').then(r => r.json()).then((d: { settings: Settings }) => setPrefs(d.settings)).catch(() => {});
+    fetch('/api/settings').then(r => r.json()).then((d: { settings: Settings }) => {
+      if (!d.settings.onboardingComplete) {
+        window.location.href = '/';
+        return;
+      }
+      setPrefs(d.settings);
+    }).catch(() => {});
   }, [loadListings]);
 
   // Filter to relevant roles using user preferences (or fallback to EM patterns)

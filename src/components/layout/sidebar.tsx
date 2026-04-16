@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { PlusCircle, Settings, Briefcase, Globe } from 'lucide-react';
+import { PlusCircle, Settings, Briefcase, Globe, LayoutDashboard } from 'lucide-react';
 
 const NAV_ITEMS = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/listings', label: 'Job Listings', icon: Globe },
   { href: '/jobs/add', label: 'Add Job', icon: PlusCircle },
   { href: '/settings', label: 'Settings', icon: Settings },
@@ -16,7 +17,7 @@ export default function Sidebar() {
   return (
     <aside className="w-64 bg-gray-900 text-white flex flex-col min-h-screen">
       <div className="p-6 border-b border-gray-800">
-        <Link href="/listings" className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3">
           <Briefcase className="w-7 h-7 text-blue-400" />
           <div>
             <h1 className="text-lg font-bold leading-tight">Job App</h1>

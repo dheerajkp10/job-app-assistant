@@ -8,7 +8,7 @@ export default async function Home() {
   const settings = await getSettings();
 
   if (settings.onboardingComplete) {
-    redirect('/listings');
+    redirect('/dashboard');
   }
 
   return <OnboardingWizard />;
