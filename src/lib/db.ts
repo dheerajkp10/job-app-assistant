@@ -14,6 +14,12 @@ const DEFAULT_DB: Database = {
     baseResumeFileName: null,
     baseResumeText: null,
     userName: '',
+    preferredRoles: [],
+    preferredLocations: [],
+    workMode: [],
+    salaryMin: null,
+    salaryMax: null,
+    onboardingComplete: false,
   },
   jobs: [],
   listingsCache: {
@@ -41,6 +47,8 @@ export async function readDb(): Promise<Database> {
   if (!db.listingsCache) {
     db.listingsCache = { listings: [], lastFetchedAt: null, fetchErrors: [] };
   }
+  // Merge in any missing settings fields from defaults (migration for old DBs)
+  db.settings = { ...DEFAULT_DB.settings, ...db.settings };
   return db;
 }
 

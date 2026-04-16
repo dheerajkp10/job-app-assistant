@@ -77,7 +77,7 @@ const EXCLUDE_PATTERNS: RegExp[] = [
 ];
 
 /**
- * Filter listings to only EM-relevant roles.
+ * Filter listings to only EM-relevant roles (hardcoded patterns).
  */
 export function filterRelevantEMRoles(listings: JobListing[]): JobListing[] {
   return listings.filter((listing) => {
@@ -88,6 +88,47 @@ export function filterRelevantEMRoles(listings: JobListing[]): JobListing[] {
     if (!matchesEM) return false;
 
     // Must NOT match any exclusion pattern
+    const matchesExclude = EXCLUDE_PATTERNS.some((p) => p.test(title));
+    if (matchesExclude) return false;
+
+    return true;
+  });
+}
+
+/**
+ * Build regex patterns from user-supplied role strings.
+ * Each role becomes a case-insensitive substring match.
+ */
+function buildUserRolePatterns(roles: string[]): RegExp[] {
+  return roles.map((role) => {
+    // Escape regex special chars and create a case-insensitive pattern
+    const escaped = role.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(escaped, 'i');
+  });
+}
+
+/**
+ * Filter listings by the user's preferred role titles.
+ * Falls back to the hardcoded EM filter when no preferences are set.
+ */
+export function filterByUserPreferences(
+  listings: JobListing[],
+  preferredRoles: string[],
+): JobListing[] {
+  if (!preferredRoles || preferredRoles.length === 0) {
+    return filterRelevantEMRoles(listings);
+  }
+
+  const userPatterns = buildUserRolePatterns(preferredRoles);
+
+  return listings.filter((listing) => {
+    const title = listing.title;
+
+    // Must match at least one user-selected role pattern
+    const matchesRole = userPatterns.some((p) => p.test(title));
+    if (!matchesRole) return false;
+
+    // Still apply exclusion patterns (non-engineering roles)
     const matchesExclude = EXCLUDE_PATTERNS.some((p) => p.test(title));
     if (matchesExclude) return false;
 

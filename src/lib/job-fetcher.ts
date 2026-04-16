@@ -226,6 +226,21 @@ export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResul
 export async function fetchJobDetail(
   listing: JobListing
 ): Promise<JobListingDetail | null> {
+  // Manual listings: content is stored as a local file on disk.
+  if (listing.id.startsWith('manual-')) {
+    try {
+      const { readFile } = await import('fs/promises');
+      const { join } = await import('path');
+      const { existsSync } = await import('fs');
+      const filePath = join(process.cwd(), 'data', 'listing-details', `${listing.id}.html`);
+      if (!existsSync(filePath)) return null;
+      const content = await readFile(filePath, 'utf-8');
+      return { ...listing, content, qualifications: [], responsibilities: [] };
+    } catch {
+      return null;
+    }
+  }
+
   if (listing.ats === 'greenhouse') {
     const boardToken = listing.id.split('-')[1]; // gh-{boardToken}-{id}
     const detail = await fetchGreenhouseJobDetail(boardToken, listing.sourceId);

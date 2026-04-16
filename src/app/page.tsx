@@ -1,5 +1,15 @@
 import { redirect } from 'next/navigation';
+import { getSettings } from '@/lib/db';
+import OnboardingWizard from '@/components/onboarding/onboarding-wizard';
 
-export default function Home() {
-  redirect('/listings');
+export const dynamic = 'force-dynamic';
+
+export default async function Home() {
+  const settings = await getSettings();
+
+  if (settings.onboardingComplete) {
+    redirect('/listings');
+  }
+
+  return <OnboardingWizard />;
 }

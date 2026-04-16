@@ -15,10 +15,20 @@ export interface Job {
   dateAdded: string; // ISO timestamp
 }
 
+export type WorkMode = 'remote' | 'hybrid' | 'onsite';
+
 export interface Settings {
   baseResumeFileName: string | null;
   baseResumeText: string | null;
   userName: string;
+
+  // ─── User preferences (set during onboarding) ───
+  preferredRoles: string[];           // e.g. ["Engineering Manager", "Software Dev Manager"]
+  preferredLocations: string[];       // e.g. ["Seattle, WA", "San Francisco, CA"]
+  workMode: WorkMode[];               // multi-select
+  salaryMin: number | null;           // annual, e.g. 200000
+  salaryMax: number | null;           // annual, e.g. 350000
+  onboardingComplete: boolean;        // gate for landing page
 }
 
 // --- Job Listings (auto-fetched from company career pages) ---

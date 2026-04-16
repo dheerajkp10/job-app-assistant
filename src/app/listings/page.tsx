@@ -8,9 +8,9 @@ import {
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
   Tag, EyeOff, Eye,
 } from 'lucide-react';
-import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry } from '@/lib/types';
+import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { PORTAL_SEARCH_LINKS, LISTING_FLAGS } from '@/lib/types';
-import { filterRelevantEMRoles } from '@/lib/role-filter';
+import { filterByUserPreferences } from '@/lib/role-filter';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
@@ -18,7 +18,9 @@ const ATS_LABELS: Record<string, string> = {
   ashby: 'Ashby',
 };
 
-// Washington state cities + remote patterns for default location filter
+// ─── Location matching (preference-driven) ──────────────────────────
+// Falls back to Washington/Remote when user has no preferences set.
+
 const WA_PATTERNS = [
   'seattle', 'bellevue', 'kirkland', 'redmond', 'tacoma', 'spokane',
   'olympia', 'everett', 'renton', 'kent', 'bothell', 'woodinville',
@@ -33,6 +35,55 @@ function isWashingtonOrRemote(location: string): boolean {
     WA_PATTERNS.some((p) => loc.includes(p)) ||
     REMOTE_PATTERNS.some((p) => loc.includes(p))
   );
+}
+
+/**
+ * Build location matcher from the user's preferred locations.
+ * For each location like "Seattle, WA" we extract lowercase tokens
+ * (e.g., "seattle", "wa") and match any of them.
+ */
+function buildLocationMatcher(preferredLocations: string[]): (location: string) => boolean {
+  if (!preferredLocations || preferredLocations.length === 0) {
+    return isWashingtonOrRemote;
+  }
+
+  // Build tokens from each preferred location.
+  const tokens: string[] = [];
+  for (const loc of preferredLocations) {
+    const lower = loc.toLowerCase().trim();
+    // "Remote" as a location is a special case
+    if (lower === 'remote') {
+      tokens.push('remote');
+      continue;
+    }
+    // Split "Seattle, WA" → ["seattle", "wa"]
+    for (const part of lower.split(/[,\s]+/).filter(Boolean)) {
+      if (part.length >= 2) tokens.push(part);
+    }
+  }
+
+  return (location: string) => {
+    const loc = location.toLowerCase();
+    return tokens.some((t) => loc.includes(t));
+  };
+}
+
+/**
+ * Check if a listing's location matches the user's preferred work mode.
+ */
+function matchesWorkMode(location: string, workModes: WorkMode[]): boolean {
+  if (!workModes || workModes.length === 0) return true;
+  const loc = location.toLowerCase();
+  const isRemote = loc.includes('remote');
+  const isHybrid = loc.includes('hybrid');
+  const isOnsite = !isRemote && !isHybrid;
+
+  for (const mode of workModes) {
+    if (mode === 'remote' && isRemote) return true;
+    if (mode === 'hybrid' && isHybrid) return true;
+    if (mode === 'onsite' && isOnsite) return true;
+  }
+  return false;
 }
 
 // ─── Score visualization components ─────────────────────────────────
@@ -116,6 +167,13 @@ export default function ListingsPage() {
   const [scoringProgress, setScoringProgress] = useState<{ scored: number; total: number } | null>(null);
   const scoringRef = useRef(false);
 
+  // User preferences
+  const [prefs, setPrefs] = useState<Partial<Settings>>({});
+  const locationMatcher = useMemo(
+    () => buildLocationMatcher(prefs.preferredLocations ?? []),
+    [prefs.preferredLocations],
+  );
+
   // User-set flags (applied / incorrect / not-applicable) on listings.
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [showFlagged, setShowFlagged] = useState(false);
@@ -191,12 +249,13 @@ export default function ListingsPage() {
     loadListings();
     fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
     fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
+    fetch('/api/settings').then(r => r.json()).then((d: { settings: Settings }) => setPrefs(d.settings)).catch(() => {});
   }, [loadListings]);
 
-  // Always filter to EM-relevant roles only
+  // Filter to relevant roles using user preferences (or fallback to EM patterns)
   const listings = useMemo(
-    () => filterRelevantEMRoles(allListings),
-    [allListings]
+    () => filterByUserPreferences(allListings, prefs.preferredRoles ?? []),
+    [allListings, prefs.preferredRoles]
   );
 
   // Auto-score all EM listings in background batches
@@ -251,10 +310,10 @@ export default function ListingsPage() {
     return deps.slice(0, 50);
   }, [listings]);
 
-  // Count how many WA/Remote jobs there are (for badge)
+  // Count how many location-matching jobs there are (for badge)
   const waRemoteCount = useMemo(
-    () => listings.filter(l => isWashingtonOrRemote(l.location)).length,
-    [listings]
+    () => listings.filter(l => locationMatcher(l.location)).length,
+    [listings, locationMatcher]
   );
 
   // Apply text search + dropdown filters + location preset
@@ -278,7 +337,11 @@ export default function ListingsPage() {
       result = result.filter((l) => l.company === selectedCompany);
     }
     if (locationPreset === 'wa-remote') {
-      result = result.filter((l) => isWashingtonOrRemote(l.location));
+      result = result.filter((l) => locationMatcher(l.location));
+    }
+    // Work-mode preference filter (remote / hybrid / onsite)
+    if (prefs.workMode && prefs.workMode.length > 0) {
+      result = result.filter((l) => matchesWorkMode(l.location, prefs.workMode!));
     }
     if (selectedDepartment !== 'all') {
       result = result.filter((l) => l.department === selectedDepartment);
@@ -291,7 +354,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged]);
+  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -439,7 +502,10 @@ export default function ListingsPage() {
                 : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
-            Washington & Remote ({waRemoteCount})
+            {prefs.preferredLocations && prefs.preferredLocations.length > 0
+              ? `Preferred Locations (${waRemoteCount})`
+              : `Washington & Remote (${waRemoteCount})`
+            }
           </button>
           <button
             onClick={() => setLocationPreset('all')}
@@ -482,7 +548,7 @@ export default function ListingsPage() {
                   // actually see when you pick this company.
                   const visibleCount = listings.filter((l) =>
                     l.company === c &&
-                    (locationPreset === 'all' || isWashingtonOrRemote(l.location))
+                    (locationPreset === 'all' || locationMatcher(l.location))
                   ).length;
                   const totalCount = listings.filter((l) => l.company === c).length;
                   const label = visibleCount === totalCount
@@ -568,7 +634,7 @@ export default function ListingsPage() {
             {hiddenByLocation && (
               <div className="text-sm text-gray-600">
                 <p className="mb-2">
-                  {unfilteredByLocation.length} matching {unfilteredByLocation.length === 1 ? 'job is' : 'jobs are'} hidden by the <b>Washington &amp; Remote</b> location filter.
+                  {unfilteredByLocation.length} matching {unfilteredByLocation.length === 1 ? 'job is' : 'jobs are'} hidden by the <b>Preferred Locations</b> filter.
                 </p>
                 <button
                   onClick={() => setLocationPreset('all')}
