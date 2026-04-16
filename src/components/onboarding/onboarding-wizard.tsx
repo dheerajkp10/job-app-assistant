@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Briefcase, MapPin, DollarSign, FileText, Upload, Check,
-  ChevronRight, ChevronLeft, Loader2, X,
+  ChevronRight, ChevronLeft, Loader2, X, Globe, Building2,
+  CheckCircle2, XCircle, Rocket,
 } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
 
-const STEPS = ['Role', 'Location', 'Salary', 'Resume'] as const;
+const STEPS = ['Role', 'Location', 'Salary', 'Resume', 'Fetch Jobs'] as const;
 
 const SUGGESTED_ROLES = [
   // Engineering Management
@@ -57,6 +58,27 @@ const WORK_MODES: { key: WorkMode; label: string; desc: string }[] = [
   { key: 'onsite', label: 'On-site', desc: 'Full time in office' },
 ];
 
+// ─── SSE progress types ────────────────────────────────────────────
+
+interface FetchProgress {
+  company: string;
+  jobsFound: number;
+  totalJobsSoFar: number;
+  status: 'success' | 'error';
+}
+
+interface FetchState {
+  phase: 'idle' | 'fetching' | 'done' | 'error';
+  completed: number;
+  total: number;
+  totalJobs: number;
+  companiesSuccess: number;
+  companiesFailed: number;
+  log: FetchProgress[];
+}
+
+// ─── Component ─────────────────────────────────────────────────────
+
 export default function OnboardingWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -78,6 +100,18 @@ export default function OnboardingWizard() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Job fetch progress (step 4)
+  const [fetchState, setFetchState] = useState<FetchState>({
+    phase: 'idle',
+    completed: 0,
+    total: 0,
+    totalJobs: 0,
+    companiesSuccess: 0,
+    companiesFailed: 0,
+    log: [],
+  });
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Pre-fill from existing settings if any
@@ -101,6 +135,11 @@ export default function OnboardingWizard() {
       })
       .catch(() => {});
   }, []);
+
+  // Auto-scroll log to bottom
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [fetchState.log]);
 
   function toggleRole(role: string) {
     setRoles((prev) =>
@@ -172,7 +211,8 @@ export default function OnboardingWizard() {
     [uploadFile]
   );
 
-  async function handleFinish() {
+  // Save preferences and move to the fetch step
+  async function handleSaveAndFetch() {
     setSaving(true);
     try {
       await fetch('/api/settings', {
@@ -188,17 +228,89 @@ export default function OnboardingWizard() {
           onboardingComplete: true,
         }),
       });
-      router.push('/listings');
+      // Move to step 4 (Fetch Jobs)
+      setStep(4);
     } catch {
       setSaving(false);
     }
   }
+
+  // Start SSE fetch of job listings
+  function startFetch() {
+    setFetchState({
+      phase: 'fetching',
+      completed: 0,
+      total: 0,
+      totalJobs: 0,
+      companiesSuccess: 0,
+      companiesFailed: 0,
+      log: [],
+    });
+
+    const evtSource = new EventSource('/api/listings/fetch-stream');
+
+    evtSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'start') {
+          setFetchState((prev) => ({ ...prev, total: data.total }));
+        } else if (data.type === 'progress') {
+          setFetchState((prev) => ({
+            ...prev,
+            completed: data.completed,
+            totalJobs: data.totalJobsSoFar,
+            log: [
+              ...prev.log,
+              {
+                company: data.company,
+                jobsFound: data.jobsFound,
+                totalJobsSoFar: data.totalJobsSoFar,
+                status: data.status,
+              },
+            ],
+          }));
+        } else if (data.type === 'complete') {
+          setFetchState((prev) => ({
+            ...prev,
+            phase: 'done',
+            totalJobs: data.totalJobs,
+            companiesSuccess: data.companiesSuccess,
+            companiesFailed: data.companiesFailed,
+          }));
+          evtSource.close();
+        }
+      } catch {
+        // ignore parse errors
+      }
+    };
+
+    evtSource.onerror = () => {
+      setFetchState((prev) => ({
+        ...prev,
+        phase: prev.phase === 'done' ? 'done' : 'error',
+      }));
+      evtSource.close();
+    };
+  }
+
+  // Auto-start fetch when reaching step 4
+  useEffect(() => {
+    if (step === 4 && fetchState.phase === 'idle') {
+      startFetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
 
   const canProceed = () => {
     if (step === 0) return roles.length > 0;
     if (step === 1) return locations.length > 0 || workMode.length > 0;
     return true; // salary & resume are optional
   };
+
+  const pct = fetchState.total > 0
+    ? Math.round((fetchState.completed / fetchState.total) * 100)
+    : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
@@ -210,7 +322,9 @@ export default function OnboardingWizard() {
             <h1 className="text-3xl font-bold text-gray-900">Job App Assistant</h1>
           </div>
           <p className="text-gray-500">
-            Let&apos;s set up your preferences to find the best jobs for you.
+            {step < 4
+              ? "Let\u2019s set up your preferences to find the best jobs for you."
+              : 'Finding jobs that match your criteria...'}
           </p>
         </div>
 
@@ -228,12 +342,14 @@ export default function OnboardingWizard() {
         </div>
 
         {/* Step label */}
-        <div className="flex items-center gap-2 mb-6">
-          <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
-            Step {step + 1} of {STEPS.length}
-          </span>
-          <span className="text-sm text-gray-500">{STEPS[step]}</span>
-        </div>
+        {step < 4 && (
+          <div className="flex items-center gap-2 mb-6">
+            <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
+              Step {step + 1} of {STEPS.length}
+            </span>
+            <span className="text-sm text-gray-500">{STEPS[step]}</span>
+          </div>
+        )}
 
         {/* Card */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
@@ -520,21 +636,131 @@ export default function OnboardingWizard() {
               )}
             </div>
           )}
+
+          {/* ─── Step 4: Fetching Jobs (live progress) ─── */}
+          {step === 4 && (
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <Globe className="w-5 h-5 text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-900">
+                  {fetchState.phase === 'done' ? 'Jobs Found!' : 'Searching for Jobs...'}
+                </h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-6">
+                {fetchState.phase === 'done'
+                  ? 'We found jobs matching your criteria across multiple companies.'
+                  : 'Scanning career pages from top tech companies. This takes 15\u201330 seconds.'}
+              </p>
+
+              {/* Progress bar */}
+              {fetchState.phase === 'fetching' && (
+                <div className="mb-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-700">
+                      {fetchState.completed} / {fetchState.total} companies
+                    </span>
+                    <span className="text-sm font-bold text-blue-700">{pct}%</span>
+                  </div>
+                  <div className="h-3 bg-blue-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2">
+                    <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin" />
+                    <span className="text-xs text-gray-500">
+                      {fetchState.totalJobs.toLocaleString()} jobs found so far...
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Completion summary */}
+              {fetchState.phase === 'done' && (
+                <div className="mb-5 p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="flex items-center gap-3 mb-3">
+                    <CheckCircle2 className="w-6 h-6 text-green-600" />
+                    <div>
+                      <p className="text-lg font-bold text-green-800">
+                        {fetchState.totalJobs.toLocaleString()} jobs found
+                      </p>
+                      <p className="text-xs text-green-600">
+                        From {fetchState.companiesSuccess} companies
+                        {fetchState.companiesFailed > 0 && (
+                          <span className="text-amber-600"> ({fetchState.companiesFailed} unavailable)</span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {fetchState.phase === 'error' && fetchState.completed === 0 && (
+                <div className="mb-5 p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <XCircle className="w-6 h-6 text-red-500" />
+                    <div>
+                      <p className="text-sm font-semibold text-red-800">Failed to fetch listings</p>
+                      <p className="text-xs text-red-600">Please check your connection and try again.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={startFetch}
+                    className="mt-3 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {/* Live log */}
+              {fetchState.log.length > 0 && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg max-h-56 overflow-y-auto">
+                  <div className="p-3 space-y-1">
+                    {fetchState.log.map((entry, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs">
+                        {entry.status === 'success' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                        )}
+                        <span className="font-medium text-gray-700">{entry.company}</span>
+                        {entry.status === 'success' ? (
+                          <span className="text-gray-400">
+                            &mdash; {entry.jobsFound} jobs
+                          </span>
+                        ) : (
+                          <span className="text-red-400">&mdash; unavailable</span>
+                        )}
+                      </div>
+                    ))}
+                    <div ref={logEndRef} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-6">
-          <button
-            type="button"
-            onClick={() => setStep((s) => s - 1)}
-            disabled={step === 0}
-            className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-0"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Back
-          </button>
+          {step < 4 ? (
+            <button
+              type="button"
+              onClick={() => setStep((s) => s - 1)}
+              disabled={step === 0}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-0"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Back
+            </button>
+          ) : (
+            <div />
+          )}
 
-          {step < STEPS.length - 1 ? (
+          {step < 3 && (
             <button
               type="button"
               onClick={() => setStep((s) => s + 1)}
@@ -544,25 +770,39 @@ export default function OnboardingWizard() {
               Continue
               <ChevronRight className="w-4 h-4" />
             </button>
-          ) : (
+          )}
+
+          {step === 3 && (
             <button
               type="button"
-              onClick={handleFinish}
+              onClick={handleSaveAndFetch}
               disabled={saving}
               className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
             >
               {saving ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Setting up...</>
+                <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
               ) : (
-                <><Check className="w-4 h-4" /> Get Started</>
+                <><Rocket className="w-4 h-4" /> Find Jobs</>
               )}
+            </button>
+          )}
+
+          {step === 4 && fetchState.phase === 'done' && (
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Rocket className="w-4 h-4" /> Go to Dashboard
             </button>
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-4">
-          You can change all preferences later in Settings.
-        </p>
+        {step < 4 && (
+          <p className="text-center text-xs text-gray-400 mt-4">
+            You can change all preferences later in Settings.
+          </p>
+        )}
       </div>
     </div>
   );

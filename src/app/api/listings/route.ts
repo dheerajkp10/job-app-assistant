@@ -17,8 +17,8 @@ export async function GET(req: NextRequest) {
   const isStale = !cache.lastFetchedAt ||
     Date.now() - new Date(cache.lastFetchedAt).getTime() > CACHE_TTL_MS;
 
-  if (forceRefresh || (isStale && cache.listings.length === 0)) {
-    // Synchronous fetch — no cache yet or forced
+  if (forceRefresh) {
+    // Synchronous fetch — forced refresh only
     const result = await fetchAllJobs(COMPANY_SOURCES);
     const newCache = {
       listings: result.listings,

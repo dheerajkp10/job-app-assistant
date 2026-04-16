@@ -6,7 +6,7 @@ import {
   Search, RefreshCw, MapPin, Calendar, Building2, ExternalLink,
   DollarSign, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
-  Tag, EyeOff, Eye,
+  Tag, EyeOff, Eye, Globe,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { PORTAL_SEARCH_LINKS, LISTING_FLAGS } from '@/lib/types';
@@ -227,16 +227,8 @@ export default function ListingsPage() {
       setLastFetched(data.lastFetchedAt);
       setFetchErrors(data.fetchErrors || []);
 
-      if (data.isStale && !refresh && data.listings?.length > 0) {
-        fetch('/api/listings?refresh=true')
-          .then((r) => r.json())
-          .then((freshData) => {
-            setAllListings(freshData.listings || []);
-            setLastFetched(freshData.lastFetchedAt);
-            setFetchErrors(freshData.fetchErrors || []);
-          })
-          .catch(() => {});
-      }
+      // Stale data notification — user can click Refresh All to update
+      // (no automatic background refresh)
     } catch {
       // keep existing listings on error
     } finally {
@@ -378,10 +370,30 @@ export default function ListingsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
         <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Fetching Job Listings...</h2>
-        <p className="text-sm text-gray-500">
-          Pulling from 30+ company career pages. This may take 15-30 seconds on first load.
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Loading...</h2>
+      </div>
+    );
+  }
+
+  if (!loading && allListings.length === 0) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
+        <Globe className="w-14 h-14 text-gray-300 mb-4" />
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">No Job Listings Yet</h2>
+        <p className="text-sm text-gray-500 mb-6 max-w-md text-center">
+          Click below to search across 40+ company career pages and populate your listings based on your preferences.
         </p>
+        <button
+          onClick={() => loadListings(true)}
+          disabled={refreshing}
+          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {refreshing ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Fetching Jobs...</>
+          ) : (
+            <><RefreshCw className="w-4 h-4" /> Fetch Job Listings</>
+          )}
+        </button>
       </div>
     );
   }
