@@ -200,7 +200,7 @@ export default function SettingsPage() {
           ))}
           {preferredRoles.length === 0 && (
             <span className="text-xs text-gray-400">
-              No roles set — all Engineering Manager roles will be shown by default.
+              No roles set — all common tech roles will be shown by default.
             </span>
           )}
         </div>

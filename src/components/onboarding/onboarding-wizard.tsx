@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Briefcase, MapPin, DollarSign, FileText, Upload, Check,
@@ -11,15 +11,30 @@ import type { WorkMode } from '@/lib/types';
 const STEPS = ['Role', 'Location', 'Salary', 'Resume'] as const;
 
 const SUGGESTED_ROLES = [
+  // Engineering Management
   'Engineering Manager',
   'Software Development Manager',
-  'Software Engineering Manager',
   'Director of Engineering',
-  'Head of Engineering',
-  'Technical Program Manager',
+  'VP of Engineering',
+  // Software Engineering
+  'Software Engineer',
+  'Senior Software Engineer',
   'Staff Engineer',
   'Principal Engineer',
-  'VP of Engineering',
+  // Product & Program
+  'Product Manager',
+  'Technical Program Manager',
+  'Program Manager',
+  // Data & ML
+  'Data Scientist',
+  'Data Engineer',
+  'Machine Learning Engineer',
+  'Applied Scientist',
+  // Other Tech
+  'Solutions Architect',
+  'DevOps Engineer',
+  'Site Reliability Engineer',
+  'UX Designer',
 ];
 
 const SUGGESTED_LOCATIONS = [
@@ -63,6 +78,29 @@ export default function OnboardingWizard() {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Pre-fill from existing settings if any
+    fetch('/api/settings')
+      .then((r) => r.json())
+      .then((data) => {
+        const s = data.settings;
+        if (s.userName) setUserName(s.userName);
+        if (s.preferredRoles?.length) setRoles(s.preferredRoles);
+        if (s.preferredLocations?.length) setLocations(s.preferredLocations);
+        if (s.workMode?.length) setWorkMode(s.workMode);
+        if (s.salaryMin) setSalaryMin(String(s.salaryMin));
+        if (s.salaryMax) setSalaryMax(String(s.salaryMax));
+      })
+      .catch(() => {});
+    fetch('/api/resume')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.fileName) setResumeFile(data.fileName);
+        if (data.text) setResumeText(data.text);
+      })
+      .catch(() => {});
+  }, []);
 
   function toggleRole(role: string) {
     setRoles((prev) =>

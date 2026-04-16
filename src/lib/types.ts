@@ -77,7 +77,7 @@ export interface ListingsCache {
 /**
  * User-set flag on an auto-fetched JobListing.
  * - applied:       user has applied externally and wants it marked.
- * - incorrect:     the title/category isn't actually an EM role (or otherwise mislabeled).
+ * - incorrect:     the title/category isn't actually a matching role (or otherwise mislabeled).
  * - not-applicable: user reviewed and isn't interested.
  * Flagged listings are hidden from the default view but can be revealed via a toggle.
  */

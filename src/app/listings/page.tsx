@@ -258,7 +258,7 @@ export default function ListingsPage() {
     [allListings, prefs.preferredRoles]
   );
 
-  // Auto-score all EM listings in background batches
+  // Auto-score all matching listings in background batches
   useEffect(() => {
     if (listings.length === 0 || scoringRef.current) return;
     const unscoredIds = listings.filter(l => !scoreCache[l.id]).map(l => l.id);
@@ -387,7 +387,7 @@ export default function ListingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Job Listings</h1>
           <p className="text-sm text-gray-500 mt-1">
-            <span className="text-blue-600 font-medium">{listings.length} EM roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
+            <span className="text-blue-600 font-medium">{listings.length} matching roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
             {lastFetched && (
               <span> &middot; Updated {new Date(lastFetched).toLocaleString()}</span>
             )}
