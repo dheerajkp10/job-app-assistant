@@ -9,8 +9,15 @@ import {
   Tag, EyeOff, Eye, Globe,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
-import { PORTAL_SEARCH_LINKS, LISTING_FLAGS } from '@/lib/types';
+import { PORTAL_SEARCH_LINKS, LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
 import { filterByUserPreferences } from '@/lib/role-filter';
+import { matchesLevelPreference } from '@/lib/level-matcher';
+import {
+  detectCurrentCompany,
+  getCompanyAliases,
+  isExcludedCompany,
+} from '@/lib/current-company';
+import { PageHeaderNav } from '@/components/layout/page-header-nav';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
@@ -207,6 +214,17 @@ export default function ListingsPage() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [locationPreset, setLocationPreset] = useState<'wa-remote' | 'all'>('wa-remote');
+  // Salary range (annual USD). null = no minimum; filter also keeps
+  // listings with no salary data so we don't hide 99% of postings.
+  const [minSalary, setMinSalary] = useState<number | null>(null);
+  const [maxSalary, setMaxSalary] = useState<number | null>(null);
+  const [salaryOnly, setSalaryOnly] = useState(false); // when true, hide listings without salary data
+  // Selected level tier keys (e.g. "em1", "staff")
+  const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
+
+  // When we load the user's preferences, default the level filter to
+  // their onboarding-chosen levels (but allow them to override).
+  const [levelsInitialized, setLevelsInitialized] = useState(false);
 
   // Expanded card
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -237,6 +255,12 @@ export default function ListingsPage() {
     }
   }, []);
 
+  // Companies the user has explicitly chosen to hide (persisted in settings).
+  // Seeded on first load from auto-detection of the resume's current employer.
+  const [excludedCompanies, setExcludedCompanies] = useState<string[]>([]);
+  const [excludeInitialized, setExcludeInitialized] = useState(false);
+  const [autoDetected, setAutoDetected] = useState<string | null>(null);
+
   useEffect(() => {
     loadListings();
     fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
@@ -247,14 +271,79 @@ export default function ListingsPage() {
         return;
       }
       setPrefs(d.settings);
+      // Seed filters from onboarding preferences (user can still override).
+      if (!levelsInitialized) {
+        if (d.settings.preferredLevels && d.settings.preferredLevels.length > 0) {
+          setSelectedLevels(d.settings.preferredLevels);
+        }
+        if (d.settings.salaryMin != null) setMinSalary(d.settings.salaryMin);
+        if (d.settings.salaryMax != null) setMaxSalary(d.settings.salaryMax);
+        setLevelsInitialized(true);
+      }
+      // Seed excludedCompanies from settings; if empty, try to auto-detect
+      // the current employer from the resume and persist it so it sticks.
+      if (!excludeInitialized) {
+        const saved = d.settings.excludedCompanies ?? [];
+        const detected = detectCurrentCompany(d.settings.baseResumeText ?? null);
+        setAutoDetected(detected);
+        if (saved.length > 0) {
+          setExcludedCompanies(saved);
+        } else if (detected) {
+          setExcludedCompanies([detected]);
+          // Fire-and-forget persist so reloads remember the choice.
+          fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ excludedCompanies: [detected] }),
+          }).catch(() => {});
+        }
+        setExcludeInitialized(true);
+      }
     }).catch(() => {});
-  }, [loadListings]);
+  }, [loadListings, levelsInitialized, excludeInitialized]);
 
-  // Filter to relevant roles using user preferences (or fallback to EM patterns)
-  const listings = useMemo(
-    () => filterByUserPreferences(allListings, prefs.preferredRoles ?? []),
-    [allListings, prefs.preferredRoles]
+  // Persist excludedCompanies whenever the user edits the list.
+  const saveExcludedCompanies = useCallback((next: string[]) => {
+    setExcludedCompanies(next);
+    fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ excludedCompanies: next }),
+    }).catch(() => {});
+  }, []);
+
+  // Full unique list of companies across all fetched listings, for
+  // autocomplete in the ExcludedCompaniesBar. Needs to be a top-level
+  // memo (not inline inside JSX) to keep hook order stable across renders.
+  const allCompanyNames = useMemo(
+    () => [...new Set(allListings.map((l) => l.company))].sort(),
+    [allListings],
   );
+
+  // Expand excluded canonical names to full alias sets (Amazon → Amazon+AWS+...).
+  const excludedAliases = useMemo(() => {
+    const set = new Set<string>();
+    for (const name of excludedCompanies) {
+      for (const a of getCompanyAliases(name)) set.add(a);
+    }
+    return Array.from(set);
+  }, [excludedCompanies]);
+
+  // Filter to relevant roles using user preferences (or fallback to EM
+  // patterns), then drop anything from excluded employers.
+  const listings = useMemo(() => {
+    const roleMatched = filterByUserPreferences(allListings, prefs.preferredRoles ?? []);
+    if (excludedAliases.length === 0) return roleMatched;
+    return roleMatched.filter((l) => !isExcludedCompany(l.company, excludedAliases));
+  }, [allListings, prefs.preferredRoles, excludedAliases]);
+
+  // Count of listings hidden by the current-employer filter, for a small
+  // info banner so the user understands what's being excluded.
+  const excludedByEmployerCount = useMemo(() => {
+    if (excludedAliases.length === 0) return 0;
+    const roleMatched = filterByUserPreferences(allListings, prefs.preferredRoles ?? []);
+    return roleMatched.filter((l) => isExcludedCompany(l.company, excludedAliases)).length;
+  }, [allListings, prefs.preferredRoles, excludedAliases]);
 
   // Auto-score all matching listings in background batches
   useEffect(() => {
@@ -286,9 +375,12 @@ export default function ListingsPage() {
               }
               return next;
             });
-            scored += Object.keys(data.scores).length;
-            setScoringProgress({ scored, total: listings.length });
           }
+          // Advance by the full chunk size — including any listings that
+          // couldn't be scored — so the progress bar never stalls on
+          // custom-ATS listings whose detail endpoints aren't available.
+          scored += chunk.length;
+          setScoringProgress({ scored, total: listings.length });
         } catch { break; }
       }
       setScoringProgress(null);
@@ -344,6 +436,28 @@ export default function ListingsPage() {
     if (selectedDepartment !== 'all') {
       result = result.filter((l) => l.department === selectedDepartment);
     }
+    // Salary filter — keep listings missing salary data unless salaryOnly is on.
+    if (minSalary != null || maxSalary != null || salaryOnly) {
+      result = result.filter((l) => {
+        const hasSalary = l.salaryMin != null || l.salaryMax != null;
+        if (!hasSalary) return !salaryOnly;
+        // Listing's max should be >= user's min (if set)
+        if (minSalary != null) {
+          const top = l.salaryMax ?? l.salaryMin ?? 0;
+          if (top < minSalary) return false;
+        }
+        // Listing's min should be <= user's max (if set)
+        if (maxSalary != null) {
+          const bottom = l.salaryMin ?? l.salaryMax ?? 0;
+          if (bottom > maxSalary) return false;
+        }
+        return true;
+      });
+    }
+    // Level filter
+    if (selectedLevels.length > 0) {
+      result = result.filter((l) => matchesLevelPreference(l.title, selectedLevels));
+    }
     // Sort by score (highest first), then by date
     result = [...result].sort((a, b) => {
       const sa = scoreCache[a.id]?.overall ?? -1;
@@ -352,7 +466,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode]);
+  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -364,7 +478,7 @@ export default function ListingsPage() {
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment]);
+  useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
 
   if (loading && allListings.length === 0) {
     return (
@@ -400,6 +514,7 @@ export default function ListingsPage() {
 
   return (
     <div className="p-8">
+      <PageHeaderNav current="Job Listings" />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -420,6 +535,15 @@ export default function ListingsPage() {
           {refreshing ? 'Refreshing...' : 'Refresh All'}
         </button>
       </div>
+
+      {/* Excluded-companies editor (seeded from resume auto-detection). */}
+      <ExcludedCompaniesBar
+        excluded={excludedCompanies}
+        onChange={saveExcludedCompanies}
+        autoDetected={autoDetected}
+        hiddenCount={excludedByEmployerCount}
+        allCompanies={allCompanyNames}
+      />
 
       {/* Scoring progress */}
       {scoringProgress && (
@@ -552,7 +676,8 @@ export default function ListingsPage() {
         </div>
 
         {showFilters && (
-          <div className="grid grid-cols-2 gap-3 p-4 bg-white border border-gray-200 rounded-lg">
+          <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+            <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
               <select
@@ -562,13 +687,19 @@ export default function ListingsPage() {
               >
                 <option value="all">All Companies ({companies.length})</option>
                 {companies.map((c) => {
-                  // Count reflects the active location preset so it matches what you'd
-                  // actually see when you pick this company.
-                  const visibleCount = listings.filter((l) =>
-                    l.company === c &&
-                    (locationPreset === 'all' || locationMatcher(l.location))
-                  ).length;
+                  // Count reflects ALL active filters (except company itself) so the
+                  // number shown matches what the user actually sees after selecting.
+                  const visibleCount = listings.filter((l) => {
+                    if (l.company !== c) return false;
+                    if (!showFlagged && flags[l.id]) return false;
+                    if (locationPreset === 'wa-remote' && !locationMatcher(l.location)) return false;
+                    if (prefs.workMode && prefs.workMode.length > 0 && !matchesWorkMode(l.location, prefs.workMode)) return false;
+                    return true;
+                  }).length;
                   const totalCount = listings.filter((l) => l.company === c).length;
+                  // Always show the company in the dropdown; when filters hide all
+                  // of its jobs we still list it (with "0 here / N total") so the
+                  // user can see we searched it.
                   const label = visibleCount === totalCount
                     ? `${c} (${totalCount})`
                     : `${c} (${visibleCount} here / ${totalCount} total)`;
@@ -590,6 +721,106 @@ export default function ListingsPage() {
                   <option key={d} value={d}>{d}</option>
                 ))}
               </select>
+            </div>
+            </div>
+
+            {/* Salary range */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-gray-500">
+                  <DollarSign className="w-3 h-3 inline -mt-0.5" /> Salary Range (annual, USD)
+                </label>
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={salaryOnly}
+                    onChange={(e) => setSalaryOnly(e.target.checked)}
+                    className="rounded"
+                  />
+                  Only show jobs with salary info
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Min $</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="5000"
+                    value={minSalary ?? ''}
+                    onChange={(e) => setMinSalary(e.target.value ? Number(e.target.value) : null)}
+                    placeholder="e.g. 200000"
+                    className="w-full pl-12 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Max $</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="5000"
+                    value={maxSalary ?? ''}
+                    onChange={(e) => setMaxSalary(e.target.value ? Number(e.target.value) : null)}
+                    placeholder="e.g. 450000"
+                    className="w-full pl-12 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+              {(minSalary != null || maxSalary != null) && (
+                <button
+                  onClick={() => { setMinSalary(null); setMaxSalary(null); }}
+                  className="mt-1 text-xs text-blue-600 hover:text-blue-700"
+                >
+                  Clear salary filter
+                </button>
+              )}
+            </div>
+
+            {/* Level tier multi-select */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-gray-500">
+                  Desired Level
+                </label>
+                {selectedLevels.length > 0 && (
+                  <button
+                    onClick={() => setSelectedLevels([])}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {LEVEL_TIERS.map((tier) => {
+                  const selected = selectedLevels.includes(tier.key);
+                  return (
+                    <button
+                      key={tier.key}
+                      onClick={() => {
+                        setSelectedLevels((prev) =>
+                          prev.includes(tier.key)
+                            ? prev.filter((k) => k !== tier.key)
+                            : [...prev, tier.key],
+                        );
+                      }}
+                      title={tier.examples}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                        selected
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {tier.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedLevels.length > 0 && (
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Showing listings matching any selected level. Titles with no clear level signal are included.
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -1210,6 +1441,124 @@ function ListingCard({
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Excluded Companies Editor ──────────────────────────────────────
+// Lets the user curate which companies are hidden from the listings page.
+// Auto-seeded from resume detection; changes persist to settings.
+
+function ExcludedCompaniesBar({
+  excluded,
+  onChange,
+  autoDetected,
+  hiddenCount,
+  allCompanies,
+}: {
+  excluded: string[];
+  onChange: (next: string[]) => void;
+  autoDetected: string | null;
+  hiddenCount: number;
+  allCompanies: string[];
+}) {
+  const [input, setInput] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const suggestions = useMemo(() => {
+    const q = input.trim().toLowerCase();
+    if (!q) return [];
+    return allCompanies
+      .filter((c) => c.toLowerCase().includes(q) && !excluded.some((e) => e.toLowerCase() === c.toLowerCase()))
+      .slice(0, 6);
+  }, [input, allCompanies, excluded]);
+
+  function add(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (excluded.some((e) => e.toLowerCase() === trimmed.toLowerCase())) return;
+    onChange([...excluded, trimmed]);
+    setInput('');
+    setShowSuggestions(false);
+  }
+  function remove(name: string) {
+    onChange(excluded.filter((e) => e.toLowerCase() !== name.toLowerCase()));
+  }
+
+  return (
+    <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <EyeOff className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+        <span className="text-xs font-medium text-gray-600 shrink-0">
+          Excluded companies
+          {hiddenCount > 0 && (
+            <span className="text-gray-400 font-normal"> · hiding {hiddenCount}</span>
+          )}
+          :
+        </span>
+        {excluded.length === 0 && (
+          <span className="text-xs text-gray-400 italic">
+            {autoDetected ? `None — detected ${autoDetected}` : 'None'}
+          </span>
+        )}
+        {excluded.map((name) => (
+          <span
+            key={name}
+            className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-gray-300 rounded-full text-xs text-gray-700"
+          >
+            {name}
+            {autoDetected && name.toLowerCase() === autoDetected.toLowerCase() && (
+              <span className="text-[10px] text-gray-400">(auto)</span>
+            )}
+            <button
+              type="button"
+              onClick={() => remove(name)}
+              className="text-gray-400 hover:text-red-500"
+              aria-label={`Remove ${name}`}
+            >
+              <XCircle className="w-3 h-3" />
+            </button>
+          </span>
+        ))}
+        <div className="relative flex-1 min-w-[160px]">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                if (suggestions.length > 0) add(suggestions[0]);
+                else if (input.trim()) add(input);
+              }
+            }}
+            placeholder="Add company to hide…"
+            className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          />
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    add(s);
+                  }}
+                  className="block w-full text-left px-2 py-1 text-xs text-gray-700 hover:bg-blue-50"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
+import { LEVEL_TIERS } from '@/lib/types';
+import { PageHeaderNav } from '@/components/layout/page-header-nav';
+import { LocationAutocomplete } from '@/components/location-autocomplete';
 
 const WORK_MODES: { key: WorkMode; label: string }[] = [
   { key: 'remote', label: 'Remote' },
@@ -22,11 +25,19 @@ export default function SettingsPage() {
   // Preferences
   const [preferredRoles, setPreferredRoles] = useState<string[]>([]);
   const [customRole, setCustomRole] = useState('');
+  const [preferredLevels, setPreferredLevels] = useState<string[]>([]);
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
-  const [customLocation, setCustomLocation] = useState('');
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
+  const [salaryBaseMin, setSalaryBaseMin] = useState('');
+  const [salaryBaseMax, setSalaryBaseMax] = useState('');
+  const [salaryBonusMin, setSalaryBonusMin] = useState('');
+  const [salaryBonusMax, setSalaryBonusMax] = useState('');
+  const [salaryEquityMin, setSalaryEquityMin] = useState('');
+  const [salaryEquityMax, setSalaryEquityMax] = useState('');
+  const [salarySkipped, setSalarySkipped] = useState(false);
+  const [showSalaryBreakdown, setShowSalaryBreakdown] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings')
@@ -39,10 +50,19 @@ export default function SettingsPage() {
         }
         setUserName(s.userName || '');
         setPreferredRoles(s.preferredRoles || []);
+        setPreferredLevels(s.preferredLevels || []);
         setPreferredLocations(s.preferredLocations || []);
         setWorkMode(s.workMode || []);
         setSalaryMin(s.salaryMin ? String(s.salaryMin) : '');
         setSalaryMax(s.salaryMax ? String(s.salaryMax) : '');
+        setSalaryBaseMin(s.salaryBaseMin ? String(s.salaryBaseMin) : '');
+        setSalaryBaseMax(s.salaryBaseMax ? String(s.salaryBaseMax) : '');
+        setSalaryBonusMin(s.salaryBonusMin ? String(s.salaryBonusMin) : '');
+        setSalaryBonusMax(s.salaryBonusMax ? String(s.salaryBonusMax) : '');
+        setSalaryEquityMin(s.salaryEquityMin ? String(s.salaryEquityMin) : '');
+        setSalaryEquityMax(s.salaryEquityMax ? String(s.salaryEquityMax) : '');
+        setSalarySkipped(!!s.salarySkipped);
+        setShowSalaryBreakdown(Boolean(s.salaryBaseMin || s.salaryBonusMin || s.salaryEquityMin || s.salaryBaseMax || s.salaryBonusMax || s.salaryEquityMax));
       });
     fetch('/api/resume')
       .then((r) => r.json())
@@ -59,10 +79,18 @@ export default function SettingsPage() {
     formData.append('file', file);
     try {
       const res = await fetch('/api/resume', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setResumeFileName(data.fileName);
-      setResumeText(data.text);
+      const raw = await res.text();
+      let data: { fileName?: string; text?: string; error?: string; details?: string } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(
+          `Server returned an unexpected response (HTTP ${res.status}). ${raw.slice(0, 200)}`
+        );
+      }
+      if (!res.ok) throw new Error(data.error || `Upload failed (HTTP ${res.status})`);
+      setResumeFileName(data.fileName || null);
+      setResumeText(data.text || '');
       setMessage({ type: 'success', text: 'Resume uploaded and parsed successfully!' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed' });
@@ -101,13 +129,6 @@ export default function SettingsPage() {
     setPreferredRoles((prev) => prev.filter((r) => r !== role));
   }
 
-  function addLocation() {
-    const trimmed = customLocation.trim();
-    if (trimmed && !preferredLocations.includes(trimmed)) {
-      setPreferredLocations((prev) => [...prev, trimmed]);
-      setCustomLocation('');
-    }
-  }
 
   function removeLocation(loc: string) {
     setPreferredLocations((prev) => prev.filter((l) => l !== loc));
@@ -116,6 +137,12 @@ export default function SettingsPage() {
   function toggleWorkMode(mode: WorkMode) {
     setWorkMode((prev) =>
       prev.includes(mode) ? prev.filter((m) => m !== mode) : [...prev, mode]
+    );
+  }
+
+  function toggleLevel(key: string) {
+    setPreferredLevels((prev) =>
+      prev.includes(key) ? prev.filter((l) => l !== key) : [...prev, key]
     );
   }
 
@@ -129,10 +156,18 @@ export default function SettingsPage() {
         body: JSON.stringify({
           userName,
           preferredRoles,
+          preferredLevels,
           preferredLocations,
           workMode,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
+          salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
+          salaryBaseMax: salaryBaseMax ? Number(salaryBaseMax) : null,
+          salaryBonusMin: salaryBonusMin ? Number(salaryBonusMin) : null,
+          salaryBonusMax: salaryBonusMax ? Number(salaryBonusMax) : null,
+          salaryEquityMin: salaryEquityMin ? Number(salaryEquityMin) : null,
+          salaryEquityMax: salaryEquityMax ? Number(salaryEquityMax) : null,
+          salarySkipped,
         }),
       });
       setMessage({ type: 'success', text: 'Settings saved!' });
@@ -146,6 +181,7 @@ export default function SettingsPage() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
+      <PageHeaderNav current="Settings" />
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <button
@@ -222,6 +258,38 @@ export default function SettingsPage() {
             Add
           </button>
         </div>
+
+        {/* Desired levels */}
+        <div className="mt-6 pt-5 border-t border-gray-100">
+          <label className="block text-xs font-medium text-gray-500 mb-1.5">
+            Desired Level{preferredLevels.length > 0 && ` (${preferredLevels.length} selected)`}
+          </label>
+          <p className="text-xs text-gray-400 mb-3">
+            Optional. Listings will be scored higher if they match these seniority tiers.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {LEVEL_TIERS.map((tier) => {
+              const on = preferredLevels.includes(tier.key);
+              return (
+                <button
+                  key={tier.key}
+                  type="button"
+                  onClick={() => toggleLevel(tier.key)}
+                  className={`text-left p-3 rounded-lg border transition-colors ${
+                    on
+                      ? 'border-blue-600 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                  }`}
+                >
+                  <div className={`text-sm font-semibold ${on ? 'text-blue-700' : 'text-gray-900'}`}>
+                    {tier.label}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">{tier.examples}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* Preferred Locations + Work Mode */}
@@ -260,44 +328,112 @@ export default function SettingsPage() {
             </span>
           ))}
         </div>
-        <div className="flex gap-2">
-          <input type="text" value={customLocation} onChange={(e) => setCustomLocation(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addLocation()}
-            placeholder="Add a location (e.g., Seattle, WA)..."
-            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-          <button type="button" onClick={addLocation} disabled={!customLocation.trim()}
-            className="px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-40">
-            Add
-          </button>
-        </div>
+        <LocationAutocomplete
+          existing={preferredLocations}
+          onSelect={(loc) => {
+            if (!preferredLocations.includes(loc)) {
+              setPreferredLocations((prev) => [...prev, loc]);
+            }
+          }}
+        />
       </section>
 
-      {/* Salary Range */}
+      {/* Salary Range (optional) */}
       <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <DollarSign className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Salary Range</h2>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Minimum (annual)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-              <input type="number" value={salaryMin} onChange={(e) => setSalaryMin(e.target.value)}
-                placeholder="200000"
-                className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <DollarSign className="w-5 h-5 text-gray-500" />
+            <h2 className="text-lg font-semibold text-gray-900">Salary Range (optional)</h2>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Maximum (annual)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-              <input type="number" value={salaryMax} onChange={(e) => setSalaryMax(e.target.value)}
-                placeholder="350000"
-                className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-            </div>
-          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={salarySkipped}
+              onChange={(e) => {
+                setSalarySkipped(e.target.checked);
+                if (e.target.checked) {
+                  setSalaryMin('');
+                  setSalaryMax('');
+                  setSalaryBaseMin('');
+                  setSalaryBaseMax('');
+                  setSalaryBonusMin('');
+                  setSalaryBonusMax('');
+                  setSalaryEquityMin('');
+                  setSalaryEquityMax('');
+                }
+              }}
+            />
+            Skip salary preferences
+          </label>
         </div>
+
+        {!salarySkipped && (
+          <>
+            <p className="text-xs text-gray-500 mb-3">
+              Enter only a minimum, only a maximum, or both &mdash; all optional.
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Min total comp (annual)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input type="number" value={salaryMin} onChange={(e) => setSalaryMin(e.target.value)}
+                    placeholder="200000"
+                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Max total comp (annual)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input type="number" value={salaryMax} onChange={(e) => setSalaryMax(e.target.value)}
+                    placeholder="350000"
+                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowSalaryBreakdown((v) => !v)}
+              className="mt-4 text-xs font-medium text-blue-600 hover:text-blue-700"
+            >
+              {showSalaryBreakdown ? '− Hide breakdown' : '+ Show breakdown (base, bonus, equity)'}
+            </button>
+
+            {showSalaryBreakdown && (
+              <div className="mt-4 space-y-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                {[
+                  { label: 'Base salary', min: salaryBaseMin, max: salaryBaseMax, setMin: setSalaryBaseMin, setMax: setSalaryBaseMax, ph: '180000' },
+                  { label: 'Annual bonus', min: salaryBonusMin, max: salaryBonusMax, setMin: setSalaryBonusMin, setMax: setSalaryBonusMax, ph: '30000' },
+                  { label: 'Equity / RSUs (annualized)', min: salaryEquityMin, max: salaryEquityMax, setMin: setSalaryEquityMin, setMax: setSalaryEquityMax, ph: '100000' },
+                ].map((row) => (
+                  <div key={row.label} className="grid grid-cols-[160px_1fr_1fr] items-center gap-2">
+                    <label className="text-xs text-gray-600">{row.label}</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input type="number" value={row.min} onChange={(e) => row.setMin(e.target.value)}
+                        placeholder={`min ${row.ph}`}
+                        className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <input type="number" value={row.max} onChange={(e) => row.setMax(e.target.value)}
+                        placeholder={`max ${row.ph}`}
+                        className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {salarySkipped && (
+          <p className="text-xs text-gray-400 italic">
+            Salary preferences are set to skip. Uncheck above to set a target range.
+          </p>
+        )}
       </section>
 
       {/* Resume Upload */}

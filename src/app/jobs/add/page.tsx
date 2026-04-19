@@ -7,6 +7,7 @@ import {
   Download, AlertTriangle, ArrowUpRight,
 } from 'lucide-react';
 import { PORTALS, type JobPortal } from '@/lib/types';
+import { PageHeaderNav } from '@/components/layout/page-header-nav';
 
 type Tab = 'url' | 'manual';
 
@@ -281,6 +282,7 @@ export default function AddJobPage() {
   if (savedJobId) {
     return (
       <div className="p-8 max-w-4xl mx-auto">
+        <PageHeaderNav current="Add Job" />
         {/* Success banner */}
         <div className="mb-6 p-4 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm flex items-center gap-3">
           <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
@@ -499,6 +501,7 @@ export default function AddJobPage() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
+      <PageHeaderNav current="Add Job" />
       <h1 className="text-2xl font-bold text-gray-900 mb-8">Add Job</h1>
 
       {error && (

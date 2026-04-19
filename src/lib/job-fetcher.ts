@@ -1,6 +1,15 @@
 import type { CompanySource, JobListing, JobListingDetail } from './types';
 import { extractSalary } from './salary-parser';
 import { unescapeHtml } from './html-utils';
+import {
+  fetchGoogleJobs,
+  fetchAppleJobs,
+  fetchMicrosoftJobs,
+  fetchAmazonJobs,
+  fetchMetaJobs,
+  fetchUberJobs,
+  fetchWorkdayJobs,
+} from './custom-fetchers';
 
 // =========================================================
 // Greenhouse Board API
@@ -188,13 +197,30 @@ export interface FetchResult {
   errors: { company: string; error: string }[];
 }
 
+/**
+ * Pick the right fetcher for a given company source. Covers the three
+ * public ATSs (Greenhouse/Lever/Ashby) plus every custom careers API
+ * we've implemented.
+ */
+function pickFetcher(source: CompanySource): (s: CompanySource) => Promise<JobListing[]> {
+  switch (source.ats) {
+    case 'greenhouse': return fetchGreenhouseJobs;
+    case 'lever':      return fetchLeverJobs;
+    case 'ashby':      return fetchAshbyJobs;
+    case 'google':     return fetchGoogleJobs;
+    case 'apple':      return fetchAppleJobs;
+    case 'microsoft':  return fetchMicrosoftJobs;
+    case 'amazon':     return fetchAmazonJobs;
+    case 'meta':       return fetchMetaJobs;
+    case 'uber':       return fetchUberJobs;
+    case 'workday':    return fetchWorkdayJobs;
+  }
+}
+
 export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResult> {
   const results = await Promise.allSettled(
     sources.map(async (source) => {
-      let fetcher: (s: CompanySource) => Promise<JobListing[]>;
-      if (source.ats === 'greenhouse') fetcher = fetchGreenhouseJobs;
-      else if (source.ats === 'lever') fetcher = fetchLeverJobs;
-      else fetcher = fetchAshbyJobs;
+      const fetcher = pickFetcher(source);
       const jobs = await fetcher(source);
       return { source, jobs };
     })
@@ -308,7 +334,26 @@ export async function fetchJobDetail(
     };
   }
 
-  return null;
+  // Custom ATSs (google, apple, microsoft, amazon, meta, uber, workday):
+  // we don't have a cheap single-job detail endpoint for these, so fall back
+  // to a synthetic detail built from the listing's title/department/location.
+  // This is enough signal for the ATS keyword scorer to produce a reasonable
+  // match percentage — it's not as rich as a full JD but avoids these listings
+  // showing "no score" forever (which would leave the progress bar stuck).
+  const syntheticContent = [
+    listing.title,
+    listing.department,
+    listing.location,
+    listing.company,
+  ]
+    .filter(Boolean)
+    .join(' — ');
+  return {
+    ...listing,
+    content: syntheticContent,
+    qualifications: [],
+    responsibilities: [],
+  };
 }
 
 // =========================================================

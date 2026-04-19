@@ -24,16 +24,59 @@ export interface Settings {
 
   // ─── User preferences (set during onboarding) ───
   preferredRoles: string[];           // e.g. ["Engineering Manager", "Software Dev Manager"]
+  preferredLevels: string[];          // e.g. ["L6 / EM / Senior Manager", "L5 / Senior SDE"]
   preferredLocations: string[];       // e.g. ["Seattle, WA", "San Francisco, CA"]
   workMode: WorkMode[];               // multi-select
-  salaryMin: number | null;           // annual, e.g. 200000
-  salaryMax: number | null;           // annual, e.g. 350000
+  salaryMin: number | null;           // annual total comp min, e.g. 200000
+  salaryMax: number | null;           // annual total comp max, e.g. 350000
+  salaryBaseMin: number | null;       // base salary min (optional breakdown)
+  salaryBaseMax: number | null;       // base salary max
+  salaryBonusMin: number | null;      // target bonus min (annual)
+  salaryBonusMax: number | null;      // target bonus max
+  salaryEquityMin: number | null;     // RSU / stock grant annualized min
+  salaryEquityMax: number | null;     // RSU / stock grant annualized max
+  salarySkipped: boolean;             // user chose to skip salary step
   onboardingComplete: boolean;        // gate for landing page
+
+  // ─── Employer filters ───
+  // Companies to hide from listings (the user's current/previous employers
+  // they don't want to see). Stored as canonical brand names (e.g. "Amazon",
+  // "Google") — siblings are expanded at filter time via COMPANY_ALIAS_GROUPS.
+  excludedCompanies?: string[];
 }
+
+/**
+ * Cross-company level ladder. Each entry groups roughly-equivalent titles
+ * across tech companies so the user can express level preferences without
+ * picking a specific firm's ladder.
+ */
+export const LEVEL_TIERS: { key: string; label: string; examples: string }[] = [
+  { key: 'entry',      label: 'Entry / New Grad',       examples: 'SDE1 · L3 · E3 · Associate' },
+  { key: 'mid',        label: 'Mid-level',              examples: 'SDE2 · L4 · E4 · Engineer II · PM' },
+  { key: 'senior',     label: 'Senior',                 examples: 'Senior SDE · L5 · E5 · Senior PM' },
+  { key: 'staff',      label: 'Staff / Principal IC',   examples: 'Staff · Principal · L6/L7 · E6/E7' },
+  { key: 'distinguished', label: 'Distinguished / Sr. Principal', examples: 'Sr. Principal · L8 · Distinguished' },
+  { key: 'em1',        label: 'Manager / EM1',          examples: 'Manager · EM1 · L6 Mgr · M1' },
+  { key: 'em2',        label: 'Sr. Manager / EM2',      examples: 'Sr. Manager · EM2 · L7 Mgr · M2' },
+  { key: 'director',   label: 'Director',               examples: 'Director · L8 · D1' },
+  { key: 'sr-director', label: 'Senior Director',       examples: 'Sr. Director · L9 · D2' },
+  { key: 'vp',         label: 'VP / GM',                examples: 'VP · General Manager · L10' },
+];
 
 // --- Job Listings (auto-fetched from company career pages) ---
 
-export type ATSType = 'greenhouse' | 'lever' | 'ashby';
+export type ATSType =
+  | 'greenhouse'
+  | 'lever'
+  | 'ashby'
+  // Custom per-company APIs (scraped directly from each careers page).
+  | 'google'
+  | 'apple'
+  | 'microsoft'
+  | 'amazon'
+  | 'meta'
+  | 'uber'
+  | 'workday';
 
 export interface CompanySource {
   name: string;
@@ -42,6 +85,11 @@ export interface CompanySource {
   boardToken: string;
   logoColor: string; // for UI badge
   region?: string; // e.g. "Seattle", "SF Bay Area"
+  // Workday-specific configuration.
+  // Host example: "salesforce.wd12.myworkdayjobs.com"
+  // Site example: "External_Career_Site"
+  workdayHost?: string;
+  workdaySite?: string;
 }
 
 export interface JobListing {

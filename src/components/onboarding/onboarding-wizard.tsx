@@ -8,8 +8,18 @@ import {
   CheckCircle2, XCircle, Rocket,
 } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
+import { LEVEL_TIERS } from '@/lib/types';
+import { LocationAutocomplete } from '@/components/location-autocomplete';
 
-const STEPS = ['Role', 'Location', 'Salary', 'Resume', 'Fetch Jobs'] as const;
+const STEPS = ['Role & Level', 'Location', 'Salary', 'Resume', 'Companies', 'Fetch Jobs'] as const;
+
+// Step indices (keep in sync with STEPS order above).
+const STEP_ROLE = 0;
+const STEP_LOCATION = 1;
+const STEP_SALARY = 2;
+const STEP_RESUME = 3;
+const STEP_COMPANIES = 4;
+const STEP_FETCH = 5;
 
 const SUGGESTED_ROLES = [
   // Engineering Management
@@ -88,11 +98,25 @@ export default function OnboardingWizard() {
   const [userName, setUserName] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
   const [customRole, setCustomRole] = useState('');
+  const [levels, setLevels] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
-  const [customLocation, setCustomLocation] = useState('');
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
+  const [salaryBaseMin, setSalaryBaseMin] = useState('');
+  const [salaryBaseMax, setSalaryBaseMax] = useState('');
+  const [salaryBonusMin, setSalaryBonusMin] = useState('');
+  const [salaryBonusMax, setSalaryBonusMax] = useState('');
+  const [salaryEquityMin, setSalaryEquityMin] = useState('');
+  const [salaryEquityMax, setSalaryEquityMax] = useState('');
+  const [salarySkipped, setSalarySkipped] = useState(false);
+  const [showSalaryBreakdown, setShowSalaryBreakdown] = useState(false);
+
+  // Prospective companies (step 4 preview)
+  const [companyPreview, setCompanyPreview] = useState<
+    { name: string; region?: string; ats: string }[] | null
+  >(null);
+  const [companyPreviewLoading, setCompanyPreviewLoading] = useState(false);
 
   // Resume
   const [resumeFile, setResumeFile] = useState<string | null>(null);
@@ -121,10 +145,18 @@ export default function OnboardingWizard() {
         const s = data.settings;
         if (s.userName) setUserName(s.userName);
         if (s.preferredRoles?.length) setRoles(s.preferredRoles);
+        if (s.preferredLevels?.length) setLevels(s.preferredLevels);
         if (s.preferredLocations?.length) setLocations(s.preferredLocations);
         if (s.workMode?.length) setWorkMode(s.workMode);
         if (s.salaryMin) setSalaryMin(String(s.salaryMin));
         if (s.salaryMax) setSalaryMax(String(s.salaryMax));
+        if (s.salaryBaseMin) setSalaryBaseMin(String(s.salaryBaseMin));
+        if (s.salaryBaseMax) setSalaryBaseMax(String(s.salaryBaseMax));
+        if (s.salaryBonusMin) setSalaryBonusMin(String(s.salaryBonusMin));
+        if (s.salaryBonusMax) setSalaryBonusMax(String(s.salaryBonusMax));
+        if (s.salaryEquityMin) setSalaryEquityMin(String(s.salaryEquityMin));
+        if (s.salaryEquityMax) setSalaryEquityMax(String(s.salaryEquityMax));
+        if (s.salarySkipped) setSalarySkipped(true);
       })
       .catch(() => {});
     fetch('/api/resume')
@@ -161,18 +193,29 @@ export default function OnboardingWizard() {
     );
   }
 
-  function addCustomLocation() {
-    const trimmed = customLocation.trim();
-    if (trimmed && !locations.includes(trimmed)) {
-      setLocations((prev) => [...prev, trimmed]);
-      setCustomLocation('');
-    }
-  }
-
   function toggleWorkMode(mode: WorkMode) {
     setWorkMode((prev) =>
       prev.includes(mode) ? prev.filter((m) => m !== mode) : [...prev, mode]
     );
+  }
+
+  function toggleLevel(key: string) {
+    setLevels((prev) =>
+      prev.includes(key) ? prev.filter((l) => l !== key) : [...prev, key]
+    );
+  }
+
+  function skipSalary() {
+    setSalaryMin('');
+    setSalaryMax('');
+    setSalaryBaseMin('');
+    setSalaryBaseMax('');
+    setSalaryBonusMin('');
+    setSalaryBonusMax('');
+    setSalaryEquityMin('');
+    setSalaryEquityMax('');
+    setSalarySkipped(true);
+    setStep((s) => s + 1);
   }
 
   const uploadFile = useCallback(async (file: File) => {
@@ -182,10 +225,18 @@ export default function OnboardingWizard() {
     formData.append('file', file);
     try {
       const res = await fetch('/api/resume', { method: 'POST', body: formData });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setResumeFile(data.fileName);
-      setResumeText(data.text);
+      const raw = await res.text();
+      let data: { fileName?: string; text?: string; error?: string; details?: string } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(
+          `Server returned an unexpected response (HTTP ${res.status}). ${raw.slice(0, 200)}`
+        );
+      }
+      if (!res.ok) throw new Error(data.error || `Upload failed (HTTP ${res.status})`);
+      setResumeFile(data.fileName || null);
+      setResumeText(data.text || '');
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
@@ -211,8 +262,8 @@ export default function OnboardingWizard() {
     [uploadFile]
   );
 
-  // Save preferences and move to the fetch step
-  async function handleSaveAndFetch() {
+  // Save preferences and move to the companies preview step.
+  async function handleSaveAndPreview() {
     setSaving(true);
     try {
       await fetch('/api/settings', {
@@ -221,16 +272,35 @@ export default function OnboardingWizard() {
         body: JSON.stringify({
           userName,
           preferredRoles: roles,
+          preferredLevels: levels,
           preferredLocations: locations,
           workMode,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
+          salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
+          salaryBaseMax: salaryBaseMax ? Number(salaryBaseMax) : null,
+          salaryBonusMin: salaryBonusMin ? Number(salaryBonusMin) : null,
+          salaryBonusMax: salaryBonusMax ? Number(salaryBonusMax) : null,
+          salaryEquityMin: salaryEquityMin ? Number(salaryEquityMin) : null,
+          salaryEquityMax: salaryEquityMax ? Number(salaryEquityMax) : null,
+          salarySkipped,
           onboardingComplete: true,
         }),
       });
-      // Move to step 4 (Fetch Jobs)
-      setStep(4);
-    } catch {
+      // Fetch the list of prospective companies to preview
+      setCompanyPreviewLoading(true);
+      try {
+        const res = await fetch('/api/companies/preview');
+        const raw = await res.text();
+        const data = raw ? JSON.parse(raw) : {};
+        setCompanyPreview(data.companies || []);
+      } catch {
+        setCompanyPreview([]);
+      } finally {
+        setCompanyPreviewLoading(false);
+      }
+      setStep(STEP_COMPANIES);
+    } finally {
       setSaving(false);
     }
   }
@@ -294,17 +364,17 @@ export default function OnboardingWizard() {
     };
   }
 
-  // Auto-start fetch when reaching step 4
+  // Auto-start fetch when reaching the Fetch step
   useEffect(() => {
-    if (step === 4 && fetchState.phase === 'idle') {
+    if (step === STEP_FETCH && fetchState.phase === 'idle') {
       startFetch();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   const canProceed = () => {
-    if (step === 0) return roles.length > 0;
-    if (step === 1) return locations.length > 0 || workMode.length > 0;
+    if (step === STEP_ROLE) return roles.length > 0;
+    if (step === STEP_LOCATION) return locations.length > 0 || workMode.length > 0;
     return true; // salary & resume are optional
   };
 
@@ -322,9 +392,11 @@ export default function OnboardingWizard() {
             <h1 className="text-3xl font-bold text-gray-900">Job App Assistant</h1>
           </div>
           <p className="text-gray-500">
-            {step < 4
+            {step < STEP_COMPANIES
               ? "Let\u2019s set up your preferences to find the best jobs for you."
-              : 'Finding jobs that match your criteria...'}
+              : step === STEP_COMPANIES
+                ? 'Here are the companies we\u2019ll search based on your preferences.'
+                : 'Finding jobs that match your criteria...'}
           </p>
         </div>
 
@@ -342,7 +414,7 @@ export default function OnboardingWizard() {
         </div>
 
         {/* Step label */}
-        {step < 4 && (
+        {step < STEP_FETCH && (
           <div className="flex items-center gap-2 mb-6">
             <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
               Step {step + 1} of {STEPS.length}
@@ -354,7 +426,7 @@ export default function OnboardingWizard() {
         {/* Card */}
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-8">
           {/* ─── Step 0: Role preferences ─── */}
-          {step === 0 && (
+          {step === STEP_ROLE && (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <Briefcase className="w-5 h-5 text-blue-500" />
@@ -440,11 +512,43 @@ export default function OnboardingWizard() {
                     ))}
                 </div>
               )}
+
+              {/* Levels / seniority tier */}
+              <div className="mt-8 pt-6 border-t border-gray-100">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                  Desired Level{levels.length > 0 && ` (${levels.length} selected)`}
+                </label>
+                <p className="text-xs text-gray-400 mb-3">
+                  Optional. Pick the seniority tiers you&apos;d consider. Each tier lists equivalents across major tech companies.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {LEVEL_TIERS.map((tier) => {
+                    const on = levels.includes(tier.key);
+                    return (
+                      <button
+                        key={tier.key}
+                        type="button"
+                        onClick={() => toggleLevel(tier.key)}
+                        className={`text-left p-3 rounded-lg border transition-colors ${
+                          on
+                            ? 'border-blue-600 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className={`text-sm font-semibold ${on ? 'text-blue-700' : 'text-gray-900'}`}>
+                          {tier.label}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">{tier.examples}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
 
           {/* ─── Step 1: Location & work mode ─── */}
-          {step === 1 && (
+          {step === STEP_LOCATION && (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <MapPin className="w-5 h-5 text-blue-500" />
@@ -507,61 +611,94 @@ export default function OnboardingWizard() {
                 </div>
               </div>
 
-              {/* Custom location */}
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={customLocation}
-                  onChange={(e) => setCustomLocation(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addCustomLocation()}
-                  placeholder="Add a custom location..."
-                  className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={addCustomLocation}
-                  disabled={!customLocation.trim()}
-                  className="px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-40"
-                >
-                  Add
-                </button>
-              </div>
+              {/* Custom location with global tech-hub autocomplete */}
+              <LocationAutocomplete
+                existing={locations}
+                onSelect={(loc) => {
+                  if (!locations.includes(loc)) {
+                    setLocations((prev) => [...prev, loc]);
+                  }
+                }}
+              />
+
+              {/* Selected custom locations (non-suggested) — e.g. "Bellevue, WA"
+                  added via the autocomplete. Shown as removable chips so the
+                  user can see that their pick registered. */}
+              {locations.filter((l) => !SUGGESTED_LOCATIONS.includes(l)).length > 0 && (
+                <div className="mt-3">
+                  <label className="block text-xs font-medium text-gray-500 mb-2">
+                    Added locations
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {locations
+                      .filter((l) => !SUGGESTED_LOCATIONS.includes(l))
+                      .map((l) => (
+                        <span
+                          key={l}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium"
+                        >
+                          <MapPin className="w-3 h-3" />
+                          {l}
+                          <button
+                            type="button"
+                            onClick={() => toggleLocation(l)}
+                            className="hover:text-blue-900"
+                            aria-label={`Remove ${l}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* ─── Step 2: Salary ─── */}
-          {step === 2 && (
+          {step === STEP_SALARY && (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <DollarSign className="w-5 h-5 text-blue-500" />
                 <h2 className="text-xl font-semibold text-gray-900">Salary Expectations</h2>
               </div>
               <p className="text-sm text-gray-500 mb-6">
-                Optional. Set your target annual salary range. We&apos;ll highlight jobs that match.
+                Optional. Enter total annual comp (base + bonus + equity), or either a minimum <b>or</b> a maximum.
+                You can also add a breakdown or skip this step entirely.
               </p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Minimum (annual)</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    Min total comp (optional)
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                     <input
                       type="number"
                       value={salaryMin}
-                      onChange={(e) => setSalaryMin(e.target.value)}
+                      onChange={(e) => {
+                        setSalaryMin(e.target.value);
+                        if (e.target.value) setSalarySkipped(false);
+                      }}
                       placeholder="e.g., 200000"
                       className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Maximum (annual)</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                    Max total comp (optional)
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                     <input
                       type="number"
                       value={salaryMax}
-                      onChange={(e) => setSalaryMax(e.target.value)}
+                      onChange={(e) => {
+                        setSalaryMax(e.target.value);
+                        if (e.target.value) setSalarySkipped(false);
+                      }}
                       placeholder="e.g., 350000"
                       className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
                     />
@@ -569,14 +706,65 @@ export default function OnboardingWizard() {
                 </div>
               </div>
 
-              <p className="text-xs text-gray-400 mt-3">
-                You can skip this step if you prefer not to set a salary range.
-              </p>
+              {/* Breakdown toggle */}
+              <button
+                type="button"
+                onClick={() => setShowSalaryBreakdown((v) => !v)}
+                className="mt-4 text-xs font-medium text-blue-600 hover:text-blue-700"
+              >
+                {showSalaryBreakdown ? '− Hide breakdown' : '+ Show breakdown (base, bonus, equity)'}
+              </button>
+
+              {showSalaryBreakdown && (
+                <div className="mt-4 space-y-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                  {[
+                    { label: 'Base salary', min: salaryBaseMin, max: salaryBaseMax, setMin: setSalaryBaseMin, setMax: setSalaryBaseMax, ph: '180000' },
+                    { label: 'Annual bonus', min: salaryBonusMin, max: salaryBonusMax, setMin: setSalaryBonusMin, setMax: setSalaryBonusMax, ph: '30000' },
+                    { label: 'Equity / RSUs (annualized)', min: salaryEquityMin, max: salaryEquityMax, setMin: setSalaryEquityMin, setMax: setSalaryEquityMax, ph: '100000' },
+                  ].map((row) => (
+                    <div key={row.label} className="grid grid-cols-[140px_1fr_1fr] items-center gap-2">
+                      <label className="text-xs text-gray-600">{row.label}</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                        <input
+                          type="number"
+                          value={row.min}
+                          onChange={(e) => {
+                            row.setMin(e.target.value);
+                            if (e.target.value) setSalarySkipped(false);
+                          }}
+                          placeholder={`min ${row.ph}`}
+                          className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                        <input
+                          type="number"
+                          value={row.max}
+                          onChange={(e) => {
+                            row.setMax(e.target.value);
+                            if (e.target.value) setSalarySkipped(false);
+                          }}
+                          placeholder={`max ${row.ph}`}
+                          className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {salarySkipped && (
+                <p className="text-xs text-gray-400 mt-3 italic">
+                  Salary step is currently set to skip. Enter any value above to unset.
+                </p>
+              )}
             </div>
           )}
 
           {/* ─── Step 3: Resume upload ─── */}
-          {step === 3 && (
+          {step === STEP_RESUME && (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <FileText className="w-5 h-5 text-blue-500" />
@@ -637,8 +825,64 @@ export default function OnboardingWizard() {
             </div>
           )}
 
-          {/* ─── Step 4: Fetching Jobs (live progress) ─── */}
-          {step === 4 && (
+          {/* ─── Step 4: Companies Preview ─── */}
+          {step === STEP_COMPANIES && (
+            <div>
+              <div className="flex items-center gap-3 mb-2">
+                <Building2 className="w-5 h-5 text-blue-500" />
+                <h2 className="text-xl font-semibold text-gray-900">Prospective Companies</h2>
+              </div>
+              <p className="text-sm text-gray-500 mb-5">
+                Based on your preferences, we&apos;ll search the career pages of these companies for matching jobs.
+                {locations.length > 0 && (
+                  <> Filtered to: <b>{locations.slice(0, 4).join(', ')}{locations.length > 4 && ` +${locations.length - 4} more`}</b>.</>
+                )}
+              </p>
+
+              {companyPreviewLoading && (
+                <div className="flex items-center gap-3 py-10 justify-center">
+                  <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+                  <span className="text-sm text-gray-500">Identifying prospective companies...</span>
+                </div>
+              )}
+
+              {!companyPreviewLoading && companyPreview && companyPreview.length === 0 && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+                  No companies could be loaded. You can still continue &mdash; we&apos;ll search all available sources.
+                </div>
+              )}
+
+              {!companyPreviewLoading && companyPreview && companyPreview.length > 0 && (
+                <>
+                  <div className="mb-3 text-xs text-gray-500 font-medium">
+                    {companyPreview.length} companies will be searched
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
+                    {companyPreview.map((c) => (
+                      <div
+                        key={c.name}
+                        className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm"
+                      >
+                        <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate font-medium text-gray-800">{c.name}</div>
+                          {c.region && (
+                            <div className="truncate text-xs text-gray-400">{c.region}</div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-4 text-xs text-gray-400">
+                    Next, we&apos;ll scour each company&apos;s career page and collect all jobs matching your role &amp; level preferences.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ─── Step 5: Fetching Jobs (live progress) ─── */}
+          {step === STEP_FETCH && (
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <Globe className="w-5 h-5 text-blue-500" />
@@ -746,11 +990,11 @@ export default function OnboardingWizard() {
 
         {/* Navigation buttons */}
         <div className="flex items-center justify-between mt-6">
-          {step < 4 ? (
+          {step < STEP_FETCH ? (
             <button
               type="button"
               onClick={() => setStep((s) => s - 1)}
-              disabled={step === 0}
+              disabled={step === STEP_ROLE}
               className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-900 disabled:opacity-0"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -760,7 +1004,18 @@ export default function OnboardingWizard() {
             <div />
           )}
 
-          {step < 3 && (
+          {/* Salary step gets a "Skip" in the middle */}
+          {step === STEP_SALARY && (
+            <button
+              type="button"
+              onClick={skipSalary}
+              className="text-sm text-gray-500 hover:text-gray-800 underline underline-offset-2"
+            >
+              Skip this step
+            </button>
+          )}
+
+          {step < STEP_RESUME && (
             <button
               type="button"
               onClick={() => setStep((s) => s + 1)}
@@ -772,22 +1027,33 @@ export default function OnboardingWizard() {
             </button>
           )}
 
-          {step === 3 && (
+          {step === STEP_RESUME && (
             <button
               type="button"
-              onClick={handleSaveAndFetch}
+              onClick={handleSaveAndPreview}
               disabled={saving}
-              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
               {saving ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
               ) : (
-                <><Rocket className="w-4 h-4" /> Find Jobs</>
+                <>Review Companies <ChevronRight className="w-4 h-4" /></>
               )}
             </button>
           )}
 
-          {step === 4 && fetchState.phase === 'done' && (
+          {step === STEP_COMPANIES && (
+            <button
+              type="button"
+              onClick={() => setStep(STEP_FETCH)}
+              disabled={companyPreviewLoading}
+              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              <Rocket className="w-4 h-4" /> Find Jobs
+            </button>
+          )}
+
+          {step === STEP_FETCH && fetchState.phase === 'done' && (
             <button
               type="button"
               onClick={() => router.push('/dashboard')}
@@ -798,7 +1064,7 @@ export default function OnboardingWizard() {
           )}
         </div>
 
-        {step < 4 && (
+        {step < STEP_FETCH && (
           <p className="text-center text-xs text-gray-400 mt-4">
             You can change all preferences later in Settings.
           </p>
