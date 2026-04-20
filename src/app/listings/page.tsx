@@ -17,6 +17,7 @@ import {
   getCompanyAliases,
   isExcludedCompany,
 } from '@/lib/current-company';
+import { isUnscorableAts } from '@/lib/scorable';
 import { PageHeaderNav } from '@/components/layout/page-header-nav';
 
 const ATS_LABELS: Record<string, string> = {
@@ -241,7 +242,17 @@ export default function ListingsPage() {
       const url = refresh ? '/api/listings?refresh=true' : '/api/listings';
       const res = await fetch(url);
       const data = await res.json();
-      setAllListings(data.listings || []);
+      // Defensive dedupe on the client in case the cached DB still contains
+      // duplicate listings from an earlier fetch before the dedupe landed.
+      const raw: JobListing[] = data.listings || [];
+      const seen = new Set<string>();
+      const deduped: JobListing[] = [];
+      for (const l of raw) {
+        if (seen.has(l.id)) continue;
+        seen.add(l.id);
+        deduped.push(l);
+      }
+      setAllListings(deduped);
       setLastFetched(data.lastFetchedAt);
       setFetchErrors(data.fetchErrors || []);
 
@@ -348,7 +359,11 @@ export default function ListingsPage() {
   // Auto-score all matching listings in background batches
   useEffect(() => {
     if (listings.length === 0 || scoringRef.current) return;
-    const unscoredIds = listings.filter(l => !scoreCache[l.id]).map(l => l.id);
+    // Skip ATSs we can't score — their "No score" chip is a truthful terminal
+    // state, not a prompt to retry on every page load.
+    const unscoredIds = listings
+      .filter((l) => !scoreCache[l.id] && !isUnscorableAts(l.ats))
+      .map((l) => l.id);
     if (unscoredIds.length === 0) return;
 
     scoringRef.current = true;
@@ -1200,9 +1215,23 @@ function ListingCard({
               )}
             </div>
 
-            {score ? (
+            {isUnscorableAts(listing.ats) ? (
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200"
+                title="This company's careers API doesn't expose full job descriptions, so we can't score it."
+              >
+                N/A
+              </span>
+            ) : score && score.totalCount > 0 ? (
               <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-sm font-bold border ${scoreColor(score.overall)}`}>
                 {score.overall}%
+              </span>
+            ) : score && score.totalCount === 0 ? (
+              <span
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200"
+                title="No public job description available — we couldn't score this listing."
+              >
+                N/A
               </span>
             ) : (
               <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200">

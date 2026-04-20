@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
+import ResetButton from "@/components/layout/reset-button";
 import { getSettings } from "@/lib/db";
 
 const geistSans = Geist({
@@ -36,7 +37,8 @@ export default async function RootLayout({
     >
       <body className="min-h-screen flex">
         {onboardingDone && <Sidebar />}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto relative">
+          {onboardingDone && <ResetButton />}
           {children}
         </main>
       </body>

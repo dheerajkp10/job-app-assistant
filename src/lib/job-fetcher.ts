@@ -243,7 +243,18 @@ export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResul
     }
   }
 
-  return { listings, errors };
+  // Deduplicate by listing ID — a safety net in case an upstream ATS API
+  // (e.g. Uber's paginated jobs endpoint) hands us the same job twice.
+  // Without this, React throws "Encountered two children with the same key".
+  const seen = new Set<string>();
+  const deduped: JobListing[] = [];
+  for (const l of listings) {
+    if (seen.has(l.id)) continue;
+    seen.add(l.id);
+    deduped.push(l);
+  }
+
+  return { listings: deduped, errors };
 }
 
 // =========================================================
@@ -335,26 +346,16 @@ export async function fetchJobDetail(
   }
 
   // Custom ATSs (google, apple, microsoft, amazon, meta, uber, workday):
-  // we don't have a cheap single-job detail endpoint for these, so fall back
-  // to a synthetic detail built from the listing's title/department/location.
-  // This is enough signal for the ATS keyword scorer to produce a reasonable
-  // match percentage — it's not as rich as a full JD but avoids these listings
-  // showing "no score" forever (which would leave the progress bar stuck).
-  const syntheticContent = [
-    listing.title,
-    listing.department,
-    listing.location,
-    listing.company,
-  ]
-    .filter(Boolean)
-    .join(' — ');
-  return {
-    ...listing,
-    content: syntheticContent,
-    qualifications: [],
-    responsibilities: [],
-  };
+  // we don't have a cheap single-job detail endpoint for these. Return null
+  // rather than inventing synthetic content — a JD built from just the title
+  // has so few keywords that scoring against it produces noise (1/1 → 100%,
+  // 0/0 → 0%). Callers should treat null as "not scorable" and move on.
+  return null;
 }
+
+// Re-export the client-safe predicate from ./scorable so server-side callers
+// that were already importing from this module keep working.
+export { isUnscorableAts } from './scorable';
 
 // =========================================================
 // Section extraction helpers

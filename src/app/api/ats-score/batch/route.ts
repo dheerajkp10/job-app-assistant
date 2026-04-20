@@ -68,7 +68,27 @@ export async function POST(req: NextRequest) {
         if (!listing) { errors.push(`${id}: not found`); return null; }
 
         const detail = await fetchJobDetail(listing);
-        if (!detail) { errors.push(`${id}: could not fetch details`); return null; }
+        if (!detail) {
+          // No public JD available — persist a sentinel (totalCount=0) so we
+          // don't retry forever and so any stale score from an earlier run
+          // (when synthetic content was being scored) gets cleared.
+          errors.push(`${id}: could not fetch details`);
+          const sentinel: ScoreCacheEntry = {
+            listingId: id,
+            overall: 0,
+            technical: 0,
+            management: 0,
+            domain: 0,
+            soft: 0,
+            matchedCount: 0,
+            totalCount: 0,
+            scoredAt: new Date().toISOString(),
+          };
+          // Also surface the sentinel in the response map so the client
+          // overwrites any stale (bogus 100%) entry in its local state.
+          scores[id] = { overall: 0, matchedCount: 0, totalCount: 0 };
+          return sentinel;
+        }
 
         const score = scoreResume(resumeText, detail.content);
 

@@ -32,7 +32,23 @@ export async function POST(req: NextRequest) {
 
   const detail = await fetchJobDetail(listing);
   if (!detail) {
-    return NextResponse.json({ error: 'Could not fetch job details' }, { status: 500 });
+    // Persist a sentinel so the auto-scorer doesn't keep retrying this
+    // listing (and so any stale bogus score from a previous run is cleared).
+    await saveScore({
+      listingId,
+      overall: 0,
+      technical: 0,
+      management: 0,
+      domain: 0,
+      soft: 0,
+      matchedCount: 0,
+      totalCount: 0,
+      scoredAt: new Date().toISOString(),
+    });
+    return NextResponse.json(
+      { error: 'This listing has no public job description — scoring isn\'t available for it.' },
+      { status: 422 }
+    );
   }
 
   // Score

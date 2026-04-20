@@ -518,6 +518,9 @@ interface UberSearchResponse {
 
 export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]> {
   const listings: JobListing[] = [];
+  // Uber's paginated API occasionally returns the same job across pages,
+  // so we track seen job IDs and skip duplicates to avoid React key collisions.
+  const seenIds = new Set<string>();
   const PAGE_SIZE = 100;
   const MAX_PAGES = 10;
 
@@ -551,6 +554,8 @@ export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]
       const jobId = String(job.id ?? '');
       const title = job.title || '';
       if (!title) continue;
+      if (jobId && seenIds.has(jobId)) continue;
+      if (jobId) seenIds.add(jobId);
       const location =
         (job.allLocations && job.allLocations.map((l) => l.name || [l.city, l.region, l.countryName].filter(Boolean).join(', ')).filter(Boolean).join(' · ')) ||
         job.location?.name ||

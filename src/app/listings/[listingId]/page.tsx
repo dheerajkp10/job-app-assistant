@@ -100,7 +100,7 @@ export default function ListingDetailPage({
   // Tailor
   const [tailorResult, setTailorResult] = useState<TailorResult | null>(null);
   const [tailoring, setTailoring] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState<'pdf' | 'docx' | null>(null);
   const [tailorError, setTailorError] = useState<string | null>(null);
 
   // Which missing keywords the user wants included in the tailoring pass.
@@ -218,22 +218,32 @@ export default function ListingDetailPage({
     }
   }
 
-  async function handleDownload() {
-    setDownloading(true);
+  async function handleDownload(format: 'pdf' | 'docx') {
+    if (downloadingFormat) return;
+    setDownloadingFormat(format);
+    setTailorError(null);
     try {
       const res = await fetch('/api/tailor-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           listingId,
-          format: 'pdf',
+          format,
           selectedKeywords: Array.from(selectedKeywords),
         }),
       });
+      if (!res.ok) {
+        // Error responses come back as JSON (e.g. "upload a .docx") —
+        // parse and surface the message instead of downloading it as a
+        // broken file.
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
       const blob = await res.blob();
       const disposition = res.headers.get('Content-Disposition') || '';
       const match = disposition.match(/filename="(.+?)"/);
-      const filename = match?.[1] || 'tailored_resume.pdf';
+      const fallback = format === 'docx' ? 'tailored_resume.docx' : 'tailored_resume.pdf';
+      const filename = match?.[1] || fallback;
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -241,10 +251,10 @@ export default function ListingDetailPage({
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-    } catch {
-      setTailorError('Failed to download resume');
+    } catch (e) {
+      setTailorError(e instanceof Error ? e.message : 'Failed to download resume');
     } finally {
-      setDownloading(false);
+      setDownloadingFormat(null);
     }
   }
 
@@ -556,21 +566,35 @@ export default function ListingDetailPage({
                   </div>
                 )}
 
-                {/* Download button */}
-                <button
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors w-full justify-center"
-                >
-                  {downloading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF...</>
-                  ) : (
-                    <><Download className="w-4 h-4" /> Download Tailored Resume (PDF)</>
-                  )}
-                </button>
+                {/* Download buttons — PDF to submit, DOCX to re-upload or edit in Word */}
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    onClick={() => handleDownload('pdf')}
+                    disabled={!!downloadingFormat}
+                    className="flex-1 flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors justify-center"
+                  >
+                    {downloadingFormat === 'pdf' ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF...</>
+                    ) : (
+                      <><Download className="w-4 h-4" /> Download as PDF</>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleDownload('docx')}
+                    disabled={!!downloadingFormat}
+                    className="flex-1 flex items-center gap-2 px-5 py-2.5 border border-green-600 text-green-700 bg-white text-sm font-medium rounded-lg hover:bg-green-50 disabled:opacity-50 transition-colors justify-center"
+                    title="Download the editable Word document. You can re-upload this .docx in Settings to make it your new base resume, or edit it further in Word."
+                  >
+                    {downloadingFormat === 'docx' ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Generating DOCX...</>
+                    ) : (
+                      <><Download className="w-4 h-4" /> Download as DOCX</>
+                    )}
+                  </button>
+                </div>
 
                 <p className="text-xs text-gray-400 text-center">
-                  Review the PDF before submitting. Only keyword additions were made — no fabricated information. Score is guaranteed to improve or stay the same.
+                  Only keyword additions were made — no fabricated information and no original content removed. Re-upload the .docx in Settings if you want this tailored version to become your new base resume.
                 </p>
               </div>
             )}

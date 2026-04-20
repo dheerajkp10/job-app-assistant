@@ -1,29 +1,27 @@
 import Link from 'next/link';
-import { LayoutDashboard, Settings as SettingsIcon, ChevronRight } from 'lucide-react';
+import { ChevronRight, Home } from 'lucide-react';
 
 /**
- * Top-level quick nav shown on sub-pages (listings, jobs/add, settings, etc.)
- * so the user can jump back to Dashboard or Settings from anywhere.
+ * Breadcrumb trail shown above the page title on sub-pages.
+ * Deliberately just a breadcrumb (Dashboard › Current Page) — the sidebar
+ * already provides navigation to Settings and other sections, so duplicating
+ * those links here just muddied the hierarchy.
  */
 export function PageHeaderNav({ current }: { current: string }) {
   return (
-    <nav className="mb-4 flex items-center gap-2 text-xs text-gray-500">
+    <nav
+      className="mb-4 flex items-center gap-1.5 text-xs text-gray-500"
+      aria-label="Breadcrumb"
+    >
       <Link
         href="/dashboard"
-        className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 hover:text-blue-600 transition-colors"
+        className="inline-flex items-center gap-1 px-2 py-1 rounded-md hover:bg-gray-100 hover:text-blue-600 transition-colors"
       >
-        <LayoutDashboard className="w-3.5 h-3.5" />
+        <Home className="w-3.5 h-3.5" />
         Dashboard
       </Link>
-      <Link
-        href="/settings"
-        className="inline-flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 hover:text-blue-600 transition-colors"
-      >
-        <SettingsIcon className="w-3.5 h-3.5" />
-        Settings
-      </Link>
       <ChevronRight className="w-3 h-3 text-gray-300" />
-      <span className="font-medium text-gray-700">{current}</span>
+      <span className="px-2 py-1 font-semibold text-gray-800">{current}</span>
     </nav>
   );
 }

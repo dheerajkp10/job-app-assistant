@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { writeFile, mkdir } from 'fs/promises';
+import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import mammoth from 'mammoth';
@@ -87,6 +87,15 @@ export async function POST(req: NextRequest) {
     }
     const filePath = path.join(RESUME_DIR, `base-resume${ext}`);
     await writeFile(filePath, buffer);
+
+    // Delete any file of the OTHER extension so on-disk state matches the
+    // active resume. Without this, a prior `.docx` upload would be left
+    // stranded after a later `.pdf` upload (or vice versa), and the
+    // tailoring editor would silently use the stale doc — producing
+    // tailored output that doesn't match the user's current resume.
+    const otherExt = ext === '.docx' ? '.pdf' : '.docx';
+    const staleFilePath = path.join(RESUME_DIR, `base-resume${otherExt}`);
+    await unlink(staleFilePath).catch(() => { /* absent is fine */ });
 
     await updateSettings({
       baseResumeFileName: file.name,

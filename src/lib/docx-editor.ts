@@ -5,11 +5,60 @@
  * Uses jszip to unzip, edit word/document.xml, and rezip.
  */
 
-import { readFile } from 'fs/promises';
-import { join } from 'path';
+import { readFile, access } from 'fs/promises';
+import { join, extname } from 'path';
 import JSZip from 'jszip';
+import { getSettings } from './db';
 
-const TEMPLATE_PATH = join(process.cwd(), 'data', 'resume', 'template.docx');
+/**
+ * Resolve the path to the user's base .docx resume.
+ *
+ * Checks the file matching settings.baseResumeFileName — only returns a
+ * docx path when the *active* resume is a .docx. This guards against the
+ * stale-file bug: if a user uploaded a .docx once and then later
+ * uploaded a .pdf, the stale .docx would be sitting on disk but would
+ * be the wrong document to tailor. We refuse to use it.
+ *
+ * Also checks a legacy `template.docx` for backward compatibility, but
+ * only when no active resume file is recorded.
+ */
+const RESUME_DIR = join(process.cwd(), 'data', 'resume');
+
+export type DocxResolution =
+  | { kind: 'ok'; path: string }
+  | { kind: 'pdf-only'; activeName: string }
+  | { kind: 'missing' };
+
+export async function resolveDocxTemplate(): Promise<DocxResolution> {
+  const settings = await getSettings();
+  const activeName = settings.baseResumeFileName;
+
+  if (activeName) {
+    const ext = extname(activeName).toLowerCase();
+    if (ext === '.docx') {
+      const p = join(RESUME_DIR, 'base-resume.docx');
+      try { await access(p); return { kind: 'ok', path: p }; } catch { /* fall through */ }
+    } else if (ext === '.pdf') {
+      return { kind: 'pdf-only', activeName };
+    }
+  }
+
+  // Legacy fallback (pre-settings template file).
+  const legacy = join(RESUME_DIR, 'template.docx');
+  try { await access(legacy); return { kind: 'ok', path: legacy }; } catch { /* fall through */ }
+
+  return { kind: 'missing' };
+}
+
+/**
+ * Thin compatibility wrapper — returns the path if one is usable, or null.
+ * Prefer `resolveDocxTemplate()` at call sites that need to distinguish
+ * pdf-only from missing (to show a more helpful error).
+ */
+export async function resolveDocxTemplatePath(): Promise<string | null> {
+  const r = await resolveDocxTemplate();
+  return r.kind === 'ok' ? r.path : null;
+}
 
 /**
  * Skills category labels as they appear in the docx.
@@ -17,10 +66,39 @@ const TEMPLATE_PATH = join(process.cwd(), 'data', 'resume', 'template.docx');
  */
 const SKILLS_LABELS: Record<string, string[]> = {
   technical: ['Cloud &amp; Stack:', 'Cloud & Stack:', 'Systems &amp; Architecture:', 'Systems & Architecture:'],
+  cloudStack: ['Cloud &amp; Stack:', 'Cloud & Stack:'],
+  systems: ['Systems &amp; Architecture:', 'Systems & Architecture:'],
   management: ['Leadership:'],
   domain: ['AI / ML:', 'AI/ML:'],
   soft: ['Leadership:'],  // soft skills go into Leadership line too
 };
+
+/**
+ * Classify a technical keyword into "cloud & stack" (concrete
+ * tools/languages/platforms) vs "systems & architecture" (design
+ * concepts/patterns). Per-keyword placement makes the skills lines read
+ * naturally instead of lumping everything into one bucket.
+ *
+ * Heuristic: common abstract-pattern tokens route to Systems; everything
+ * else routes to Cloud & Stack (the more typical bucket for concrete tech).
+ */
+const SYSTEMS_KEYWORDS = new Set([
+  'microservices', 'monolith', 'serverless', 'event-driven', 'event-sourcing',
+  'cqrs', 'saga', 'domain-driven-design', 'ddd', 'hexagonal', 'clean-architecture',
+  'soa', 'api-design', 'api-gateway', 'rest', 'graphql', 'grpc', 'websockets',
+  'distributed-systems', 'high-availability', 'fault-tolerance', 'resilience',
+  'scalability', 'observability', 'monitoring', 'logging', 'tracing',
+  'consistency', 'idempotency', 'concurrency', 'caching', 'sharding',
+  'replication', 'partitioning', 'leader-election', 'consensus', 'raft',
+  'paxos', 'cap-theorem', 'system-design', 'low-latency', 'throughput',
+  'load-balancing', 'auto-scaling', 'circuit-breaker', 'rate-limiting',
+  'pub-sub', 'message-queue', 'streaming', 'batch-processing',
+  'data-modeling', 'schema-design', 'eventual-consistency',
+]);
+
+function classifyTechnical(keyword: string): 'cloudStack' | 'systems' {
+  return SYSTEMS_KEYWORDS.has(keyword.toLowerCase()) ? 'systems' : 'cloudStack';
+}
 
 /**
  * Append keywords to the end of a skills text run in the XML.
@@ -58,8 +136,21 @@ function appendToSkillsLine(
     const tOpenEnd = xml.indexOf('>', nextTStart) + 1;
     const existingText = xml.substring(tOpenEnd, nextTEnd);
 
+    // Dedupe: drop keywords already present in the line (case-insensitive,
+    // compared on the title-cased display form and the raw kebab form).
+    // This prevents "Microservices, Microservices" type duplicates that
+    // would make the skills line look sloppy if the upstream filter ever
+    // slips.
+    const existingLower = existingText.toLowerCase();
+    const toAppend = keywords.filter((k) => {
+      const display = k.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      return !existingLower.includes(display.toLowerCase()) &&
+             !existingLower.includes(k.toLowerCase());
+    });
+    if (toAppend.length === 0) return { xml, appended: false };
+
     // Append keywords
-    const addition = keywords.map(k =>
+    const addition = toAppend.map(k =>
       k.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
     ).join(', ');
     const newText = existingText.trimEnd().replace(/\.?\s*$/, '') + ', ' + addition;
@@ -167,7 +258,14 @@ export async function editDocxTemplate(
   missingKeywords: Record<string, string[]>,
   summaryPhrase: string
 ): Promise<DocxEditResult> {
-  const templateBytes = await readFile(TEMPLATE_PATH);
+  const templatePath = await resolveDocxTemplatePath();
+  if (!templatePath) {
+    throw new Error(
+      'No .docx resume found. PDF-only resumes cannot be tailored because the editor works at the Word-XML level. ' +
+      'Please upload a .docx version of your resume in Settings.'
+    );
+  }
+  const templateBytes = await readFile(templatePath);
   const zip = await JSZip.loadAsync(templateBytes);
 
   const docXmlFile = zip.file('word/document.xml');
@@ -177,23 +275,46 @@ export async function editDocxTemplate(
   const addedKeywords: string[] = [];
   const changesSummary: string[] = [];
 
-  // 1. Append technical keywords to Cloud & Stack or Systems & Architecture line
+  // 1. Technical keywords — split per-keyword between Cloud & Stack
+  //    (concrete tools/platforms/languages) and Systems & Architecture
+  //    (design concepts/patterns) so each lands where it reads naturally.
   if (missingKeywords.technical?.length > 0) {
-    const result = appendToSkillsLine(xml, SKILLS_LABELS.technical, missingKeywords.technical);
-    if (result.appended) {
-      xml = result.xml;
-      addedKeywords.push(...missingKeywords.technical);
-      changesSummary.push(`Appended ${missingKeywords.technical.length} technical keywords to Skills`);
+    const cloudBucket: string[] = [];
+    const systemsBucket: string[] = [];
+    for (const kw of missingKeywords.technical) {
+      (classifyTechnical(kw) === 'systems' ? systemsBucket : cloudBucket).push(kw);
+    }
+    if (cloudBucket.length > 0) {
+      const r = appendToSkillsLine(xml, SKILLS_LABELS.cloudStack, cloudBucket);
+      if (r.appended) {
+        xml = r.xml;
+        addedKeywords.push(...cloudBucket);
+        changesSummary.push(`Appended ${cloudBucket.length} keyword(s) to Cloud & Stack`);
+      }
+    }
+    if (systemsBucket.length > 0) {
+      const r = appendToSkillsLine(xml, SKILLS_LABELS.systems, systemsBucket);
+      if (r.appended) {
+        xml = r.xml;
+        addedKeywords.push(...systemsBucket);
+        changesSummary.push(`Appended ${systemsBucket.length} keyword(s) to Systems & Architecture`);
+      }
     }
   }
 
-  // 2. Append management keywords to Leadership line
-  if (missingKeywords.management?.length > 0) {
-    const result = appendToSkillsLine(xml, SKILLS_LABELS.management, missingKeywords.management);
-    if (result.appended) {
-      xml = result.xml;
-      addedKeywords.push(...missingKeywords.management);
-      changesSummary.push(`Appended ${missingKeywords.management.length} management keywords to Skills`);
+  // 2. Management + soft keywords → Leadership line. Merging keeps all
+  //    people/leadership signals in one place and leaves the dedicated
+  //    technical lines uncluttered.
+  const leadershipBucket = [
+    ...(missingKeywords.management ?? []),
+    ...(missingKeywords.soft ?? []),
+  ];
+  if (leadershipBucket.length > 0) {
+    const r = appendToSkillsLine(xml, SKILLS_LABELS.management, leadershipBucket);
+    if (r.appended) {
+      xml = r.xml;
+      addedKeywords.push(...leadershipBucket);
+      changesSummary.push(`Appended ${leadershipBucket.length} keyword(s) to Leadership`);
     }
   }
 
@@ -203,11 +324,14 @@ export async function editDocxTemplate(
     if (result.appended) {
       xml = result.xml;
       addedKeywords.push(...missingKeywords.domain);
-      changesSummary.push(`Appended ${missingKeywords.domain.length} domain keywords to AI/ML Skills`);
+      changesSummary.push(`Appended ${missingKeywords.domain.length} keyword(s) to AI / ML`);
     }
   }
 
-  // 4. Append summary phrase
+  // 4. Append a short, complete-sentence phrase to the Summary. This is
+  //    the only place where we add prose (not a keyword list); the phrase
+  //    is constructed by buildSummaryPhrase() to read as a natural
+  //    sentence continuation.
   if (summaryPhrase) {
     xml = appendToSummary(xml, summaryPhrase);
     changesSummary.push(`Added short phrase to Summary`);
