@@ -43,7 +43,39 @@ export interface Settings {
   // they don't want to see). Stored as canonical brand names (e.g. "Amazon",
   // "Google") — siblings are expanded at filter time via COMPANY_ALIAS_GROUPS.
   excludedCompanies?: string[];
+
+  // ─── Work authorization ───
+  // ISO-3166 alpha-2 country codes the user is authorized to work in.
+  // Defaults to ["US"] when missing (legacy users predate this field).
+  // Listings whose location is exclusively in a country NOT in this list
+  // (e.g. "Remote — Canada" for a US-only user) are filtered out — we
+  // can't honestly recommend a job the user couldn't legally take.
+  // Choosing multiple codes (e.g. ["US","CA"]) opens up roles in any of
+  // those countries.
+  workAuthCountries?: string[];
 }
+
+/**
+ * Country options offered in onboarding for the "where can you legally
+ * work" picker. Curated list — covers the main English-speaking job
+ * markets we currently fetch listings from. We deliberately keep it
+ * short rather than exposing the full ISO-3166 set so the choice stays
+ * meaningful.
+ */
+export const WORK_AUTH_COUNTRIES: { code: string; label: string }[] = [
+  { code: 'US', label: 'United States' },
+  { code: 'CA', label: 'Canada' },
+  { code: 'GB', label: 'United Kingdom' },
+  { code: 'IE', label: 'Ireland' },
+  { code: 'DE', label: 'Germany' },
+  { code: 'FR', label: 'France' },
+  { code: 'NL', label: 'Netherlands' },
+  { code: 'AU', label: 'Australia' },
+  { code: 'NZ', label: 'New Zealand' },
+  { code: 'IN', label: 'India' },
+  { code: 'SG', label: 'Singapore' },
+  { code: 'JP', label: 'Japan' },
+];
 
 /**
  * Cross-company level ladder. Each entry groups roughly-equivalent titles
@@ -76,7 +108,11 @@ export type ATSType =
   | 'amazon'
   | 'meta'
   | 'uber'
-  | 'workday';
+  | 'workday'
+  // Eightfold AI careers platform (Netflix, many others). Exposes a
+  // public JSON API that returns full job descriptions, so we can both
+  // list AND score these roles.
+  | 'eightfold';
 
 export interface CompanySource {
   name: string;
@@ -90,6 +126,11 @@ export interface CompanySource {
   // Site example: "External_Career_Site"
   workdayHost?: string;
   workdaySite?: string;
+  // Eightfold-specific configuration.
+  // host example: "explore.jobs.netflix.net"
+  // domain example: "netflix.com"
+  eightfoldHost?: string;
+  eightfoldDomain?: string;
 }
 
 export interface JobListing {
@@ -153,7 +194,21 @@ export interface ScoreCacheEntry {
   matchedCount: number;
   totalCount: number;
   scoredAt: string;
+  /**
+   * Algorithm version this entry was scored under. Bumped whenever the
+   * scorer's output changes meaningfully (formula, weights, smoothing
+   * constants) so the cache layer can detect "this entry was computed
+   * with an old algorithm" and force a rescore.
+   *
+   * History:
+   *   1 — original linear `matched/total` per-category, equal weights.
+   *   2 — TF-weighted JD keywords + Laplace smoothing + [25,95] clamp.
+   */
+  scorerVersion?: number;
 }
+
+/** Current ATS scorer version. See `ScoreCacheEntry.scorerVersion`. */
+export const SCORER_VERSION = 2;
 
 export interface Database {
   settings: Settings;

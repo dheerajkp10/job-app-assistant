@@ -11,6 +11,7 @@ import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry 
 import { filterByUserPreferences } from '@/lib/role-filter';
 import { getCompanyAliases, isExcludedCompany } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
+import { isWorkAuthorized } from '@/lib/work-auth-filter';
 
 // ─── Score visualization helpers ───────────────────────────────────
 
@@ -109,36 +110,54 @@ export default function DashboardPage() {
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [loading, setLoading] = useState(true);
 
+  // Loader factored out so we can re-run it on tab focus / visibility
+  // changes — when the user adds a job on /jobs/add and navigates back,
+  // the dashboard immediately reflects the new listing + ATS score.
+  const reload = useMemo(
+    () => () =>
+      Promise.all([
+        fetch('/api/settings').then((r) => r.json()),
+        fetch('/api/listings').then((r) => r.json()),
+        fetch('/api/scores-cache').then((r) => r.json()),
+        fetch('/api/listing-flags').then((r) => r.json()),
+      ])
+        .then(([settingsData, listingsData, scores, flagsData]) => {
+          if (!settingsData.settings?.onboardingComplete) {
+            window.location.href = '/';
+            return;
+          }
+          setSettings(settingsData.settings);
+          // Defensive dedupe — the stored DB may still contain duplicate
+          // listings from a fetch that ran before the dedupe landed.
+          const raw: JobListing[] = listingsData.listings || [];
+          const seen = new Set<string>();
+          const deduped: JobListing[] = [];
+          for (const l of raw) {
+            if (seen.has(l.id)) continue;
+            seen.add(l.id);
+            deduped.push(l);
+          }
+          setAllListings(deduped);
+          setScoreCache(scores || {});
+          setFlags(flagsData || {});
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false)),
+    [],
+  );
+
   useEffect(() => {
-    Promise.all([
-      fetch('/api/settings').then((r) => r.json()),
-      fetch('/api/listings').then((r) => r.json()),
-      fetch('/api/scores-cache').then((r) => r.json()),
-      fetch('/api/listing-flags').then((r) => r.json()),
-    ])
-      .then(([settingsData, listingsData, scores, flagsData]) => {
-        if (!settingsData.settings?.onboardingComplete) {
-          window.location.href = '/';
-          return;
-        }
-        setSettings(settingsData.settings);
-        // Defensive dedupe — the stored DB may still contain duplicate
-        // listings from a fetch that ran before the dedupe landed.
-        const raw: JobListing[] = listingsData.listings || [];
-        const seen = new Set<string>();
-        const deduped: JobListing[] = [];
-        for (const l of raw) {
-          if (seen.has(l.id)) continue;
-          seen.add(l.id);
-          deduped.push(l);
-        }
-        setAllListings(deduped);
-        setScoreCache(scores || {});
-        setFlags(flagsData || {});
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+    reload();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reload();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [reload]);
 
   // Expand the user's excluded-companies list to all alias brands (e.g. "Amazon" → ["amazon","aws",...])
   const excludedAliases = useMemo(() => {
@@ -150,12 +169,21 @@ export default function DashboardPage() {
     return Array.from(set);
   }, [settings?.excludedCompanies]);
 
-  // Filter listings by user preferences, then drop anything from an excluded employer
+  // Filter listings by user preferences, drop excluded employers, drop
+  // jobs the user isn't authorized to work in (defaults to US).
+  const authCountries = useMemo(
+    () =>
+      settings?.workAuthCountries && settings.workAuthCountries.length > 0
+        ? settings.workAuthCountries
+        : ['US'],
+    [settings?.workAuthCountries],
+  );
   const listings = useMemo(() => {
     const roleFiltered = filterByUserPreferences(allListings, settings?.preferredRoles ?? []);
-    if (excludedAliases.length === 0) return roleFiltered;
-    return roleFiltered.filter((l) => !isExcludedCompany(l.company, excludedAliases));
-  }, [allListings, settings?.preferredRoles, excludedAliases]);
+    const authFiltered = roleFiltered.filter((l) => isWorkAuthorized(l.location, authCountries));
+    if (excludedAliases.length === 0) return authFiltered;
+    return authFiltered.filter((l) => !isExcludedCompany(l.company, excludedAliases));
+  }, [allListings, settings?.preferredRoles, excludedAliases, authCountries]);
 
   // "Valid score" = cached entry with at least one JD keyword extracted,
   // AND from an ATS that actually exposes full job descriptions. Careers
@@ -250,10 +278,14 @@ export default function DashboardPage() {
   const workModeLabels: Record<WorkMode, string> = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="p-8 max-w-7xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">
+        <div className="inline-flex items-center gap-2 mb-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
+          <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+          <span className="text-xs font-medium text-blue-700">Live job search</span>
+        </div>
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-indigo-700 to-purple-700 bg-clip-text text-transparent">
           {settings.userName ? `Welcome back, ${settings.userName}` : 'Dashboard'}
         </h1>
         <p className="text-sm text-gray-500 mt-1">

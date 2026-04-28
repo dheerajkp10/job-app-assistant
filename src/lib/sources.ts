@@ -65,9 +65,16 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'Affirm', slug: 'affirm', ats: 'greenhouse', boardToken: 'affirm', logoColor: '#0FA0EA' },
   { name: 'Chime', slug: 'chime', ats: 'greenhouse', boardToken: 'chime', logoColor: '#1EC677' },
   { name: 'Rippling', slug: 'rippling', ats: 'greenhouse', boardToken: 'rippling', logoColor: '#502EB4' },
+  // ─── Greenhouse (added per user request — verified non-empty boards) ───
+  { name: 'Nextdoor', slug: 'nextdoor', ats: 'greenhouse', boardToken: 'nextdoor', logoColor: '#7ED957' },
+  { name: 'SoFi', slug: 'sofi', ats: 'greenhouse', boardToken: 'sofi', logoColor: '#00A0DC' },
+  { name: 'Unity', slug: 'unity', ats: 'greenhouse', boardToken: 'unity3d', logoColor: '#000000' },
+  { name: 'PitchBook', slug: 'pitchbook', ats: 'greenhouse', boardToken: 'pitchbookdata', logoColor: '#FF6900', region: 'Seattle' },
+  { name: 'Netlify', slug: 'netlify', ats: 'greenhouse', boardToken: 'netlify', logoColor: '#00C7B7' },
+  { name: 'PlanetScale', slug: 'planetscale', ats: 'greenhouse', boardToken: 'planetscale', logoColor: '#000000' },
+  { name: 'Checkr', slug: 'checkr', ats: 'greenhouse', boardToken: 'checkr', logoColor: '#1E6BFF' },
 
   // ─── Lever ───
-  { name: 'Netflix', slug: 'netflix', ats: 'lever', boardToken: 'netflix', logoColor: '#E50914' },
   { name: 'Highspot', slug: 'highspot', ats: 'lever', boardToken: 'highspot', logoColor: '#3361FF', region: 'Seattle' },
   { name: 'Plaid', slug: 'plaid', ats: 'lever', boardToken: 'plaid', logoColor: '#000000' },
   { name: 'Palantir', slug: 'palantir', ats: 'lever', boardToken: 'palantir', logoColor: '#000000' },
@@ -80,6 +87,17 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'Linear', slug: 'linear', ats: 'ashby', boardToken: 'linear', logoColor: '#5E6AD2' },
   { name: 'Vercel', slug: 'vercel', ats: 'ashby', boardToken: 'vercel', logoColor: '#000000' },
   { name: 'Mercury', slug: 'mercury', ats: 'ashby', boardToken: 'mercury', logoColor: '#5B67BB' },
+  // ─── Ashby (added per user request — verified non-empty boards) ───
+  { name: 'Deepgram', slug: 'deepgram', ats: 'ashby', boardToken: 'deepgram', logoColor: '#13EF93' },
+  { name: 'Valon', slug: 'valon', ats: 'ashby', boardToken: 'valon', logoColor: '#0066FF' },
+  { name: 'Ashby', slug: 'ashby', ats: 'ashby', boardToken: 'ashby', logoColor: '#000000' },
+  // ─── Ashby (popular AI / dev-tools companies) ───
+  { name: 'Cohere', slug: 'cohere', ats: 'ashby', boardToken: 'cohere', logoColor: '#39594D' },
+  { name: 'Mistral AI', slug: 'mistral', ats: 'ashby', boardToken: 'mistral', logoColor: '#FF7000' },
+  { name: 'Perplexity', slug: 'perplexity', ats: 'ashby', boardToken: 'perplexity', logoColor: '#1FB8CD' },
+  { name: 'ElevenLabs', slug: 'elevenlabs', ats: 'ashby', boardToken: 'elevenlabs', logoColor: '#000000' },
+  { name: 'Supabase', slug: 'supabase', ats: 'ashby', boardToken: 'supabase', logoColor: '#3ECF8E' },
+  { name: 'Deel', slug: 'deel', ats: 'ashby', boardToken: 'deel', logoColor: '#15CC81' },
 
   // ─── Custom per-company APIs (tech giants that don't use public ATSs) ───
   { name: 'Google', slug: 'google', ats: 'google', boardToken: 'google', logoColor: '#4285F4' },
@@ -135,5 +153,15 @@ export const COMPANY_SOURCES: CompanySource[] = [
     name: 'Cisco', slug: 'cisco', ats: 'workday', boardToken: 'cisco',
     workdayHost: 'cisco.wd5.myworkdayjobs.com', workdaySite: 'External_Career',
     logoColor: '#1BA0D7',
+  },
+
+  // ─── Eightfold-powered careers portals ───
+  // Netflix moved off Lever to the Eightfold AI platform at
+  // explore.jobs.netflix.net. The public API exposes the full JD, so
+  // these are fully scorable (unlike Apple/Meta).
+  {
+    name: 'Netflix', slug: 'netflix', ats: 'eightfold', boardToken: 'netflix',
+    eightfoldHost: 'explore.jobs.netflix.net', eightfoldDomain: 'netflix.com',
+    logoColor: '#E50914',
   },
 ];

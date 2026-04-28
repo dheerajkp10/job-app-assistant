@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { readDb, saveScoresBatch } from '@/lib/db';
 import { isUnscorableAts } from '@/lib/job-fetcher';
+import { SCORER_VERSION } from '@/lib/types';
 import type { ScoreCacheEntry } from '@/lib/types';
 
 /**
@@ -47,5 +48,16 @@ export async function GET() {
     for (const s of stale) cache[s.listingId] = s;
   }
 
-  return NextResponse.json(cache);
+  // Hide entries scored with an older algorithm version from the client.
+  // The listings page treats absent scoreCache[id] entries as "needs
+  // scoring" — so dropping v1 entries here makes them get rescored
+  // automatically by the batch scorer the next time the page mounts.
+  // The DB rows themselves stay (no destructive write); the batch
+  // endpoint re-checks the version and overwrites them on rescore.
+  const fresh: Record<string, ScoreCacheEntry> = {};
+  for (const [id, entry] of Object.entries(cache)) {
+    if (entry.scorerVersion === SCORER_VERSION) fresh[id] = entry;
+  }
+
+  return NextResponse.json(fresh);
 }

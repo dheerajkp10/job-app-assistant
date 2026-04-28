@@ -206,19 +206,44 @@ export async function POST(req: NextRequest) {
       byCategory[kw.category].push(kw.keyword);
     }
 
-    // Starting budget for one-page fit. Caps are what empirically still
-    // fits on a single page after injection; if we overflow we tighten.
-    // Selected keywords are truncated per-category starting from the lowest
-    // frequency, so the highest-signal keywords always survive.
+    // Budget ladder for one-page fit. Each tier specifies both Skills
+    // caps and work-experience injector caps (wePositions, weKwPerBullet).
     //
-    // Biggest lever is `technical` because those keywords are the longest
-    // words and the Skills/Cloud line is already the densest line.
-    const attempts: Record<Category, number>[] = [
-      { technical: 12, management: 8, domain: 5, soft: 3 },
-      { technical: 8, management: 5, domain: 3, soft: 2 },
-      { technical: 5, management: 3, domain: 2, soft: 1 },
-      { technical: 3, management: 2, domain: 1, soft: 1 },
-      { technical: 2, management: 1, domain: 1, soft: 0 },
+    // Ordering is WE-forward: the top tiers keep work-experience
+    // injection on at the expense of max-Skills stuffing, because WE
+    // injection is the primary new feature we're trying to land — an
+    // uber-packed Skills line with no WE bullet is worse than a
+    // moderately-packed Skills line with a new WE bullet under a
+    // relevant position.
+    //
+    // Only the tail tiers drop WE entirely — they exist so the 1-page
+    // hard guarantee still holds on resumes that are already near the
+    // page limit before tailoring.
+    type Budget = Record<Category, number> & {
+      wePositions: number;
+      weKwPerBullet: number;
+      /** Inline-append pass: attaches short keyword clauses to
+       *  existing bullets whose final rendered line has trailing
+       *  whitespace. Costs 0 lines, so we enable it on every tier. */
+      weInlineAppends: number;
+    };
+    const attempts: Budget[] = [
+      // ── WE-enabled tiers ──────────────────────────────────
+      // Tier 1 — up to 3 new bullets (2 kw each), moderate Skills
+      { technical: 6, management: 4, domain: 3, soft: 2, wePositions: 3, weKwPerBullet: 2, weInlineAppends: 4 },
+      // Tier 2 — up to 2 new bullets (2 kw each), moderate Skills
+      { technical: 5, management: 3, domain: 2, soft: 2, wePositions: 2, weKwPerBullet: 2, weInlineAppends: 3 },
+      // Tier 3 — up to 2 new bullets (1 kw each), tighter Skills
+      { technical: 4, management: 3, domain: 2, soft: 1, wePositions: 2, weKwPerBullet: 1, weInlineAppends: 3 },
+      // Tier 4 — 1 new bullet (2 kw), tight Skills
+      { technical: 3, management: 2, domain: 2, soft: 1, wePositions: 1, weKwPerBullet: 2, weInlineAppends: 3 },
+      // Tier 5 — 1 new bullet (1 kw), tight Skills
+      { technical: 3, management: 2, domain: 1, soft: 1, wePositions: 1, weKwPerBullet: 1, weInlineAppends: 2 },
+      // ── No-WE fallback tiers (inline-append still on — it's free) ─
+      { technical: 8, management: 5, domain: 3, soft: 2, wePositions: 0, weKwPerBullet: 0, weInlineAppends: 4 },
+      { technical: 5, management: 3, domain: 2, soft: 1, wePositions: 0, weKwPerBullet: 0, weInlineAppends: 3 },
+      { technical: 3, management: 2, domain: 1, soft: 1, wePositions: 0, weKwPerBullet: 0, weInlineAppends: 2 },
+      { technical: 2, management: 1, domain: 1, soft: 0, wePositions: 0, weKwPerBullet: 0, weInlineAppends: 2 },
     ];
 
     // Apples-to-apples baseline: score the ORIGINAL docx text (same
@@ -238,7 +263,8 @@ export async function POST(req: NextRequest) {
     let bestResult: GenerationResult | null = null;
 
     try {
-      for (const budget of attempts) {
+      for (let i = 0; i < attempts.length; i++) {
+        const budget = attempts[i];
         const result = await tryGenerate({ byCategory, budget, jdCorpus });
 
         // Track the best-so-far: prefer a version that fits on 1 page, and
@@ -252,28 +278,39 @@ export async function POST(req: NextRequest) {
         // originalScore when measured consistently — so no score-regression
         // gate is needed here.
         if (result.pageCount <= 1) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `Multi-tailor: tier ${i + 1}/${attempts.length} fit 1 page. ` +
+            `Budget: tech=${budget.technical} mgmt=${budget.management} dom=${budget.domain} soft=${budget.soft} ` +
+            `WE=${budget.wePositions}pos×${budget.weKwPerBullet}kw. ` +
+            `Added: ${result.addedWeBullets} new work-experience bullet(s). ` +
+            `Score: ${result.modifiedScore}% (baseline ${originalScore.overall}%)`
+          );
           return serveTailored(result, format, userName, details.length);
         }
       }
 
-      // Every attempt overflowed 1 page — serve the smallest-footprint
-      // attempt we produced. This still contains the selected keywords
-      // (at least the tightest subset) and preserves ALL original
-      // content. Falling back to the unedited template would silently
-      // drop the user's selections, which is a worse failure mode.
+      // Every attempt overflowed 1 page. Serving the unedited baseline
+      // here would silently drop every keyword the user selected —
+      // which the user explicitly flagged as a CRITICAL bug. The
+      // 1-page constraint is now best-effort: we always serve the
+      // edited version closest to 1 page with the highest ATS score
+      // (see isBetter()), never the untouched baseline.
+      if (!bestResult) {
+        // Defensive fallback — attempts is non-empty, so bestResult
+        // should always be populated here.
+        if (format === 'docx') return serveDocx(origDocxBytes, userName, details.length);
+        const adjustedOrig = await adjustDocxForLibreOffice(origDocxBytes);
+        const origPdf = await convertDocxToPdf(adjustedOrig);
+        return servePdf(origPdf, userName, details.length);
+      }
       // eslint-disable-next-line no-console
       console.warn(
-        `Multi-tailor: could not fit keywords in 1 page after ${attempts.length} tries. ` +
-        `Best: ${bestResult?.pageCount} pages, score ${bestResult?.modifiedScore}% vs original ${originalScore.overall}%. ` +
-        `Serving best-effort edited version (keywords preserved).`
+        `Multi-tailor: no budget tier fit 1 page after ${attempts.length} tries. ` +
+        `Serving best-effort edited: ${bestResult.pageCount} pages, ` +
+        `score ${bestResult.modifiedScore}% vs original ${originalScore.overall}%.`
       );
-      if (bestResult) return serveTailored(bestResult, format, userName, details.length);
-
-      // Shouldn't happen (loop always produces a result), but belt-and-suspenders.
-      if (format === 'docx') return serveDocx(origDocxBytes, userName, details.length);
-      const adjustedOrig = await adjustDocxForLibreOffice(origDocxBytes);
-      const origPdf = await convertDocxToPdf(adjustedOrig);
-      return servePdf(origPdf, userName, details.length);
+      return serveTailored(bestResult, format, userName, details.length);
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('Multi-tailor generation failed:', err);
@@ -302,11 +339,21 @@ interface GenerationResult {
   pdf: Buffer;
   pageCount: number;
   modifiedScore: number;
+  /** Number of new bullets added to the Work Experience section at
+   *  this budget tier. Included in the tier-win log so we can confirm
+   *  at-a-glance that WE injection is happening. */
+  addedWeBullets: number;
 }
+
+type BudgetWithWE = Record<Category, number> & {
+  wePositions: number;
+  weKwPerBullet: number;
+  weInlineAppends: number;
+};
 
 async function tryGenerate(args: {
   byCategory: Record<Category, string[]>;
-  budget: Record<Category, number>;
+  budget: BudgetWithWE;
   jdCorpus: string;
 }): Promise<GenerationResult> {
   const { byCategory, budget, jdCorpus } = args;
@@ -327,7 +374,22 @@ async function tryGenerate(args: {
     missing.soft.slice(0, 2)
   );
 
-  const docxResult = await editDocxTemplate(missing, summaryPhrase);
+  const docxResult = await editDocxTemplate(missing, summaryPhrase, {
+    jdContent: jdCorpus,
+    workExpBudget: {
+      maxPositions: budget.wePositions,
+      maxKeywordsPerBullet: budget.weKwPerBullet,
+      maxInlineAppends: budget.weInlineAppends,
+    },
+  });
+
+  // Count WE bullets we actually inserted at this tier — the editor
+  // reports each injection as one "Added bullet under ..." line in
+  // changesSummary, so counting those gives us the exact number
+  // without making the editor return it as structured data.
+  const addedWeBullets = docxResult.changesSummary.filter((s) =>
+    s.startsWith('Added bullet under'),
+  ).length;
 
   // Re-extract the edited docx text and score it (same extraction path used
   // for the baseline, so comparison is apples-to-apples).
@@ -343,7 +405,7 @@ async function tryGenerate(args: {
   const pdf = await convertDocxToPdf(adjusted);
   const pageCount = countPdfPages(pdf);
 
-  return { docx: docxResult.buffer, pdf, pageCount, modifiedScore };
+  return { docx: docxResult.buffer, pdf, pageCount, modifiedScore, addedWeBullets };
 }
 
 /**

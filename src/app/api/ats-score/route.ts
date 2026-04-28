@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSettings, getListingById, saveScore } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { scoreResume } from '@/lib/ats-scorer';
+import { SCORER_VERSION } from '@/lib/types';
+import { detectSuggestions } from '@/lib/resume-suggestions';
 
 /**
  * POST /api/ats-score
@@ -44,6 +46,7 @@ export async function POST(req: NextRequest) {
       matchedCount: 0,
       totalCount: 0,
       scoredAt: new Date().toISOString(),
+      scorerVersion: SCORER_VERSION,
     });
     return NextResponse.json(
       { error: 'This listing has no public job description — scoring isn\'t available for it.' },
@@ -65,7 +68,18 @@ export async function POST(req: NextRequest) {
     matchedCount: score.totalMatched,
     totalCount: score.totalJdKeywords,
     scoredAt: new Date().toISOString(),
+    scorerVersion: SCORER_VERSION,
   });
 
-  return NextResponse.json(score);
+  // Beyond the score, surface concrete edit suggestions the user can
+  // accept à la carte (mirror JD title in summary, mention niche
+  // multi-word phrases the JD repeats, etc.). Detection is fast and
+  // only runs on the single-listing path — the batch scorer skips it.
+  const suggestions = detectSuggestions({
+    resumeText: settings.baseResumeText,
+    jdContent: detail.content,
+    jdTitle: listing.title,
+  });
+
+  return NextResponse.json({ ...score, suggestions });
 }

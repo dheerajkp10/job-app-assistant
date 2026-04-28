@@ -9,7 +9,21 @@ import {
   fetchMetaJobs,
   fetchUberJobs,
   fetchWorkdayJobs,
+  fetchEightfoldJobs,
+  fetchEightfoldJobDetail,
 } from './custom-fetchers';
+import {
+  fetchAppleJobsViaPuppeteer,
+  fetchMetaJobsViaPuppeteer,
+  fetchAppleJobDetailViaPuppeteer,
+} from './puppeteer-fetchers';
+
+// Apple's `/api/role/search` has been decommissioned (301 → pagenotfound)
+// and Meta's GraphQL endpoint rotates `doc_id`s faster than we can track,
+// so for these two we fall back to a headless-browser scrape of the
+// public search UI. Flip this to `false` to bypass Puppeteer and use the
+// (currently non-working) JSON fetchers — useful for local testing.
+const USE_PUPPETEER_FOR_APPLE_META = true;
 
 // =========================================================
 // Greenhouse Board API
@@ -208,12 +222,13 @@ function pickFetcher(source: CompanySource): (s: CompanySource) => Promise<JobLi
     case 'lever':      return fetchLeverJobs;
     case 'ashby':      return fetchAshbyJobs;
     case 'google':     return fetchGoogleJobs;
-    case 'apple':      return fetchAppleJobs;
+    case 'apple':      return USE_PUPPETEER_FOR_APPLE_META ? fetchAppleJobsViaPuppeteer : fetchAppleJobs;
     case 'microsoft':  return fetchMicrosoftJobs;
     case 'amazon':     return fetchAmazonJobs;
-    case 'meta':       return fetchMetaJobs;
+    case 'meta':       return USE_PUPPETEER_FOR_APPLE_META ? fetchMetaJobsViaPuppeteer : fetchMetaJobs;
     case 'uber':       return fetchUberJobs;
     case 'workday':    return fetchWorkdayJobs;
+    case 'eightfold': return fetchEightfoldJobs;
   }
 }
 
@@ -345,7 +360,119 @@ export async function fetchJobDetail(
     };
   }
 
-  // Custom ATSs (google, apple, microsoft, amazon, meta, uber, workday):
+  if (listing.ats === 'eightfold') {
+    // Eightfold listing IDs: `ef-{boardToken}-{positionId}`. We need the
+    // eightfoldHost to hit the detail endpoint — look it up in the
+    // sources list so callers don't have to thread it through.
+    const { COMPANY_SOURCES } = await import('./sources');
+    const src = COMPANY_SOURCES.find(
+      (s) => s.slug === listing.companySlug || s.boardToken === listing.id.split('-')[1]
+    );
+    if (!src?.eightfoldHost) return null;
+
+    const detail = await fetchEightfoldJobDetail(src.eightfoldHost, listing.sourceId);
+    if (!detail) return null;
+
+    const content = detail.job_description || '';
+    if (!content) return null;
+
+    const salaryInfo = extractSalary(content);
+    const { qualifications, responsibilities } = extractSections(content);
+
+    return {
+      ...listing,
+      salary: salaryInfo?.display || listing.salary,
+      salaryMin: salaryInfo?.min ?? listing.salaryMin,
+      salaryMax: salaryInfo?.max ?? listing.salaryMax,
+      content,
+      qualifications,
+      responsibilities,
+    };
+  }
+
+  // Apple: hit the per-role detail page via headless Chromium. Enables
+  // ATS scoring + tailoring for Apple listings (previously the route
+  // returned null for apple and the UI hid the Tailor button).
+  if (listing.ats === 'apple') {
+    try {
+      const detail = await fetchAppleJobDetailViaPuppeteer(listing.url);
+      if (!detail || !detail.content) return null;
+      const salaryInfo = extractSalary(detail.content);
+      const { qualifications, responsibilities } = extractSections(detail.content);
+      return {
+        ...listing,
+        salary: salaryInfo?.display || listing.salary,
+        salaryMin: salaryInfo?.min ?? listing.salaryMin,
+        salaryMax: salaryInfo?.max ?? listing.salaryMax,
+        content: detail.content,
+        qualifications,
+        responsibilities,
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Apple detail fetch failed for ${listing.id}: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  if (listing.ats === 'uber') {
+    // Uber's individual careers pages embed the full job description as
+    // unicode-escaped JSON inside a `<script type="application/json">`.
+    // We fetch the page directly (cheaper than the bulk paginated API)
+    // and pull the `description` value out via regex. The encoding
+    // chain is gnarly (HTML-escaped → unicode-escaped → JSON string),
+    // so we decode in three passes.
+    try {
+      const res = await fetch(listing.url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return null;
+      const html = await res.text();
+      const m = html.match(
+        /\\u0022description\\u0022:\\u0022((?:[^\\]|\\.){50,20000}?)\\u0022/,
+      );
+      if (!m) return null;
+      // Pass 1: unicode-escape decode (handles ", \uXXXX).
+      let decoded: string;
+      try {
+        decoded = JSON.parse(`"${m[1]}"`);
+      } catch {
+        return null;
+      }
+      // Pass 2: HTML-entity decode (the inner string was &lt;p&gt;…).
+      decoded = decoded
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ');
+      const { qualifications, responsibilities } = extractSections(decoded);
+      return {
+        ...listing,
+        content: decoded,
+        qualifications,
+        responsibilities,
+      };
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `Uber detail fetch failed for ${listing.id}: ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
+  // Other custom ATSs (google, microsoft, amazon, meta, workday):
   // we don't have a cheap single-job detail endpoint for these. Return null
   // rather than inventing synthetic content — a JD built from just the title
   // has so few keywords that scoring against it produces noise (1/1 → 100%,

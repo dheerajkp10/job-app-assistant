@@ -3,8 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
-import { LEVEL_TIERS } from '@/lib/types';
-import { PageHeaderNav } from '@/components/layout/page-header-nav';
+import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
 
 const WORK_MODES: { key: WorkMode; label: string }[] = [
@@ -28,6 +27,7 @@ export default function SettingsPage() {
   const [preferredLevels, setPreferredLevels] = useState<string[]>([]);
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
+  const [workAuthCountries, setWorkAuthCountries] = useState<string[]>(['US']);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
   const [salaryBaseMin, setSalaryBaseMin] = useState('');
@@ -53,6 +53,9 @@ export default function SettingsPage() {
         setPreferredLevels(s.preferredLevels || []);
         setPreferredLocations(s.preferredLocations || []);
         setWorkMode(s.workMode || []);
+        setWorkAuthCountries(
+          s.workAuthCountries && s.workAuthCountries.length > 0 ? s.workAuthCountries : ['US']
+        );
         setSalaryMin(s.salaryMin ? String(s.salaryMin) : '');
         setSalaryMax(s.salaryMax ? String(s.salaryMax) : '');
         setSalaryBaseMin(s.salaryBaseMin ? String(s.salaryBaseMin) : '');
@@ -159,6 +162,7 @@ export default function SettingsPage() {
           preferredLevels,
           preferredLocations,
           workMode,
+          workAuthCountries,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
           salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
@@ -181,7 +185,6 @@ export default function SettingsPage() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
-      <PageHeaderNav current="Settings" />
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
         <button
@@ -336,6 +339,44 @@ export default function SettingsPage() {
             }
           }}
         />
+
+        {/* Work authorization. Drives the listings filter — jobs in countries
+            outside this list are hidden so the user only sees roles they could
+            legally take. Defaults to US for legacy users. */}
+        <div className="mt-6 pt-6 border-t border-gray-100">
+          <label className="block text-xs font-medium text-gray-500 mb-1">
+            Work Authorization
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            Job listings outside these countries (e.g. <em>Remote — Canada</em> for a US-only worker) are hidden.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {WORK_AUTH_COUNTRIES.map((c) => {
+              const on = workAuthCountries.includes(c.code);
+              return (
+                <button
+                  key={c.code}
+                  type="button"
+                  onClick={() =>
+                    setWorkAuthCountries((prev) =>
+                      prev.includes(c.code)
+                        ? prev.filter((x) => x !== c.code)
+                        : [...prev, c.code]
+                    )
+                  }
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    on
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
+                >
+                  {on && <Check className="inline w-3 h-3 mr-1" />}
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       {/* Salary Range (optional) */}

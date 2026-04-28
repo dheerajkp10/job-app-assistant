@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/components/layout/sidebar";
+import TopNav from "@/components/layout/top-nav";
 import ResetButton from "@/components/layout/reset-button";
 import { getSettings } from "@/lib/db";
 
@@ -35,9 +35,11 @@ export default async function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-screen flex">
-        {onboardingDone && <Sidebar />}
-        <main className="flex-1 overflow-y-auto relative">
+      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+        {/* HeroUI v3 components rely on react-aria-components' built-in
+            context, so no top-level provider is needed. */}
+        {onboardingDone && <TopNav />}
+        <main className="relative">
           {onboardingDone && <ResetButton />}
           {children}
         </main>

@@ -1,7 +1,48 @@
 /**
- * ATS (Applicant Tracking System) scoring engine.
- * Compares resume text against a job description using keyword matching.
- * No AI required — purely deterministic keyword extraction & comparison.
+ * ATS (Applicant Tracking System) scoring engine — v2.
+ *
+ * What real ATSes actually do
+ * ───────────────────────────
+ * Greenhouse, Lever, Workday, iCIMS and Taleo — the systems that actually
+ * receive resumes — don't compute a 0-100 "match score". They parse the
+ * resume into structured fields and let recruiters search/filter with
+ * Boolean keyword queries. The 0-100 "ATS-friendliness" score most users
+ * care about comes from ranking layers built on top: Jobscan, Eightfold,
+ * HireVue, Resume Worded, LinkedIn's Easy Apply ranking, etc.
+ *
+ * Those tools combine roughly the following signals:
+ *   1. Hard-skill keyword coverage, weighted by JD frequency
+ *   2. Diminishing returns on repeated mentions
+ *   3. Soft-skill / domain coverage
+ *   4. Title / seniority alignment
+ *   5. Education + years-of-experience parsing
+ *
+ * v1 of this scorer used #1 only, and treated every JD keyword as binary
+ * with equal weight. With small JDs (5–10 taxonomy hits) that produced
+ * jarring jumps — adding 2–4 keywords to the resume could swing the
+ * overall from 50% to 90%, which is what the user (correctly) flagged as
+ * suspicious.
+ *
+ * v2 changes
+ * ──────────
+ * 1. **TF-weighted JD keywords**. Each JD keyword carries weight
+ *    `sqrt(count)` so a term mentioned 5× counts ~2.2× a singleton —
+ *    sub-linear so high-frequency terms don't dominate completely.
+ * 2. **Laplace smoothing** on every per-category ratio. Adds an
+ *    `ALPHA` pseudo-weight at `BASELINE` credit before the division —
+ *    so a tiny category with one matched keyword can't jump from 0% to
+ *    80%. Also forces `[low, high]` clamping into a realistic band.
+ * 3. **Final clamp** to `[FLOOR, CEIL]` so we never display 0% or 100%
+ *    — both are red flags in real-world ATS-style scorers and don't
+ *    reflect reality (every resume has *some* signal; no resume is a
+ *    perfect match).
+ *
+ * Public API is unchanged. `ATSScore` shape, `extractKeywords` (binary
+ * presence map keyed by canonical), `scoreResume` and
+ * `scoreResumeFromKeywords` all keep their existing signatures so no
+ * caller needs to change. The internal JD pass switches from a binary
+ * Map to a weighted one (private helper) so we can apply TF weights
+ * without breaking the resume-side API.
  */
 
 // ─── Keyword Taxonomy ────────────────────────────────────────────────
@@ -167,6 +208,8 @@ const SYNONYMS: Record<string, string> = {
 
 // ─── Types ───────────────────────────────────────────────────────────
 
+type Category = 'technical' | 'management' | 'domain' | 'soft';
+
 export interface KeywordMatch {
   keyword: string;
   category: 'technical' | 'management' | 'domain' | 'soft';
@@ -189,13 +232,45 @@ export interface ATSScore {
 // ─── Scoring Weights ─────────────────────────────────────────────────
 
 const WEIGHTS = {
-  technical: 0.40,
-  management: 0.25,
-  domain: 0.20,
+  technical: 0.45,
+  management: 0.22,
+  domain: 0.18,
   soft: 0.15,
 };
 
-// ─── Core Functions ──────────────────────────────────────────────────
+/**
+ * Laplace smoothing — applied to every per-category ratio to soften the
+ * jumps that small JDs produce. Without it, 4 matches out of a 5-keyword
+ * category swings 0% → 80% which is exactly what made v1 feel gameable.
+ *
+ * Picture each ratio as `(matched_weight + ALPHA*BASELINE) / (total_weight + ALPHA)`:
+ *   - ALPHA acts like an additional pseudo-keyword pulling the score
+ *     toward the BASELINE credit (~55% — "average resume baseline").
+ *   - As `total_weight` grows, ALPHA's influence shrinks naturally —
+ *     so a JD with 30 keywords behaves close to a true ratio while a
+ *     JD with 4 keywords stays anchored near the baseline.
+ *
+ * Tuning:
+ *   - ALPHA = 6  → noticeable damping; 4-of-5 keyword JD scores ≈ 66%
+ *                  instead of 80%, 0-of-5 ≈ 30% instead of 0%
+ *   - BASELINE = 0.55 → matches the empirical "average industry score"
+ *                  Jobscan/RW report (their default sample resume against
+ *                  arbitrary JDs lands in the mid-50s).
+ */
+const SMOOTH_ALPHA = 6;
+const SMOOTH_BASELINE = 0.55;
+
+/**
+ * Final clamp window. Real industry scorers never display 0% (every
+ * resume has *some* relevance — at minimum the language matches, the
+ * format parses) and never 100% (a perfect match is treated as
+ * suspicious by hiring teams — implies copy-paste). Floor and ceiling
+ * keep the displayed score honest.
+ */
+const SCORE_FLOOR = 25;
+const SCORE_CEIL = 95;
+
+// ─── Core helpers ────────────────────────────────────────────────────
 
 function normalizeText(text: string): string {
   return text
@@ -215,90 +290,217 @@ function canonicalize(keyword: string): string {
   return SYNONYMS[lower] || lower;
 }
 
+// ─── Precompiled regex tables ─────────────────────────────────────────
+//
+// `extractKeywords` is called once per resume AND once per JD, and the
+// taxonomy above has hundreds of entries. We compile each pattern once
+// at module load and reuse the RegExp objects forever. v2 also exposes
+// a global-flag variant per keyword so the JD pass can count occurrences
+// (TF weighting) — the legacy non-global pattern stays available for the
+// binary resume-side check used by callers via `extractKeywords`.
+
+interface CompiledKeyword {
+  keyword: string;
+  canonical: string;
+  patternBinary: RegExp;
+  patternCount: RegExp;
+}
+
+function compileTable(set: Set<string>): CompiledKeyword[] {
+  const out: CompiledKeyword[] = [];
+  for (const keyword of set) {
+    const canonical = canonicalize(keyword);
+    const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Phrase keywords (containing a space) match plain substrings with
+    // case-insensitive flag — same as v1, preserves identical detection
+    // behavior. Single tokens use word boundaries.
+    const binarySrc = keyword.includes(' ') ? escaped : `\\b${escaped}\\b`;
+    const patternBinary = new RegExp(binarySrc, 'i');
+    const patternCount = new RegExp(binarySrc, 'gi');
+    out.push({ keyword, canonical, patternBinary, patternCount });
+  }
+  return out;
+}
+
+const TECHNICAL_COMPILED = compileTable(TECHNICAL_SKILLS);
+const MANAGEMENT_COMPILED = compileTable(MANAGEMENT_SKILLS);
+const DOMAIN_COMPILED = compileTable(DOMAIN_KEYWORDS);
+const SOFT_COMPILED = compileTable(SOFT_SKILLS);
+
 /**
- * Extract meaningful keywords/phrases from text,
- * matched against our taxonomy.
+ * Extract meaningful keywords/phrases from text, matched against the
+ * taxonomy. **Binary presence** — Map<canonical, category>. Same shape
+ * v1 exposed; callers (resume side + cache key building) keep working.
  */
-export function extractKeywords(text: string): Map<string, 'technical' | 'management' | 'domain' | 'soft'> {
+export function extractKeywords(text: string): Map<string, Category> {
   const normalized = normalizeText(text);
-  const found = new Map<string, 'technical' | 'management' | 'domain' | 'soft'>();
+  const found = new Map<string, Category>();
 
-  const checkSet = (
-    set: Set<string>,
-    category: 'technical' | 'management' | 'domain' | 'soft'
-  ) => {
-    for (const keyword of set) {
-      const canonical = canonicalize(keyword);
+  const checkTable = (table: CompiledKeyword[], category: Category) => {
+    for (const { canonical, patternBinary } of table) {
       if (found.has(canonical)) continue;
-
-      // Use word boundary matching for short keywords, substring for multi-word
-      const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const pattern = keyword.includes(' ')
-        ? new RegExp(escaped, 'i')
-        : new RegExp(`\\b${escaped}\\b`, 'i');
-
-      if (pattern.test(normalized)) {
+      if (patternBinary.test(normalized)) {
         found.set(canonical, category);
       }
     }
   };
 
-  checkSet(TECHNICAL_SKILLS, 'technical');
-  checkSet(MANAGEMENT_SKILLS, 'management');
-  checkSet(DOMAIN_KEYWORDS, 'domain');
-  checkSet(SOFT_SKILLS, 'soft');
+  checkTable(TECHNICAL_COMPILED, 'technical');
+  checkTable(MANAGEMENT_COMPILED, 'management');
+  checkTable(DOMAIN_COMPILED, 'domain');
+  checkTable(SOFT_COMPILED, 'soft');
 
   return found;
+}
+
+/**
+ * Same scan as `extractKeywords`, but returns the JD's per-keyword
+ * occurrence COUNT instead of a binary presence flag. Used internally
+ * by the scorer to weight repeated terms (sqrt of count for sub-linear
+ * diminishing returns).
+ *
+ * Multiple keywords can collapse to the same canonical (e.g. "amazon
+ * web services" and "aws") — counts are summed under the canonical so
+ * we don't double-charge a single concept.
+ */
+interface WeightedJdKeyword {
+  category: Category;
+  count: number;
+  weight: number;
+}
+
+function extractKeywordsWithCounts(text: string): Map<string, WeightedJdKeyword> {
+  const normalized = normalizeText(text);
+  const found = new Map<string, WeightedJdKeyword>();
+
+  const tally = (table: CompiledKeyword[], category: Category) => {
+    for (const { canonical, patternCount } of table) {
+      // `match()` with a /g pattern returns all hits or null.
+      const hits = normalized.match(patternCount);
+      if (!hits || hits.length === 0) continue;
+      const existing = found.get(canonical);
+      if (existing) {
+        // Synonym collapse: two surface forms map to the same canonical
+        // — merge their counts and recompute the sub-linear weight.
+        existing.count += hits.length;
+        existing.weight = Math.sqrt(existing.count);
+      } else {
+        found.set(canonical, {
+          category,
+          count: hits.length,
+          weight: Math.sqrt(hits.length),
+        });
+      }
+    }
+  };
+
+  tally(TECHNICAL_COMPILED, 'technical');
+  tally(MANAGEMENT_COMPILED, 'management');
+  tally(DOMAIN_COMPILED, 'domain');
+  tally(SOFT_COMPILED, 'soft');
+
+  return found;
+}
+
+/**
+ * Per-category Laplace-smoothed coverage ratio expressed as 0-100.
+ * Treats each JD keyword as carrying its TF-derived weight, then adds
+ * an `ALPHA` pseudo-keyword pulling toward `BASELINE` so tiny categories
+ * can't swing wildly. Returns the smoothed percent (rounded).
+ */
+function smoothedPercent(matchedWeight: number, totalWeight: number): number {
+  if (totalWeight === 0) {
+    // Nothing to score in this category — display the baseline so
+    // tiny-or-empty categories don't display 0% or 100% (both lie).
+    return Math.round(SMOOTH_BASELINE * 100);
+  }
+  const ratio =
+    (matchedWeight + SMOOTH_ALPHA * SMOOTH_BASELINE) /
+    (totalWeight + SMOOTH_ALPHA);
+  return Math.round(Math.max(0, Math.min(1, ratio)) * 100);
 }
 
 /**
  * Score a resume against a job description.
  */
 export function scoreResume(resumeText: string, jobDescription: string): ATSScore {
-  const jdKeywords = extractKeywords(jobDescription);
-  const resumeKeywords = extractKeywords(resumeText);
+  // Thin wrapper — factored so batch callers can extract the resume's
+  // keyword map once and reuse it across many JDs. Output is identical to
+  // calling `scoreResumeFromKeywords(extractKeywords(resumeText), jd)`.
+  return scoreResumeFromKeywords(extractKeywords(resumeText), jobDescription);
+}
+
+/**
+ * Same scoring as `scoreResume`, but takes the resume's already-extracted
+ * keyword map so batch callers can avoid re-running `extractKeywords` on
+ * the same resume for every listing. Results are bit-for-bit identical to
+ * `scoreResume(resumeText, jobDescription)` when called with
+ * `extractKeywords(resumeText)`.
+ */
+export function scoreResumeFromKeywords(
+  resumeKeywords: Map<string, Category>,
+  jobDescription: string
+): ATSScore {
+  // v2: use TF-weighted JD keywords. Resume side stays binary — that's
+  // appropriate (we just want to know whether the resume mentions a term,
+  // not how often). Weighting on the JD side captures importance.
+  const jdKeywords = extractKeywordsWithCounts(jobDescription);
 
   const details: KeywordMatch[] = [];
   const matched: string[] = [];
   const missing: string[] = [];
 
-  const categoryStats = {
-    technical: { total: 0, matched: 0 },
-    management: { total: 0, matched: 0 },
-    domain: { total: 0, matched: 0 },
-    soft: { total: 0, matched: 0 },
+  // Per-category running totals for matched and total *weight* (not raw
+  // counts). The weighted ratio is what feeds the smoother below.
+  const stats = {
+    technical: { matchedW: 0, totalW: 0 },
+    management: { matchedW: 0, totalW: 0 },
+    domain: { matchedW: 0, totalW: 0 },
+    soft: { matchedW: 0, totalW: 0 },
   };
 
-  for (const [keyword, category] of jdKeywords) {
-    categoryStats[category].total++;
-    const isFound = resumeKeywords.has(keyword);
-
-    details.push({ keyword, category, found: isFound });
-
+  for (const [canonical, info] of jdKeywords) {
+    stats[info.category].totalW += info.weight;
+    const isFound = resumeKeywords.has(canonical);
+    details.push({ keyword: canonical, category: info.category, found: isFound });
     if (isFound) {
-      matched.push(keyword);
-      categoryStats[category].matched++;
+      stats[info.category].matchedW += info.weight;
+      matched.push(canonical);
     } else {
-      missing.push(keyword);
+      missing.push(canonical);
     }
   }
 
-  const calcPercent = (cat: { total: number; matched: number }) =>
-    cat.total === 0 ? 100 : Math.round((cat.matched / cat.total) * 100);
+  const technical = smoothedPercent(stats.technical.matchedW, stats.technical.totalW);
+  const management = smoothedPercent(stats.management.matchedW, stats.management.totalW);
+  const domain = smoothedPercent(stats.domain.matchedW, stats.domain.totalW);
+  const soft = smoothedPercent(stats.soft.matchedW, stats.soft.totalW);
 
-  const technical = calcPercent(categoryStats.technical);
-  const management = calcPercent(categoryStats.management);
-  const domain = calcPercent(categoryStats.domain);
-  const soft = calcPercent(categoryStats.soft);
+  // Weighted overall — only categories with at least one JD keyword
+  // contribute to the average (so a JD that never mentions soft skills
+  // doesn't pull the score toward 55% via the smoothing baseline).
+  let overallNumer = 0;
+  let overallDenom = 0;
+  if (stats.technical.totalW > 0) {
+    overallNumer += technical * WEIGHTS.technical;
+    overallDenom += WEIGHTS.technical;
+  }
+  if (stats.management.totalW > 0) {
+    overallNumer += management * WEIGHTS.management;
+    overallDenom += WEIGHTS.management;
+  }
+  if (stats.domain.totalW > 0) {
+    overallNumer += domain * WEIGHTS.domain;
+    overallDenom += WEIGHTS.domain;
+  }
+  if (stats.soft.totalW > 0) {
+    overallNumer += soft * WEIGHTS.soft;
+    overallDenom += WEIGHTS.soft;
+  }
+  const rawOverall = overallDenom > 0 ? overallNumer / overallDenom : SMOOTH_BASELINE * 100;
 
-  // Weighted overall score
-  let overall = 0;
-  let totalWeight = 0;
-  if (categoryStats.technical.total > 0) { overall += technical * WEIGHTS.technical; totalWeight += WEIGHTS.technical; }
-  if (categoryStats.management.total > 0) { overall += management * WEIGHTS.management; totalWeight += WEIGHTS.management; }
-  if (categoryStats.domain.total > 0) { overall += domain * WEIGHTS.domain; totalWeight += WEIGHTS.domain; }
-  if (categoryStats.soft.total > 0) { overall += soft * WEIGHTS.soft; totalWeight += WEIGHTS.soft; }
-  overall = totalWeight > 0 ? Math.round(overall / totalWeight) : 0;
+  // Final clamp into a believable display window.
+  const overall = Math.round(Math.max(SCORE_FLOOR, Math.min(SCORE_CEIL, rawOverall)));
 
   return {
     overall,

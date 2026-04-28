@@ -8,7 +8,7 @@ import {
   CheckCircle2, XCircle, Rocket,
 } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
-import { LEVEL_TIERS } from '@/lib/types';
+import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
 
 const STEPS = ['Role & Level', 'Location', 'Salary', 'Resume', 'Companies', 'Fetch Jobs'] as const;
@@ -101,6 +101,10 @@ export default function OnboardingWizard() {
   const [levels, setLevels] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
+  // Default to US — most users land here from the US, and the listings
+  // filter is "show countries the user is authorized to work in".
+  // Adding more countries is one click away in the same step.
+  const [workAuthCountries, setWorkAuthCountries] = useState<string[]>(['US']);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
   const [salaryBaseMin, setSalaryBaseMin] = useState('');
@@ -148,6 +152,7 @@ export default function OnboardingWizard() {
         if (s.preferredLevels?.length) setLevels(s.preferredLevels);
         if (s.preferredLocations?.length) setLocations(s.preferredLocations);
         if (s.workMode?.length) setWorkMode(s.workMode);
+        if (s.workAuthCountries?.length) setWorkAuthCountries(s.workAuthCountries);
         if (s.salaryMin) setSalaryMin(String(s.salaryMin));
         if (s.salaryMax) setSalaryMax(String(s.salaryMax));
         if (s.salaryBaseMin) setSalaryBaseMin(String(s.salaryBaseMin));
@@ -275,6 +280,7 @@ export default function OnboardingWizard() {
           preferredLevels: levels,
           preferredLocations: locations,
           workMode,
+          workAuthCountries,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
           salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
@@ -579,6 +585,45 @@ export default function OnboardingWizard() {
                           {m.label}
                         </span>
                         <span className="block text-xs text-gray-500 mt-0.5">{m.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Work authorization. Drives the listings filter so users only
+                  see roles they could legally take. Defaults to US — the user
+                  can add more countries (Canada, UK, etc.) if they're
+                  authorized in those too. */}
+              <div className="mb-6">
+                <label className="block text-xs font-medium text-gray-500 mb-2">
+                  Work Authorization (countries you can legally work in)
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  Job listings outside these countries (e.g. <em>Remote — Canada</em> for a US-only worker) will be filtered out.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {WORK_AUTH_COUNTRIES.map((c) => {
+                    const on = workAuthCountries.includes(c.code);
+                    return (
+                      <button
+                        key={c.code}
+                        type="button"
+                        onClick={() =>
+                          setWorkAuthCountries((prev) =>
+                            prev.includes(c.code)
+                              ? prev.filter((x) => x !== c.code)
+                              : [...prev, c.code]
+                          )
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                          on
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                        }`}
+                      >
+                        {on && <Check className="inline w-3 h-3 mr-1" />}
+                        {c.label}
                       </button>
                     );
                   })}

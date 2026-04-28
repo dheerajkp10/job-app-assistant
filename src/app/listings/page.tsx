@@ -6,11 +6,13 @@ import {
   Search, RefreshCw, MapPin, Calendar, Building2, ExternalLink,
   DollarSign, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
-  Tag, EyeOff, Eye, Globe,
+  Tag, EyeOff, Eye, Globe, Sparkles, Check,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
-import { PORTAL_SEARCH_LINKS, LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
+import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
+import { Button, Card, Chip } from '@heroui/react';
 import { filterByUserPreferences } from '@/lib/role-filter';
+import { isWorkAuthorized } from '@/lib/work-auth-filter';
 import { matchesLevelPreference } from '@/lib/level-matcher';
 import {
   detectCurrentCompany,
@@ -18,13 +20,49 @@ import {
   isExcludedCompany,
 } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
-import { PageHeaderNav } from '@/components/layout/page-header-nav';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
   lever: 'Lever',
   ashby: 'Ashby',
 };
+
+// ─── Posted-date helpers ────────────────────────────────────────────
+
+/**
+ * Format an ISO timestamp as a human-friendly relative string.
+ * Examples: "today", "yesterday", "3 days ago", "2 weeks ago", "Mar 4".
+ * Returns null if the input is null/undefined/invalid.
+ */
+function formatPostedDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  if (isNaN(ms)) return null;
+  const diffMs = Date.now() - ms;
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.floor(diffMs / day);
+  if (days < 0) return new Date(ms).toLocaleDateString();
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return '1 week ago';
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 60) return '1 month ago';
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return new Date(ms).toLocaleDateString();
+}
+
+/**
+ * Returns true if the listing was posted (or, when the posting date is
+ * unknown, fetched into the system) within the last 48 hours.
+ * Used to render the "New" badge.
+ */
+function isRecentlyPosted(listing: { postedAt: string | null; fetchedAt: string }): boolean {
+  const ref = listing.postedAt || listing.fetchedAt;
+  const ms = Date.parse(ref);
+  if (isNaN(ms)) return false;
+  return Date.now() - ms < 48 * 60 * 60 * 1000;
+}
 
 // ─── Location matching (preference-driven) ──────────────────────────
 // Falls back to Washington/Remote when user has no preferences set.
@@ -46,33 +84,103 @@ function isWashingtonOrRemote(location: string): boolean {
 }
 
 /**
+ * US state abbreviation → full name. Used so a preferred location like
+ * "Seattle, WA" also matches other listings in Washington (Bellevue,
+ * Kirkland, Redmond, Tacoma, etc.) via the state code / state name.
+ * Includes DC for completeness.
+ */
+const US_STATES: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
+  CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
+  IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
+  KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
+  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
+  MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
+  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
+  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
+  OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
+  WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia',
+};
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
  * Build location matcher from the user's preferred locations.
- * For each location like "Seattle, WA" we extract lowercase tokens
- * (e.g., "seattle", "wa") and match any of them.
+ *
+ * For each preferred "City, ST" we match (OR) on:
+ *   1. the city name    — e.g. "Seattle" matches "Seattle, WA"
+ *   2. the state code   — e.g. "WA" matches any job whose location contains ", WA"
+ *                         so picking Seattle/Bellevue/Kirkland also pulls in
+ *                         Redmond, Tacoma, Everett, etc.
+ *   3. "Remote"         — when the user explicitly listed Remote as a preference
+ *
+ * All matches use word boundaries. This fixes a bug where a naive
+ * substring check on "wa" made Warsaw (Poland) show up as a match for
+ * WA-state preferences because "warsaw" literally contains "wa".
+ *
+ * We deliberately do NOT match the full state name ("Washington") to
+ * avoid the well-known "Washington, DC" false positive. State codes are
+ * the standard job-board format anyway.
  */
 function buildLocationMatcher(preferredLocations: string[]): (location: string) => boolean {
   if (!preferredLocations || preferredLocations.length === 0) {
     return isWashingtonOrRemote;
   }
 
-  // Build tokens from each preferred location.
-  const tokens: string[] = [];
+  const cityPatterns: RegExp[] = [];
+  const statePatterns: RegExp[] = [];
+  const seenCities = new Set<string>();
+  const seenStates = new Set<string>();
+  let matchRemote = false;
+
   for (const loc of preferredLocations) {
-    const lower = loc.toLowerCase().trim();
-    // "Remote" as a location is a special case
-    if (lower === 'remote') {
-      tokens.push('remote');
-      continue;
+    const trimmed = (loc || '').trim();
+    if (!trimmed) continue;
+    const lower = trimmed.toLowerCase();
+
+    // Treat anything labeled as Remote as a remote preference. Covers
+    // bare "Remote" as well as "Remote - US" style strings.
+    if (lower === 'remote' || lower.includes('remote')) {
+      matchRemote = true;
+      if (lower === 'remote') continue;
     }
-    // Split "Seattle, WA" → ["seattle", "wa"]
-    for (const part of lower.split(/[,\s]+/).filter(Boolean)) {
-      if (part.length >= 2) tokens.push(part);
+
+    // Parse "City, ST" (or "City, State, Country" — we take first & last parts).
+    const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
+    if (parts.length === 0) continue;
+
+    const cityRaw = parts[0];
+    const stateRaw = parts.length > 1 ? parts[parts.length - 1] : '';
+
+    // City: word-boundary match on the full city name (handles "New York",
+    // "San Francisco", "Mercer Island", etc.). Skips tokens shorter than
+    // 2 chars, which aren't meaningful.
+    const cityKey = cityRaw.toLowerCase();
+    if (cityRaw.length >= 2 && !seenCities.has(cityKey)) {
+      seenCities.add(cityKey);
+      cityPatterns.push(new RegExp(`\\b${escapeRegex(cityKey)}\\b`, 'i'));
+    }
+
+    // State code: `\b${code}\b` matches "Seattle, WA" / "Hybrid - WA" /
+    // "WA (Remote)" but NOT "Warsaw" (no word boundary after the "wa").
+    const stateCode = stateRaw.toUpperCase();
+    if (US_STATES[stateCode] && !seenStates.has(stateCode)) {
+      seenStates.add(stateCode);
+      statePatterns.push(new RegExp(`\\b${stateCode}\\b`, 'i'));
     }
   }
 
   return (location: string) => {
-    const loc = location.toLowerCase();
-    return tokens.some((t) => loc.includes(t));
+    if (!location) return false;
+    if (matchRemote && /\bremote\b/i.test(location)) return true;
+    for (const p of cityPatterns) if (p.test(location)) return true;
+    for (const p of statePatterns) if (p.test(location)) return true;
+    return false;
   };
 }
 
@@ -152,6 +260,10 @@ interface ATSScore {
   missingKeywords: string[];
   totalJdKeywords: number;
   totalMatched: number;
+  /** Tailoring suggestions returned alongside the score (server-side
+   *  heuristic detector). Each can be toggled and round-tripped to the
+   *  tailor route as `selectedSuggestions: string[]`. */
+  suggestions?: { id: string; kind: string; label: string; description: string }[];
 }
 
 interface TailorResult {
@@ -168,6 +280,17 @@ export default function ListingsPage() {
   const [allListings, setAllListings] = useState<JobListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Streaming refresh progress (SSE-driven). Mirrors the onboarding
+  // wizard's fetch flow — discovers ALL companies, then pulls listings
+  // from each one in parallel batches, all in the background while the
+  // user can keep browsing the existing data.
+  const [refreshProgress, setRefreshProgress] = useState<{
+    completed: number;
+    total: number;
+    currentCompany: string | null;
+    totalJobsSoFar: number;
+    failed: number;
+  } | null>(null);
   const [lastFetched, setLastFetched] = useState<string | null>(null);
   const [fetchErrors, setFetchErrors] = useState<{ company: string; error: string }[]>([]);
   const [showErrors, setShowErrors] = useState(false);
@@ -234,13 +357,10 @@ export default function ListingsPage() {
   const [page, setPage] = useState(1);
   const pageSize = 50;
 
-  const loadListings = useCallback(async (refresh = false) => {
-    if (refresh) setRefreshing(true);
-    else setLoading(true);
-
+  const loadListings = useCallback(async () => {
+    setLoading(true);
     try {
-      const url = refresh ? '/api/listings?refresh=true' : '/api/listings';
-      const res = await fetch(url);
+      const res = await fetch('/api/listings');
       const data = await res.json();
       // Defensive dedupe on the client in case the cached DB still contains
       // duplicate listings from an earlier fetch before the dedupe landed.
@@ -255,16 +375,81 @@ export default function ListingsPage() {
       setAllListings(deduped);
       setLastFetched(data.lastFetchedAt);
       setFetchErrors(data.fetchErrors || []);
-
-      // Stale data notification — user can click Refresh All to update
-      // (no automatic background refresh)
     } catch {
       // keep existing listings on error
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
+
+  /**
+   * Streaming refresh — same flow as the onboarding wizard.
+   * Re-discovers ALL configured companies, then for each one pulls every
+   * listing they currently have open. Progress events stream back over
+   * Server-Sent Events so the UI shows live "X / Y companies, Z jobs"
+   * while the user can keep browsing the existing dataset.
+   *
+   * Once the SSE stream completes, we re-fetch the cache and the scores
+   * cache so the listings table picks up newly discovered jobs and any
+   * background ATS rescoring.
+   */
+  const streamingRefresh = useCallback(() => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setRefreshProgress({
+      completed: 0,
+      total: 0,
+      currentCompany: null,
+      totalJobsSoFar: 0,
+      failed: 0,
+    });
+
+    const evt = new EventSource('/api/listings/fetch-stream');
+    let failed = 0;
+
+    evt.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'start') {
+          setRefreshProgress((p) => p && { ...p, total: data.total });
+        } else if (data.type === 'progress') {
+          if (data.status === 'error') failed++;
+          setRefreshProgress((p) =>
+            p && {
+              ...p,
+              completed: data.completed,
+              currentCompany: data.company,
+              totalJobsSoFar: data.totalJobsSoFar,
+              failed,
+            }
+          );
+        } else if (data.type === 'complete') {
+          evt.close();
+          // Pull fresh listings + scores into the page state so
+          // newly-fetched jobs show immediately without a hard reload.
+          loadListings();
+          fetch('/api/scores-cache')
+            .then((r) => r.json())
+            .then(setScoreCache)
+            .catch(() => {});
+          // Hide the progress card a moment after completion so the
+          // "all done" state is briefly visible.
+          setTimeout(() => {
+            setRefreshing(false);
+            setRefreshProgress(null);
+          }, 1200);
+        }
+      } catch {
+        // Ignore malformed SSE frames.
+      }
+    };
+
+    evt.onerror = () => {
+      evt.close();
+      setRefreshing(false);
+      setRefreshProgress(null);
+    };
+  }, [refreshing, loadListings]);
 
   // Companies the user has explicitly chosen to hide (persisted in settings).
   // Seeded on first load from auto-detection of the resume's current employer.
@@ -313,6 +498,26 @@ export default function ListingsPage() {
     }).catch(() => {});
   }, [loadListings, levelsInitialized, excludeInitialized]);
 
+  // Reload listings + scores when the user returns to this tab/page.
+  // This makes the page feel "live" — when a job is added on /jobs/add
+  // and the user navigates back here (or switches tabs), they immediately
+  // see the new entry without having to hit "Refresh All".
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadListings();
+        fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
+        fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [loadListings]);
+
   // Persist excludedCompanies whenever the user edits the list.
   const saveExcludedCompanies = useCallback((next: string[]) => {
     setExcludedCompanies(next);
@@ -340,13 +545,25 @@ export default function ListingsPage() {
     return Array.from(set);
   }, [excludedCompanies]);
 
+  // Resolve the user's work-authorization countries — defaults to ["US"]
+  // for legacy settings that predate the field. We snapshot it here so
+  // the filter chain below stays referentially stable in useMemo deps.
+  const authCountries = useMemo(
+    () => (prefs.workAuthCountries && prefs.workAuthCountries.length > 0
+      ? prefs.workAuthCountries
+      : ['US']),
+    [prefs.workAuthCountries],
+  );
+
   // Filter to relevant roles using user preferences (or fallback to EM
-  // patterns), then drop anything from excluded employers.
+  // patterns), then drop anything from excluded employers OR from a
+  // country the user isn't authorized to work in.
   const listings = useMemo(() => {
     const roleMatched = filterByUserPreferences(allListings, prefs.preferredRoles ?? []);
-    if (excludedAliases.length === 0) return roleMatched;
-    return roleMatched.filter((l) => !isExcludedCompany(l.company, excludedAliases));
-  }, [allListings, prefs.preferredRoles, excludedAliases]);
+    const authFiltered = roleMatched.filter((l) => isWorkAuthorized(l.location, authCountries));
+    if (excludedAliases.length === 0) return authFiltered;
+    return authFiltered.filter((l) => !isExcludedCompany(l.company, excludedAliases));
+  }, [allListings, prefs.preferredRoles, excludedAliases, authCountries]);
 
   // Count of listings hidden by the current-employer filter, for a small
   // info banner so the user understands what's being excluded.
@@ -356,7 +573,24 @@ export default function ListingsPage() {
     return roleMatched.filter((l) => isExcludedCompany(l.company, excludedAliases)).length;
   }, [allListings, prefs.preferredRoles, excludedAliases]);
 
-  // Auto-score all matching listings in background batches
+  // Auto-score all matching listings in background batches.
+  //
+  // Performance: with 4000+ listings the naive "one chunk at a time"
+  // pattern leaves the client idle while the server processes each chunk,
+  // even though the work is I/O-bound (per-listing JD fetches against
+  // many unrelated hosts). We now run a small pool of workers that each
+  // pull chunks off a shared queue and POST to /api/ats-score/batch in
+  // parallel. The server already fans out all listings in a chunk via
+  // Promise.allSettled, so total in-flight fetches ≈ CONCURRENCY × CHUNK.
+  //
+  // Tuning tradeoffs:
+  //   CHUNK up → fewer HTTP round-trips and fewer server-side DB
+  //              read/writes (the db.json can be 10+MB; each batch does
+  //              one read and one write), but more per-request wall time.
+  //   CONCURRENCY up → higher effective parallelism against external
+  //                    job boards. We stay well below levels that would
+  //                    trigger per-host throttling across the mix of
+  //                    Greenhouse/Lever/Ashby/custom career APIs.
   useEffect(() => {
     if (listings.length === 0 || scoringRef.current) return;
     // Skip ATSs we can't score — their "No score" chip is a truthful terminal
@@ -367,13 +601,27 @@ export default function ListingsPage() {
     if (unscoredIds.length === 0) return;
 
     scoringRef.current = true;
-    const CHUNK = 10;
-    let scored = listings.length - unscoredIds.length;
-    setScoringProgress({ scored, total: listings.length });
+    const CHUNK = 20;
+    const CONCURRENCY = 4;
 
-    (async () => {
-      for (let i = 0; i < unscoredIds.length; i += CHUNK) {
-        const chunk = unscoredIds.slice(i, i + CHUNK);
+    // Build the chunk queue up-front so each worker just pops the next one.
+    const queue: string[][] = [];
+    for (let i = 0; i < unscoredIds.length; i += CHUNK) {
+      queue.push(unscoredIds.slice(i, i + CHUNK));
+    }
+
+    const total = listings.length;
+    let scored = total - unscoredIds.length;
+    setScoringProgress({ scored, total });
+
+    // Abort flag shared across workers so a single failure doesn't leave
+    // other workers still firing requests.
+    let aborted = false;
+
+    const worker = async () => {
+      while (!aborted) {
+        const chunk = queue.shift();
+        if (!chunk) return;
         try {
           const res = await fetch('/api/ats-score/batch', {
             method: 'POST',
@@ -381,8 +629,10 @@ export default function ListingsPage() {
             body: JSON.stringify({ listingIds: chunk }),
           });
           const data = await res.json();
-          if (data.error) break;
+          if (data.error) { aborted = true; return; }
           if (data.scores) {
+            // Functional setState is concurrency-safe: each worker's
+            // update merges into the latest cache, not a stale snapshot.
             setScoreCache(prev => {
               const next = { ...prev };
               for (const [id, s] of Object.entries(data.scores) as [string, { overall: number; matchedCount: number; totalCount: number }][]) {
@@ -395,9 +645,17 @@ export default function ListingsPage() {
           // couldn't be scored — so the progress bar never stalls on
           // custom-ATS listings whose detail endpoints aren't available.
           scored += chunk.length;
-          setScoringProgress({ scored, total: listings.length });
-        } catch { break; }
+          setScoringProgress({ scored, total });
+        } catch {
+          aborted = true;
+          return;
+        }
       }
+    };
+
+    (async () => {
+      // Kick off N workers and wait for all of them to drain the queue.
+      await Promise.all(Array.from({ length: CONCURRENCY }, worker));
       setScoringProgress(null);
       scoringRef.current = false;
       fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
@@ -512,53 +770,85 @@ export default function ListingsPage() {
         <p className="text-sm text-gray-500 mb-6 max-w-md text-center">
           Click below to search across 40+ company career pages and populate your listings based on your preferences.
         </p>
-        <button
-          onClick={() => loadListings(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        <Button
+          onPress={streamingRefresh}
+          isDisabled={refreshing}
+          size="lg"
+          className="px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-blue-700 data-[hovered=true]:to-indigo-700"
         >
           {refreshing ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> Fetching Jobs...</>
           ) : (
             <><RefreshCw className="w-4 h-4" /> Fetch Job Listings</>
           )}
-        </button>
+        </Button>
       </div>
     );
   }
 
   return (
-    <div className="p-8">
-      <PageHeaderNav current="Job Listings" />
+    <div className="p-8 max-w-[1500px] mx-auto animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Job Listings</h1>
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-gray-800 to-blue-700 bg-clip-text text-transparent">
+            Job Listings
+          </h1>
           <p className="text-sm text-gray-500 mt-1">
-            <span className="text-blue-600 font-medium">{listings.length} matching roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
+            <span className="text-blue-600 font-semibold">{listings.length} matching roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
             {lastFetched && (
               <span> &middot; Updated {new Date(lastFetched).toLocaleString()}</span>
             )}
           </p>
         </div>
-        <button
-          onClick={() => loadListings(true)}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        <Button
+          onPress={streamingRefresh}
+          isDisabled={refreshing}
+          size="lg"
+          className="group bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-blue-700 data-[hovered=true]:to-indigo-700"
         >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : 'group-data-[hovered=true]:rotate-180 transition-transform duration-500'}`} />
           {refreshing ? 'Refreshing...' : 'Refresh All'}
-        </button>
+        </Button>
       </div>
 
-      {/* Excluded-companies editor (seeded from resume auto-detection). */}
-      <ExcludedCompaniesBar
-        excluded={excludedCompanies}
-        onChange={saveExcludedCompanies}
-        autoDetected={autoDetected}
-        hiddenCount={excludedByEmployerCount}
-        allCompanies={allCompanyNames}
-      />
+      {/* Streaming refresh progress card. Mirrors the onboarding wizard:
+          discovers all companies, then walks each one to pull listings,
+          all in the background while the existing data stays usable. */}
+      {refreshProgress && (
+        <Card className="mb-6 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 ring-blue-200/70 shadow-sm animate-fade-in-up p-4">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="relative">
+              <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-blue-900">
+                Refreshing {refreshProgress.total > 0 ? `${refreshProgress.completed} / ${refreshProgress.total}` : ''} companies
+              </p>
+              <p className="text-xs text-blue-700/80 truncate">
+                {refreshProgress.currentCompany
+                  ? `Just fetched ${refreshProgress.currentCompany}`
+                  : 'Discovering company sources...'}
+                {' · '}
+                <span className="font-medium">{refreshProgress.totalJobsSoFar.toLocaleString()}</span> jobs found
+                {refreshProgress.failed > 0 && (
+                  <span className="text-amber-700"> · {refreshProgress.failed} failed</span>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="h-2 bg-white/60 rounded-full overflow-hidden ring-1 ring-blue-100">
+            <div
+              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full transition-all duration-500"
+              style={{
+                width: refreshProgress.total > 0
+                  ? `${Math.round((refreshProgress.completed / refreshProgress.total) * 100)}%`
+                  : '5%',
+              }}
+            />
+          </div>
+        </Card>
+      )}
 
       {/* Scoring progress */}
       {scoringProgress && (
@@ -579,27 +869,6 @@ export default function ListingsPage() {
         </div>
       )}
 
-      {/* Portal search links */}
-      <div className="mb-6 bg-white rounded-xl border border-gray-200 p-4">
-        <p className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wide">
-          Search Job Portals Directly
-        </p>
-        <div className="flex gap-3">
-          {PORTAL_SEARCH_LINKS.map((p) => (
-            <a
-              key={p.portal}
-              href={p.searchUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
-              style={{ backgroundColor: p.color }}
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-              {p.label}
-            </a>
-          ))}
-        </div>
-      </div>
 
       {/* Fetch errors */}
       {fetchErrors.length > 0 && (
@@ -646,35 +915,11 @@ export default function ListingsPage() {
           </button>
         </div>
 
-        {/* Location preset buttons */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-500 mr-1">
-            <MapPin className="w-3 h-3 inline -mt-0.5" /> Location:
-          </span>
-          <button
-            onClick={() => setLocationPreset('wa-remote')}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              locationPreset === 'wa-remote'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            {prefs.preferredLocations && prefs.preferredLocations.length > 0
-              ? `Preferred Locations (${waRemoteCount})`
-              : `Washington & Remote (${waRemoteCount})`
-            }
-          </button>
-          <button
-            onClick={() => setLocationPreset('all')}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-              locationPreset === 'all'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            All Locations ({listings.length})
-          </button>
-          {flaggedCount > 0 && (
+        {/* Always-visible: just the flagged-toggle pill (when relevant)
+            stays out here as a quick affordance. Everything else lives
+            inside the Filters drawer below. */}
+        {flaggedCount > 0 && (
+          <div className="flex">
             <button
               onClick={() => setShowFlagged((v) => !v)}
               className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
@@ -687,11 +932,51 @@ export default function ListingsPage() {
               {showFlagged ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
               {showFlagged ? 'Hide' : 'Show'} flagged ({flaggedCount})
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {showFilters && (
           <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+            {/* Location preset (Preferred Locations vs All) — moved
+                inside the filters drawer per UX revision. */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-500 mr-1">
+                <MapPin className="w-3 h-3 inline -mt-0.5" /> Location:
+              </span>
+              <button
+                onClick={() => setLocationPreset('wa-remote')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  locationPreset === 'wa-remote'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {prefs.preferredLocations && prefs.preferredLocations.length > 0
+                  ? `Preferred Locations (${waRemoteCount})`
+                  : `Washington & Remote (${waRemoteCount})`
+                }
+              </button>
+              <button
+                onClick={() => setLocationPreset('all')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  locationPreset === 'all'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                All Locations ({listings.length})
+              </button>
+            </div>
+
+            {/* Excluded companies — also moved into the filters drawer.
+                Compact form: chips inline + tiny add input. */}
+            <ExcludedCompaniesBar
+              excluded={excludedCompanies}
+              onChange={saveExcludedCompanies}
+              autoDetected={autoDetected}
+              hiddenCount={excludedByEmployerCount}
+              allCompanies={allCompanyNames}
+            />
             <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
@@ -859,16 +1144,25 @@ export default function ListingsPage() {
 
       {/* Listings */}
       <div className="space-y-2">
-        {paginated.map((listing) => (
-          <ListingCard
+        {paginated.map((listing, idx) => (
+          <div
             key={listing.id}
-            listing={listing}
-            score={scoreCache[listing.id]}
-            flag={flags[listing.id]?.flag}
-            onFlagChange={(f) => setFlagFor(listing.id, f)}
-            isExpanded={expandedId === listing.id}
-            onToggle={() => setExpandedId(expandedId === listing.id ? null : listing.id)}
-          />
+            className="animate-fade-in-up"
+            // Cap the per-card stagger delay so a long page (50 cards
+            // at default page size) finishes the entrance animation in
+            // well under a second. Anything past idx 12 lands at the
+            // same time — feels lively without dragging.
+            style={{ animationDelay: `${Math.min(idx, 12) * 25}ms` }}
+          >
+            <ListingCard
+              listing={listing}
+              score={scoreCache[listing.id]}
+              flag={flags[listing.id]?.flag}
+              onFlagChange={(f) => setFlagFor(listing.id, f)}
+              isExpanded={expandedId === listing.id}
+              onToggle={() => setExpandedId(expandedId === listing.id ? null : listing.id)}
+            />
+          </div>
         ))}
       </div>
 
@@ -965,9 +1259,12 @@ function ListingCard({
 }) {
   const [flagMenuOpen, setFlagMenuOpen] = useState(false);
   const flagMeta = flag ? LISTING_FLAGS.find((f) => f.key === flag) : null;
-  const posted = listing.postedAt
-    ? new Date(listing.postedAt).toLocaleDateString()
-    : null;
+  // Show the actual posted date the company published the role (postedAt).
+  // We deliberately do NOT fall back to fetchedAt here — that would mislead
+  // the user about when the company posted the job. If postedAt is null
+  // (e.g. Meta, manually-added jobs), the date row simply omits the date.
+  const posted = formatPostedDate(listing.postedAt);
+  const isNew = isRecentlyPosted(listing);
 
   // Detailed score (fetched on expand)
   const [detailScore, setDetailScore] = useState<ATSScore | null>(null);
@@ -984,13 +1281,32 @@ function ListingCard({
   const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
   const [keywordsInitialized, setKeywordsInitialized] = useState(false);
 
-  // Initialize selected keywords when score loads
+  // Suggestion-selection state. Same model as keywords: server returns
+  // a list, all selected by default; user toggles individually; the
+  // selected IDs ride along on the tailor request.
+  const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
+  const [suggestionsInitialized, setSuggestionsInitialized] = useState(false);
+
+  // Initialize selected keywords + suggestions when score loads.
   useEffect(() => {
     if (detailScore && !keywordsInitialized) {
       setSelectedKeywords(new Set(detailScore.missingKeywords));
       setKeywordsInitialized(true);
     }
-  }, [detailScore, keywordsInitialized]);
+    if (detailScore && !suggestionsInitialized) {
+      setSelectedSuggestions(new Set((detailScore.suggestions ?? []).map((s) => s.id)));
+      setSuggestionsInitialized(true);
+    }
+  }, [detailScore, keywordsInitialized, suggestionsInitialized]);
+
+  function toggleSuggestion(id: string) {
+    setSelectedSuggestions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function toggleKeyword(keyword: string) {
     setSelectedKeywords(prev => {
@@ -1031,6 +1347,7 @@ function ListingCard({
           listingId: listing.id,
           format: 'json',
           selectedKeywords: Array.from(selectedKeywords),
+          selectedSuggestions: Array.from(selectedSuggestions),
         }),
       });
       const data = await res.json();
@@ -1053,6 +1370,7 @@ function ListingCard({
           listingId: listing.id,
           format: 'pdf',
           selectedKeywords: Array.from(selectedKeywords),
+          selectedSuggestions: Array.from(selectedSuggestions),
         }),
       });
       const blob = await res.blob();
@@ -1094,6 +1412,20 @@ function ListingCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-gray-900 truncate text-base">{listing.title}</h3>
+              {isNew && (
+                <Chip
+                  size="sm"
+                  className="animate-pop bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0 shadow-sm uppercase tracking-wider text-[10px] font-semibold gap-1 inline-flex items-center"
+                  title={
+                    listing.postedAt
+                      ? `Posted ${posted}`
+                      : `Discovered ${formatPostedDate(listing.fetchedAt)}`
+                  }
+                >
+                  <Sparkles className="w-3 h-3" />
+                  New
+                </Chip>
+              )}
             </div>
             <div className="flex items-center gap-2 mb-2">
               <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
@@ -1116,9 +1448,16 @@ function ListingCard({
                 </span>
               )}
               {posted && (
-                <span className="flex items-center gap-1">
+                <span
+                  className="flex items-center gap-1"
+                  title={
+                    listing.postedAt
+                      ? `Posted ${new Date(listing.postedAt).toLocaleString()}`
+                      : undefined
+                  }
+                >
                   <Calendar className="w-3 h-3" />
-                  {posted}
+                  Posted {posted}
                 </span>
               )}
               <span className="flex items-center gap-1">
@@ -1364,6 +1703,66 @@ function ListingCard({
                     )}
                   </div>
                 </div>
+
+                {/* Resume tailoring suggestions. Each suggestion is a
+                    concrete, opt-in edit — mirror JD title, fill a
+                    skills gap, mirror a niche phrase, etc. The accepted
+                    IDs round-trip to the tailor route as
+                    `selectedSuggestions` and dispatch by `kind`
+                    (replace-text, append-summary, append-skills).
+                    Implemented with native checkbox <label>s so the
+                    toggle is unambiguous — clicking either the box or
+                    the label text flips state, and stopPropagation
+                    prevents any parent expand/collapse handler from
+                    swallowing the click. */}
+                {detailScore.suggestions && detailScore.suggestions.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                      <span className="font-medium text-gray-800 text-xs">
+                        Tailoring Suggestions ({selectedSuggestions.size}/{detailScore.suggestions.length} selected)
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {detailScore.suggestions.map((s) => {
+                        const isSelected = selectedSuggestions.has(s.id);
+                        const checkboxId = `suggestion-${listing.id}-${s.id}`;
+                        return (
+                          <label
+                            key={s.id}
+                            htmlFor={checkboxId}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`flex gap-2 items-start p-2 rounded-lg text-xs transition-all border ${
+                              tailorResult
+                                ? 'bg-purple-50 border-purple-200 cursor-default'
+                                : isSelected
+                                  ? 'bg-purple-50 border-purple-300 cursor-pointer hover:bg-purple-100'
+                                  : 'bg-white border-gray-200 cursor-pointer hover:bg-gray-50'
+                            }`}
+                          >
+                            <input
+                              id={checkboxId}
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={!!tailorResult}
+                              onChange={() => toggleSuggestion(s.id)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="mt-0.5 w-3.5 h-3.5 accent-purple-600 cursor-pointer"
+                            />
+                            <span className="flex-1 min-w-0">
+                              <span className={`block font-semibold ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}>
+                                {s.label}
+                              </span>
+                              <span className={`block mt-0.5 text-[11px] leading-snug ${isSelected ? 'text-gray-600' : 'text-gray-500'}`}>
+                                {s.description}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </section>
@@ -1376,17 +1775,18 @@ function ListingCard({
                 <h4 className="text-sm font-semibold text-gray-900">Resume Tailor</h4>
               </div>
               {!tailorResult && (
-                <button
-                  onClick={handleTailor}
-                  disabled={tailoring || !detailScore}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+                <Button
+                  onPress={handleTailor}
+                  isDisabled={tailoring || !detailScore}
+                  size="sm"
+                  className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-sm data-[hovered=true]:from-purple-700 data-[hovered=true]:to-fuchsia-700 data-[hovered=true]:shadow-md"
                 >
                   {tailoring ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Tailoring...</>
                   ) : (
                     <><FileText className="w-3.5 h-3.5" /> Tailor My Resume</>
                   )}
-                </button>
+                </Button>
               )}
             </div>
 
@@ -1515,16 +1915,19 @@ function ExcludedCompaniesBar({
   }
 
   return (
-    <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <EyeOff className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-        <span className="text-xs font-medium text-gray-600 shrink-0">
-          Excluded companies
-          {hiddenCount > 0 && (
-            <span className="text-gray-400 font-normal"> · hiding {hiddenCount}</span>
-          )}
-          :
-        </span>
+    // Compact form — nested inside the Filters drawer. No outer card
+    // background (drawer already provides one); inline label + chips
+    // keep the section to a single visual row when there's only the
+    // auto-detected current employer.
+    <div className="flex items-center gap-2 flex-wrap">
+      <EyeOff className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+      <span className="text-xs font-medium text-gray-500 shrink-0">
+        Excluded companies
+        {hiddenCount > 0 && (
+          <span className="text-gray-400 font-normal"> · hiding {hiddenCount}</span>
+        )}
+        :
+      </span>
         {excluded.length === 0 && (
           <span className="text-xs text-gray-400 italic">
             {autoDetected ? `None — detected ${autoDetected}` : 'None'}
@@ -1587,7 +1990,6 @@ function ExcludedCompaniesBar({
             </div>
           )}
         </div>
-      </div>
     </div>
   );
 }

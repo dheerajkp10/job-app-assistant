@@ -1,4 +1,10 @@
 @import "tailwindcss";
+/* HeroUI v3: ships its own theme tokens + base layer + Tailwind plugin
+   in a single CSS import. Loaded AFTER `tailwindcss` so HeroUI's CSS
+   variables (--heroui-primary, --heroui-radius, etc.) and component
+   base layer take effect. We deliberately stick with HeroUI's default
+   light theme — fancy palette out of the box, no manual oklch tinting. */
+@import "@heroui/styles";
 
 :root {
   --background: #f9fafb;
@@ -13,7 +19,65 @@
 }
 
 body {
-  background: var(--background);
+  /* Allow page-level gradients (set in layout.tsx) to show through */
+  background: transparent;
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* ─── Animations ──────────────────────────────────────────────────── */
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.4s ease-out both;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out both;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.0) 0%,
+    rgba(59, 130, 246, 0.18) 50%,
+    rgba(59, 130, 246, 0.0) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.65; }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 2s ease-in-out infinite;
+}
+
+/* Gentle bounce-in for "New" badges */
+@keyframes pop {
+  0%   { transform: scale(0.7); opacity: 0; }
+  60%  { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.animate-pop {
+  animation: pop 0.35s cubic-bezier(.34,1.56,.64,1) both;
 }

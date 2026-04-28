@@ -36,8 +36,12 @@ export async function POST(req: NextRequest) {
     salaryMax: null,
     url: jobUrl || '',
     ats: 'greenhouse', // placeholder — manual entries don't have a real ATS
-    postedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    // Don't fake a postedAt — we don't actually know when the company posted
+    // this job. Leaving null means the listing card won't display a misleading
+    // "today" date for jobs the user is just tracking. fetchedAt still
+    // captures when WE saved it, which drives the "New" badge.
+    postedAt: null,
+    updatedAt: null,
     fetchedAt: new Date().toISOString(),
   };
 
