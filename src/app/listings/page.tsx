@@ -953,10 +953,39 @@ export default function ListingsPage() {
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
             Job Listings
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            <span className="text-blue-600 font-semibold">{listings.length} matching roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
-            {lastFetched && (
-              <span> &middot; Updated {new Date(lastFetched).toLocaleString()}</span>
+          <p className="text-sm text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
+            <span>
+              <span className="text-indigo-600 font-semibold">{listings.length.toLocaleString()}</span>
+              {' '}of {allListings.length.toLocaleString()} roles match
+              {lastFetched && (
+                <span className="text-slate-400">
+                  {' '}&middot; updated{' '}
+                  {(() => {
+                    const ms = Date.parse(lastFetched);
+                    if (isNaN(ms)) return new Date(lastFetched).toLocaleString();
+                    const diffMin = Math.round((Date.now() - ms) / 60000);
+                    if (diffMin < 1) return 'just now';
+                    if (diffMin < 60) return `${diffMin}m ago`;
+                    const diffH = Math.round(diffMin / 60);
+                    if (diffH < 24) return `${diffH}h ago`;
+                    return new Date(ms).toLocaleDateString();
+                  })()}
+                </span>
+              )}
+            </span>
+            {/* Error-count badge — surfaces ONLY when fetches failed,
+                hidden behind an icon so it doesn't clutter the
+                summary line on a successful refresh. Click expands
+                the full list below the header. */}
+            {fetchErrors.length > 0 && (
+              <button
+                onClick={() => setShowErrors(!showErrors)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 border border-amber-100 text-amber-700 hover:bg-amber-100 transition-colors"
+                title={`${fetchErrors.length} companies could not be fetched — click for details`}
+              >
+                <AlertCircle className="w-3 h-3" />
+                {fetchErrors.length}
+              </button>
             )}
           </p>
         </div>
@@ -1029,24 +1058,15 @@ export default function ListingsPage() {
       )}
 
 
-      {/* Fetch errors */}
-      {fetchErrors.length > 0 && (
-        <div className="mb-4">
-          <button
-            onClick={() => setShowErrors(!showErrors)}
-            className="flex items-center gap-2 text-sm text-amber-600 hover:text-amber-700"
-          >
-            <AlertCircle className="w-4 h-4" />
-            {fetchErrors.length} companies could not be fetched
-            {showErrors ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-          {showErrors && (
-            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 space-y-1">
-              {fetchErrors.map((e, i) => (
-                <div key={i}>{e.company}: {e.error}</div>
-              ))}
-            </div>
-          )}
+      {/* Fetch errors — toggled by the count badge in the summary
+          line above. Rendered as a separate strip so the expanded
+          list is full-width rather than wrapping inside the header
+          paragraph. */}
+      {fetchErrors.length > 0 && showErrors && (
+        <div className="mb-4 p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700 space-y-1">
+          {fetchErrors.map((e, i) => (
+            <div key={i}>{e.company}: {e.error}</div>
+          ))}
         </div>
       )}
 
@@ -1074,25 +1094,9 @@ export default function ListingsPage() {
           </button>
         </div>
 
-        {/* Always-visible: just the flagged-toggle pill (when relevant)
-            stays out here as a quick affordance. Everything else lives
-            inside the Filters drawer below. */}
-        {flaggedCount > 0 && (
-          <div className="flex">
-            <button
-              onClick={() => setShowFlagged((v) => !v)}
-              className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                showFlagged
-                  ? 'bg-gray-800 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
-              }`}
-              title="Toggle visibility of listings flagged as Applied / Incorrect / Not Applicable"
-            >
-              {showFlagged ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
-              {showFlagged ? 'Hide' : 'Show'} flagged ({flaggedCount})
-            </button>
-          </div>
-        )}
+        {/* The flagged-toggle now lives inside the Filters drawer
+            alongside Hide-stale / Date-posted (see below). Keeps the
+            top of the listings page uncluttered. */}
 
         {showFilters && (
           <div className="p-4 bg-white border border-slate-200 rounded-lg space-y-4">
@@ -1282,6 +1286,20 @@ export default function ListingsPage() {
                     />
                     Hide listings &gt; 30 days old
                   </label>
+                  {flaggedCount > 0 && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer"
+                      title="Toggle visibility of listings flagged as Applied / Incorrect / Not Applicable"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={showFlagged}
+                        onChange={(e) => setShowFlagged(e.target.checked)}
+                        className="rounded"
+                      />
+                      Show flagged ({flaggedCount})
+                    </label>
+                  )}
                 </div>
                 {/* Date-posted preset — keeps only listings within the
                     selected window. Distinct from hideStale (which is a
@@ -2610,6 +2628,33 @@ interface BadgeContact {
 function NetworkBadge({ company }: { company: string }) {
   const [contacts, setContacts] = useState<BadgeContact[]>([]);
   const [open, setOpen] = useState(false);
+  // Anchor position for the portaled popover. The badge itself sits
+  // inside a job card whose ancestors have `overflow: hidden` and a
+  // stacking context, so an absolute-positioned popover gets clipped
+  // by the next card below it. Portaling to document.body with fixed
+  // coords escapes that — same pattern as the flag dropdown.
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
+  const recomputePos = useCallback(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setPopoverPos({
+      top: rect.bottom + 4,          // 4px gap below the badge
+      left: rect.left,                // left-align with the badge
+    });
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    recomputePos();
+    const onChange = () => recomputePos();
+    window.addEventListener('scroll', onChange, true);
+    window.addEventListener('resize', onChange);
+    return () => {
+      window.removeEventListener('scroll', onChange, true);
+      window.removeEventListener('resize', onChange);
+    };
+  }, [open, recomputePos]);
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/network?company=${encodeURIComponent(company)}`)
@@ -2623,8 +2668,9 @@ function NetworkBadge({ company }: { company: string }) {
   }, [company]);
   if (contacts.length === 0) return null;
   return (
-    <span className="relative inline-block">
+    <>
       <button
+        ref={buttonRef}
         type="button"
         onClick={(e) => {
           e.preventDefault();
@@ -2637,10 +2683,11 @@ function NetworkBadge({ company }: { company: string }) {
         <Users className="w-3 h-3" />
         {contacts.length} you know
       </button>
-      {open && (
+      {open && popoverPos && typeof document !== 'undefined' &&
+        createPortal(
         <>
           <div
-            className="fixed inset-0 z-40"
+            className="fixed inset-0 z-[60]"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -2648,7 +2695,8 @@ function NetworkBadge({ company }: { company: string }) {
             }}
           />
           <div
-            className="absolute left-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-2 text-left"
+            className="fixed w-72 bg-white border border-slate-200 rounded-xl shadow-modal z-[70] p-2 text-left"
+            style={{ top: popoverPos.top, left: popoverPos.left }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-[11px] uppercase tracking-wide text-slate-400 px-1 pb-1">
@@ -2688,9 +2736,10 @@ function NetworkBadge({ company }: { company: string }) {
               })}
             </ul>
           </div>
-        </>
-      )}
-    </span>
+        </>,
+          document.body,
+        )}
+    </>
   );
 }
 

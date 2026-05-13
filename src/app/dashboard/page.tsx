@@ -310,10 +310,6 @@ export default function DashboardPage() {
     <div className="p-8 max-w-7xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <div className="inline-flex items-center gap-2 mb-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 shadow-sm shadow-indigo-500/10">
-          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
-          <span className="text-xs font-medium text-indigo-700">Live job search</span>
-        </div>
         <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
           {settings.userName ? `Welcome back, ${settings.userName}` : 'Dashboard'}
         </h1>
@@ -392,7 +388,7 @@ export default function DashboardPage() {
               <Star className="w-5 h-5 text-amber-500" />
               <h2 className="text-base font-semibold text-slate-800">Top Companies by ATS Match</h2>
             </div>
-            <Link href="/listings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+            <Link href="/listings" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
               View all &rarr;
             </Link>
           </div>
@@ -455,7 +451,7 @@ export default function DashboardPage() {
               <Sparkles className="w-3.5 h-3.5" />
               Generate Master Resume
             </button>
-            <Link href="/listings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+            <Link href="/listings" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
               View all &rarr;
             </Link>
           </div>
@@ -508,7 +504,7 @@ export default function DashboardPage() {
             <User className="w-5 h-5 text-slate-500" />
             <h2 className="text-base font-semibold text-slate-800">Your Profile & Preferences</h2>
           </div>
-          <Link href="/settings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+          <Link href="/settings" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
             Edit &rarr;
           </Link>
         </div>

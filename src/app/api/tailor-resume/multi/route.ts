@@ -64,8 +64,13 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(listingIds) || listingIds.length === 0) {
     return NextResponse.json({ error: 'listingIds array is required' }, { status: 400 });
   }
-  if (listingIds.length > 25) {
-    return NextResponse.json({ error: 'At most 25 listings can be tailored at once' }, { status: 400 });
+  // Cap raised from 25 → 100 so the Master Resume flow (which
+  // stratified-samples up to 100 listings) can call /multi without
+  // chunking. Above 100 the JD-detail fetch fan-out gets long enough
+  // to need progress streaming, so we still hard-fail at the
+  // higher bound rather than silently truncating.
+  if (listingIds.length > 100) {
+    return NextResponse.json({ error: 'At most 100 listings can be tailored at once' }, { status: 400 });
   }
 
   // Single DB read — settings + listings + score cache come from one 14MB parse.
