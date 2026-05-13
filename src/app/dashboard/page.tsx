@@ -257,31 +257,20 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listings, scoreCache]);
 
-  // Show up to 20 jobs — same pool the "Tailor for Top Jobs" flow uses,
-  // so what the user sees matches what will be tailored.
+  // Show up to 20 jobs in the "Top Matching Jobs" preview grid.
+  // The Master Resume flow uses its own server-side selection (every
+  // listing matching prefs, stratified-sampled) so this slice is now
+  // purely a display preview.
   const topListings = useMemo(() => rankedListings.slice(0, 20), [rankedListings]);
-  const topListingsForTailor = topListings;
 
-  const [tailorModalOpen, setTailorModalOpen] = useState(false);
-  // "Optimize for general ATS" — a second tailor flow that pulls the
-  // listings the user has actively pursued (any pipeline flag) and
-  // surfaces best-overlap keywords across THOSE jobs specifically.
-  // The hypothesis is that the user already knows what they're going
-  // after, so a tailored "general ATS" pass against their applied set
-  // is more useful than against an algorithm-picked top-20.
-  const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
-  const PIPELINE_FLAG_SET = new Set([
-    'applied', 'phone-screen', 'interviewing', 'offer', 'rejected',
-  ]);
-  const flaggedListings = useMemo(() => {
-    const ids = new Set(
-      Object.values(flags)
-        .filter((f) => PIPELINE_FLAG_SET.has(f.flag))
-        .map((f) => f.listingId),
-    );
-    return listings.filter((l) => ids.has(l.id));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flags, listings]);
+  // "Generate Master Resume" — replaces the prior Top-N / Optimize-for-
+  // applied-set buttons. One unified flow that pulls every listing
+  // matching the user's stored preferences (role / level / location /
+  // salary / work-auth), stratified-samples up to a cap, aggregates
+  // keywords across that set, and produces a single resume tuned for
+  // broad ATS coverage across what the user would actually apply to.
+  // Server endpoint: /api/tailor-resume/general.
+  const [masterModalOpen, setMasterModalOpen] = useState(false);
 
   if (loading) {
     return (
@@ -422,25 +411,14 @@ export default function DashboardPage() {
             <h2 className="text-base font-semibold text-gray-900">Top Matching Jobs</h2>
           </div>
           <div className="flex items-center gap-3">
-            {topListingsForTailor.length >= 3 && (
-              <button
-                onClick={() => setTailorModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:from-indigo-600 hover:to-purple-700 shadow-sm transition-all"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Tailor for Top {topListingsForTailor.length} Jobs
-              </button>
-            )}
-            {flaggedListings.length >= 3 && (
-              <button
-                onClick={() => setOptimizeModalOpen(true)}
-                title="Find best-overlap keywords across the jobs you've already flagged (applied / interviewing / etc.) and bake them into your resume for a general-ATS-score lift."
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-sm transition-all"
-              >
-                <Target className="w-3.5 h-3.5" />
-                Optimize for general ATS ({flaggedListings.length} jobs)
-              </button>
-            )}
+            <button
+              onClick={() => setMasterModalOpen(true)}
+              title="Generate one resume optimized for broad ATS coverage across every open listing matching your preferences."
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-600 text-white hover:from-indigo-600 hover:via-purple-600 hover:to-fuchsia-700 shadow-sm transition-all"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Generate Master Resume
+            </button>
             <Link href="/listings" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
               View all &rarr;
             </Link>
@@ -578,16 +556,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {tailorModalOpen && (
-        <TailorTopJobsModal
-          listings={topListingsForTailor}
-          onClose={() => setTailorModalOpen(false)}
-        />
-      )}
-      {optimizeModalOpen && (
-        <TailorTopJobsModal
-          listings={flaggedListings}
-          onClose={() => setOptimizeModalOpen(false)}
+      {masterModalOpen && (
+        <MasterResumeModal
+          onClose={() => setMasterModalOpen(false)}
         />
       )}
     </div>
@@ -961,6 +932,446 @@ function TailorTopJobsModal({
             <button
               onClick={() => handleDownload('pdf')}
               disabled={!!downloadingFormat || loading || selected.size === 0 || !analysis}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:from-indigo-600 hover:to-purple-700"
+            >
+              {downloadingFormat === 'pdf' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+              ) : (
+                <><Download className="w-4 h-4" /> Download as PDF</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Master Resume modal ──────────────────────────────────────────
+//
+// One-button flow that replaces the old "Top N" + "Optimize for
+// general ATS" pair. Talks to /api/tailor-resume/general, which:
+//   1. Filters every cached listing by stored prefs (role / level /
+//      location / salary / work auth / excluded companies).
+//   2. Stratified-samples up to 100 by role family, weighted by
+//      ATS score within each stratum.
+//   3. Forwards to /api/tailor-resume/multi for the actual JD-detail
+//      fetch + keyword aggregation + mandatory-mode cascade render.
+//
+// The modal auto-selects the top N missing keywords by frequency
+// (N adjustable via slider, default 30, range 15–60) and surfaces a
+// review step so the user can de-select keywords they can't
+// legitimately back up. The Download button is gated to require ≥
+// MIN_KEEP keywords selected — below that, the resume isn't worth
+// generating (too little ATS coverage uplift).
+
+const MIN_KEEP = 15;       // download disabled below this
+const DEFAULT_TOP_N = 30;  // auto-selection size at modal open
+const TOP_N_MIN = 15;
+const TOP_N_MAX = 60;
+
+interface CohortMeta {
+  totalMatching: number;
+  sampled: number;
+  cap: number;
+  byFamily: Record<string, number>;
+}
+
+function MasterResumeModal({ onClose }: { onClose: () => void }) {
+  const [analysis, setAnalysis] = useState<MultiAnalyzeResponse | null>(null);
+  const [cohort, setCohort] = useState<CohortMeta | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [downloadingFormat, setDownloadingFormat] = useState<'pdf' | 'docx' | null>(null);
+  // Mandatory-mode toggle — same semantics as the legacy modal.
+  // Default-on so the master resume gets the compression cascade.
+  const [mandatoryMode, setMandatoryMode] = useState(true);
+  const [compressionSteps, setCompressionSteps] = useState<string[] | null>(null);
+  // Auto-select size slider. Re-running auto-select re-clobbers
+  // anything the user de-selected — by design: changing the slider
+  // is an explicit "start over" gesture.
+  const [topN, setTopN] = useState(DEFAULT_TOP_N);
+
+  // Run the analyze pass on mount. /general returns the same shape
+  // as /multi analyze + a cohort metadata field.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetch('/api/tailor-resume/general', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'analyze' }),
+    })
+      .then((r) => r.json())
+      .then((data: MultiAnalyzeResponse & { cohort?: CohortMeta; error?: string }) => {
+        if (cancelled) return;
+        if (data.error) {
+          setError(data.error);
+        } else {
+          setAnalysis(data);
+          if (data.cohort) setCohort(data.cohort);
+          // Auto-select the top N by frequency. /multi already
+          // sorts missingKeywords by frequency desc + category prio.
+          setSelected(new Set(data.missingKeywords.slice(0, DEFAULT_TOP_N).map((k) => k.keyword)));
+        }
+      })
+      .catch(() => !cancelled && setError('Failed to analyze listings'))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  // Re-pick top N whenever the slider changes. We deliberately do
+  // NOT preserve the user's manual de-selections across slider
+  // changes — moving the slider is an "I want a different starting
+  // set" gesture, not a "tweak the existing one" gesture.
+  function autoSelectTopN(n: number) {
+    setTopN(n);
+    if (!analysis) return;
+    setSelected(new Set(analysis.missingKeywords.slice(0, n).map((k) => k.keyword)));
+  }
+
+  const toggle = (k: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  };
+
+  const selectAllInCategory = (cat: Category, kws: AggregatedKeyword[]) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const catKws = kws.filter((k) => k.category === cat).map((k) => k.keyword);
+      const allSelected = catKws.every((k) => next.has(k));
+      if (allSelected) catKws.forEach((k) => next.delete(k));
+      else catKws.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
+  async function handleDownload(format: 'pdf' | 'docx') {
+    if (selected.size < MIN_KEEP || downloadingFormat) return;
+    setDownloadingFormat(format);
+    setError(null);
+    setCompressionSteps(null);
+    try {
+      const res = await fetch('/api/tailor-resume/general', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          format,
+          selectedKeywords: Array.from(selected),
+          mode: mandatoryMode ? 'mandatory' : 'budget-ladder',
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      const stepsHeader = res.headers.get('X-Compression-Steps');
+      if (stepsHeader) {
+        try {
+          const parsed = JSON.parse(decodeURIComponent(stepsHeader));
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter((s): s is string => typeof s === 'string');
+            setCompressionSteps(valid.length > 0 ? valid : null);
+          }
+        } catch {
+          // ignore — UI just skips the footer
+        }
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const match = cd.match(/filename="([^"]+)"/);
+      const fallback = format === 'docx' ? 'master_resume.docx' : 'master_resume.pdf';
+      const filename = match?.[1] || fallback;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate resume');
+    } finally {
+      setDownloadingFormat(null);
+    }
+  }
+
+  const keywords = analysis?.missingKeywords ?? [];
+  const categories: Category[] = ['technical', 'management', 'domain', 'soft'];
+  const downloadDisabled =
+    !!downloadingFormat || loading || !analysis || selected.size < MIN_KEEP;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-indigo-500" />
+              <h2 className="text-lg font-semibold text-gray-900">Generate Master Resume</h2>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              One resume tuned for broad ATS coverage across every open listing matching your preferences. Review the auto-picked keywords below, then download.
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading && (
+            <div className="py-12 flex flex-col items-center gap-3 text-gray-500">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+              <p className="text-sm">Analyzing listings matching your preferences…</p>
+              <p className="text-xs text-gray-400">Stratified-samples up to 100 by role family. Takes 30–90s.</p>
+            </div>
+          )}
+
+          {!loading && error && !analysis && (
+            <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {analysis && (
+            <>
+              {/* Cohort summary banner — the new bit vs. legacy modal */}
+              {cohort && (
+                <div className="mb-4 p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg text-xs text-indigo-900">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <span>
+                      <strong>{cohort.sampled}</strong> listings analyzed
+                      {cohort.totalMatching > cohort.sampled && (
+                        <span className="text-indigo-700/70">
+                          {' '}(stratified sample of {cohort.totalMatching} matching your prefs)
+                        </span>
+                      )}
+                    </span>
+                    {Object.keys(cohort.byFamily).length > 1 && (
+                      <span className="text-indigo-700/80">
+                        {Object.entries(cohort.byFamily)
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([fam, n]) => `${fam}: ${n}`)
+                          .join(' · ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Summary strip */}
+              <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+                <div className="flex-1">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Current avg ATS</div>
+                  <div className="text-2xl font-bold text-gray-900">{analysis.avgOriginalScore}%</div>
+                  <div className="text-xs text-gray-500 mt-0.5">across {analysis.jobsAnalyzed} jobs</div>
+                </div>
+                <div className="flex-1">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Missing keywords</div>
+                  <div className="text-2xl font-bold text-gray-900">{keywords.length}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">union across cohort</div>
+                </div>
+                <div className="flex-1">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Selected</div>
+                  <div
+                    className={`text-2xl font-bold ${
+                      selected.size < MIN_KEEP ? 'text-amber-600' : 'text-indigo-600'
+                    }`}
+                  >
+                    {selected.size}
+                    {selected.size < MIN_KEEP && (
+                      <span className="text-xs font-normal text-amber-600">
+                        {' '}/ {MIN_KEEP} min
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">will be added to resume</div>
+                </div>
+              </div>
+
+              {/* Auto-pick slider */}
+              <div className="mb-4 p-3 bg-white border border-gray-200 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-gray-700">
+                    Auto-pick top <strong>{topN}</strong> keywords by frequency
+                  </label>
+                  <button
+                    onClick={() => autoSelectTopN(topN)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                    title="Reset selection to the auto-picked top N"
+                  >
+                    Reset to top {topN}
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min={TOP_N_MIN}
+                  max={TOP_N_MAX}
+                  step={5}
+                  value={topN}
+                  onChange={(e) => autoSelectTopN(parseInt(e.target.value, 10))}
+                  className="w-full accent-indigo-600"
+                />
+                <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                  <span>{TOP_N_MIN} (lean)</span>
+                  <span>{TOP_N_MAX} (max coverage)</span>
+                </div>
+              </div>
+
+              {analysis.errors.length > 0 && (
+                <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                  Couldn&apos;t fully analyze {analysis.errors.length} job{analysis.errors.length > 1 ? 's' : ''} — results are based on the {analysis.jobsAnalyzed} that succeeded.
+                </div>
+              )}
+
+              {keywords.length === 0 ? (
+                <div className="py-8 text-center text-gray-500 text-sm">
+                  Your resume already covers every keyword found in this cohort. Nice.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {categories.map((cat) => {
+                    const kws = keywords.filter((k) => k.category === cat);
+                    if (kws.length === 0) return null;
+                    const allSelected = kws.every((k) => selected.has(k.keyword));
+                    return (
+                      <div key={cat}>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-semibold text-gray-700">
+                            {CATEGORY_LABEL[cat]} <span className="text-gray-400 font-normal">({kws.length})</span>
+                          </h3>
+                          <button
+                            onClick={() => selectAllInCategory(cat, keywords)}
+                            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                          >
+                            {allSelected ? 'Deselect all' : 'Select all'}
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {kws.map((kw) => {
+                            const isSelected = selected.has(kw.keyword);
+                            return (
+                              <button
+                                key={kw.keyword}
+                                onClick={() => toggle(kw.keyword)}
+                                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
+                                  isSelected
+                                    ? `${CATEGORY_COLOR[cat]} font-semibold`
+                                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                                }`}
+                                title={kw.jobTitles.join(' · ')}
+                              >
+                                {isSelected && <Check className="w-3 h-3" />}
+                                <span>{displayKeyword(kw.keyword)}</span>
+                                <span className={isSelected ? 'opacity-70' : 'opacity-50'}>
+                                  ×{kw.frequency}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Mandatory-mode toggle + compression footer */}
+        <div className="px-4 pt-3 border-t border-gray-100 bg-gray-50">
+          <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={mandatoryMode}
+              onChange={(e) => setMandatoryMode(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <div className="flex-1">
+              <span className="font-medium text-gray-800">
+                Pack all keywords on 1 page (aggressive)
+              </span>
+              <span className="text-gray-500">
+                {' '}— floors at 9pt body, 0.4&quot; margins; no content dropped.
+              </span>
+            </div>
+          </label>
+          {compressionSteps && compressionSteps.length > 0 && (() => {
+            const exhausted = compressionSteps[compressionSteps.length - 1] === 'exhausted';
+            const realSteps = exhausted ? compressionSteps.slice(0, -1) : compressionSteps;
+            return (
+              <div
+                className={`mt-2 text-[11px] rounded-lg px-3 py-2 border ${
+                  exhausted
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}
+              >
+                {exhausted ? (
+                  <>
+                    <strong>Couldn&apos;t fit on 1 page.</strong> Applied max compression ({realSteps.join(', ')}) but the result is still {'>'} 1 page. Best-effort download served — deselect a few keywords or tighten the base resume.
+                  </>
+                ) : (
+                  <>
+                    <strong>Fit applied:</strong> {realSteps.join(', ')}.
+                  </>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50">
+          <div className="text-xs">
+            {error && !loading && analysis && <span className="text-red-600">{error}</span>}
+            {!error && selected.size > 0 && selected.size < MIN_KEEP && (
+              <span className="text-amber-700">
+                Select at least <strong>{MIN_KEEP}</strong> keywords to download (currently {selected.size}).
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleDownload('docx')}
+              disabled={downloadDisabled}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download the editable Word document. You can re-upload this .docx in Settings to make it your new base resume."
+            >
+              {downloadingFormat === 'docx' ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
+              ) : (
+                <><Download className="w-4 h-4" /> Download as DOCX</>
+              )}
+            </button>
+            <button
+              onClick={() => handleDownload('pdf')}
+              disabled={downloadDisabled}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:from-indigo-600 hover:to-purple-700"
             >
               {downloadingFormat === 'pdf' ? (

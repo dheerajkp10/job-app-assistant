@@ -30,7 +30,8 @@ A local-first web app for tracking and improving job applications. It pulls live
 - **Mandatory-mode tailoring (DEFAULT, since 2026-05-12)** — keywords come first, layout adapts. The server injects every keyword you selected unconditionally, then walks a compression cascade (margin tightening → paragraph spacing cuts → line-height reduction → body-font shrink → ADDITIONAL-section drop) until the rendered PDF lands on one page. Floors are enforced so the result stays readable: body font ≥ 9pt, margins ≥ 0.4", no destructive content drops (your Work Experience and Education stay intact). The UI shows a footer summarizing exactly which cascade steps fired (e.g. *Fit applied: margins 0.4", line height 1.05, body 10pt*).
 - **Budget-ladder mode (opt-out)** — uncheck "Pack all keywords on 1 page" in the Tailor section to fall back to the legacy iterate-9-tiers behavior, which is more formatting-preserving but may drop keywords on tight resumes.
 - **Whitespace balance pass** runs on every 1-page fit: measures actual rendered top/bottom whitespace and shifts the top margin so visible whitespace is symmetric.
-- **Multi-job tailor** — generate one resume that targets your top-20 (or pipeline-flagged) jobs simultaneously, with cross-job keyword frequency ranking. Uses the same mandatory-mode cascade.
+- **Master Resume (general tailor)** — one button on the Dashboard generates a single resume tuned for broad ATS coverage across **every open listing matching your stored preferences** (role family, level, location, work mode, salary range, work-auth countries, excluded companies). Server-side stratified sampling caps the cohort at 100 listings, balanced across the user's target role families. The modal previews the auto-picked top-N keywords (slider 15–60, default 30), requires you to keep ≥ 15 before download, and runs the same mandatory-mode compression cascade. Endpoint: `POST /api/tailor-resume/general`.
+- **Per-job tailor** (Listings page) — still available for targeted applications. Click any listing's Tailor button to optimize the resume for that specific JD with the same mandatory-mode cascade.
 - **Smart text replacement** — when a tailoring suggestion proposes "Software Engineering Manager" instead of your existing "Software Development Manager", the app rewrites that phrase across every formatting boundary in your `.docx`, not just the Summary.
 
 ### Application pipeline (Kanban)
@@ -57,8 +58,7 @@ A local-first web app for tracking and improving job applications. It pulls live
 
 ### Dashboard
 - **Top matching jobs** + **Top companies by ATS match** + **Resume performance** stats at a glance.
-- **Tailor for Top N Jobs** — opens the multi-tailor modal seeded with your top-scoring listings.
-- **Optimize for general ATS** — same modal seeded with your pipeline-flagged jobs (the ones you're *actually* pursuing); best-overlap keywords across those specifically.
+- **Generate Master Resume** — opens the master-tailor modal. Analyzes every open listing matching your stored preferences (stratified-sampled, capped at 100), auto-selects top 30 missing keywords by frequency, lets you review/de-select, then runs the mandatory-mode compression cascade. Replaces the prior "Tailor for Top N" / "Optimize for general ATS" pair with a single unified flow.
 
 ## Prerequisites
 
@@ -217,8 +217,9 @@ The dev server (`npm run dev`) is plenty for personal use and gives you HMR on t
 
 ### API routes (selected)
 - `POST /api/tailor-resume` — single-job tailor + budget ladder + balance pass.
-- `POST /api/tailor-resume/multi` — cross-job multi-tailor with tier-0 user-selection budget.
-- `POST /api/tailor-resume/stream` — SSE-progress variant for long-running tailors.
+- `POST /api/tailor-resume/multi` — explicit-listing multi-tailor with tier-0 user-selection budget.
+- `POST /api/tailor-resume/general` — master resume: server-side preference filtering + stratified sampling, forwards to `/multi` for aggregation + render.
+- `POST /api/tailor-resume/stream` — SSE-progress variant for long-running per-job tailors.
 - `GET /api/salary-intel?listingId=...` — peer-cohort salary stats.
 - `GET|POST|DELETE /api/network` — LinkedIn connections store; POST accepts multi-file uploads of `.csv` or `.zip`.
 - `GET|POST|PUT|DELETE /api/sources` — user-added custom sources.
