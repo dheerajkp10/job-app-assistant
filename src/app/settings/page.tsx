@@ -202,7 +202,7 @@ export default function SettingsPage() {
         <button
           onClick={saveAll}
           disabled={saving}
-          className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          className="px-5 py-2.5 bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-sm font-semibold rounded-xl shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-50 disabled:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
         >
           {saving ? 'Saving...' : 'Save All'}
         </button>
@@ -269,7 +269,7 @@ export default function SettingsPage() {
             className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
           />
           <button type="button" onClick={addRole} disabled={!customRole.trim()}
-            className="px-4 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-40">
+            className="px-4 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-200 disabled:opacity-40">
             Add
           </button>
         </div>
@@ -293,7 +293,7 @@ export default function SettingsPage() {
                   className={`text-left p-3 rounded-lg border transition-colors ${
                     on
                       ? 'border-blue-600 bg-indigo-50'
-                      : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
+                      : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
                   }`}
                 >
                   <div className={`text-sm font-semibold ${on ? 'text-indigo-700' : 'text-slate-800'}`}>
@@ -323,7 +323,7 @@ export default function SettingsPage() {
               return (
                 <button key={m.key} type="button" onClick={() => toggleWorkMode(m.key)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                    on ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300'
                   }`}>
                   {m.label}
                 </button>
@@ -378,8 +378,8 @@ export default function SettingsPage() {
                   }
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                     on
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
+                      ? 'bg-indigo-500 text-white border-indigo-500'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50'
                   }`}
                 >
                   {on && <Check className="inline w-3 h-3 mr-1" />}
@@ -555,7 +555,7 @@ export default function SettingsPage() {
           <p className="text-sm text-slate-600 mb-2">
             {uploading ? 'Uploading...' : 'Drag and drop your resume here, or'}
           </p>
-          <label className="inline-block px-5 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg cursor-pointer hover:bg-gray-200 transition-colors">
+          <label className="inline-block px-5 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-100 text-sm font-semibold rounded-xl cursor-pointer shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200">
             Browse Files
             <input type="file" accept=".docx,.pdf" onChange={handleFileInput} className="hidden" />
           </label>
