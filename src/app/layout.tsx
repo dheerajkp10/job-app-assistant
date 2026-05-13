@@ -18,8 +18,15 @@ const geistMono = Geist_Mono({
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  title: "Job Application Assistant",
-  description: "Track and manage job applications across portals",
+  // Short title — used by the browser tab + bookmark name. Keep the
+  // brand mark in `top-nav.tsx` ("JobAssist") and the page title in
+  // sync so a glance at the tab strip is instantly recognizable.
+  title: "JobAssist · Local-first job application tracker",
+  description:
+    "Aggregate live job listings, score your resume against each, generate one-page tailored resumes, and track your pipeline — all running on your laptop.",
+  // Browser-tab icon. Falls back to /favicon.ico (auto-served by
+  // Next.js from src/app/favicon.ico).
+  applicationName: "JobAssist",
 };
 
 export default async function RootLayout({
@@ -35,7 +42,7 @@ export default async function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50/30">
+      <body className="min-h-screen">
         {/* HeroUI v3 components rely on react-aria-components' built-in
             context, so no top-level provider is needed. */}
         {onboardingDone && <TopNav />}

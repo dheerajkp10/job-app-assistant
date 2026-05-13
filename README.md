@@ -129,7 +129,20 @@ npm install
 npm run dev
 ```
 
-Then open <http://localhost:3000>.
+Then open one of:
+
+- **<http://jobassist.localtest.me:3000>** (recommended — branded URL, zero setup)
+- <http://localhost:3000> (always works)
+
+`localtest.me` is a public DNS-wildcard zone whose A record always returns `127.0.0.1`, so `jobassist.localtest.me` routes to your local dev server without any `/etc/hosts` edits or other config. Bookmark the branded URL and the tab will read **"JobAssist"** instead of the generic localhost.
+
+For users who want a fully-offline alias that doesn't depend on `localtest.me`'s public DNS, add one line to `/etc/hosts` (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
+
+```
+127.0.0.1   jobassist.local
+```
+
+Then <http://jobassist.local:3000> works identically. Requires sudo on Unix.
 
 The very first `npm install` takes a couple of minutes because Puppeteer downloads its bundled Chromium. Subsequent installs are fast.
 
@@ -138,6 +151,8 @@ The very first `npm install` takes a couple of minutes because Puppeteer downloa
 The app probes for LibreOffice on every page load and shows a banner if `soffice` isn't on the PATH. You can also hit:
 
 ```bash
+curl http://jobassist.localtest.me:3000/api/health
+# or
 curl http://localhost:3000/api/health
 ```
 
@@ -145,7 +160,7 @@ curl http://localhost:3000/api/health
 
 ## First-time setup
 
-The first visit to `http://localhost:3000` lands on a 6-step onboarding wizard:
+The first visit (to either <http://jobassist.localtest.me:3000> or <http://localhost:3000>) lands on a 6-step onboarding wizard:
 
 1. **Role & Level** — pick the job families and seniority tiers you're searching for.
 2. **Location** — preferred cities, remote / hybrid / onsite, and the country list you're authorized to work in (defaults to US).
@@ -219,7 +234,7 @@ If you've been using the app for a while, your `data/db.json` might be from an e
 
 ```bash
 npm run build
-npm run start      # serves on http://localhost:3000
+npm run start      # serves on http://jobassist.localtest.me:3000
 ```
 
 The dev server (`npm run dev`) is plenty for personal use and gives you HMR on the source.
