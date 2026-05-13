@@ -41,17 +41,56 @@ const FAKE = {
   zip: '00000',
 };
 
-// Pages to capture. `redactExtra` lets each page contribute
-// additional string→string substitutions (e.g. LinkedIn contact
-// names visible only on the listings hover popovers).
+// Pages to capture. A `path` can be a string (static) or a fn that
+// receives `context` (the listings + score-cache pulled at boot)
+// and returns a string — used for /compare where we need to inject
+// 3 real listing IDs so the page renders something meaningful.
 const PAGES = [
   { name: '01-dashboard', path: '/dashboard' },
   { name: '02-listings',  path: '/listings'  },
   { name: '03-pipeline',  path: '/pipeline'  },
-  { name: '04-compare',   path: '/compare'   },
+  {
+    name: '04-compare',
+    // Pre-select 3 high-scoring listings so the compare page
+    // renders a real side-by-side view rather than the empty
+    // state. Falls back to /compare if we can't find 3.
+    path: (ctx) => {
+      const top = ctx.topScoredListingIds.slice(0, 3);
+      return top.length === 3 ? `/compare?ids=${top.join(',')}` : '/compare';
+    },
+  },
   { name: '05-add-job',   path: '/jobs/add'  },
   { name: '06-settings',  path: '/settings'  },
 ];
+
+/**
+ * Pick the listing IDs we'll seed into /compare. Highest-ATS-scoring
+ * listings produce the most visually-interesting compare view (all
+ * green chips, full category-bar breakdowns). We pull the listings
+ * cache + score cache, filter to scored entries, and return the
+ * top 5 IDs (the screenshot uses the first 3).
+ */
+async function fetchTopScoredListingIds() {
+  try {
+    const [listingsRes, scoresRes] = await Promise.all([
+      fetch(`${BASE}/api/listings`).then((r) => r.json()),
+      fetch(`${BASE}/api/scores-cache`).then((r) => r.json()),
+    ]);
+    const listings = listingsRes.listings ?? [];
+    const scores = scoresRes ?? {};
+    return listings
+      .filter((l) => {
+        const s = scores[l.id];
+        return s && s.totalCount > 0 && s.overall >= 70;
+      })
+      .sort((a, b) => (scores[b.id].overall ?? 0) - (scores[a.id].overall ?? 0))
+      .slice(0, 5)
+      .map((l) => l.id);
+  } catch (err) {
+    console.warn(`  (couldn't load listings for compare seed: ${err.message})`);
+    return [];
+  }
+}
 
 async function fetchRealValues() {
   const res = await fetch(`${BASE}/api/settings`);
@@ -154,6 +193,13 @@ async function capture() {
   }
   console.log('');
 
+  console.log('Picking top-scored listings for /compare seed…');
+  const topScoredListingIds = await fetchTopScoredListingIds();
+  console.log(`  found ${topScoredListingIds.length} listings with score ≥ 70%`);
+  console.log('');
+
+  const ctx = { topScoredListingIds };
+
   const browser = await puppeteer.launch({
     headless: 'new',
     defaultViewport: { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2 },
@@ -162,7 +208,8 @@ async function capture() {
   const page = await browser.newPage();
 
   for (const { name, path } of PAGES) {
-    const url = `${BASE}${path}`;
+    const resolvedPath = typeof path === 'function' ? path(ctx) : path;
+    const url = `${BASE}${resolvedPath}`;
     process.stdout.write(`  ${name}  ${url}  →  `);
     try {
       await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
