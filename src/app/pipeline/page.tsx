@@ -159,10 +159,10 @@ export default function PipelinePage() {
               a.click();
               URL.revokeObjectURL(url);
             }}
-            className="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50"
+            className="inline-flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200"
             title="Markdown summary of your pipeline + top leads"
           >
-            <Download className="w-4 h-4" /> Status report
+            <Download className="w-3.5 h-3.5" /> Status report
           </button>
         )}
       </div>
@@ -178,11 +178,11 @@ export default function PipelinePage() {
           return (
             <section
               key={flagDef.key}
-              className="flex-shrink-0 w-[280px] bg-slate-50 rounded-xl border border-slate-200 flex flex-col max-h-[calc(100vh-220px)]"
+              className="flex-shrink-0 w-[280px] bg-white/60 rounded-2xl border border-slate-100 shadow-card flex flex-col max-h-[calc(100vh-220px)]"
             >
               <header
-                className="px-3 py-2.5 border-b border-slate-200 rounded-t-xl"
-                style={{ backgroundColor: `${flagDef.color}10` }}
+                className="px-4 py-3 border-b border-slate-100 rounded-t-2xl"
+                style={{ backgroundColor: `${flagDef.color}14` }}
               >
                 <div className="flex items-center gap-2">
                   <span
@@ -207,7 +207,7 @@ export default function PipelinePage() {
                   return (
                     <article
                       key={listing.id}
-                      className="bg-white rounded-lg border border-slate-200 hover:border-blue-300 hover:shadow-sm p-3 transition-all"
+                      className="bg-white rounded-xl border border-slate-100 shadow-card hover:shadow-card-hover hover:border-indigo-200 hover:-translate-y-0.5 p-3 transition-all duration-200"
                     >
                       <div className="flex items-start gap-2 mb-1">
                         <CompanyLogo companySlug={listing.companySlug} companyName={listing.company} size={20} />

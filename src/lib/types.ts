@@ -265,17 +265,23 @@ export interface Reminder {
  * Kanban page renders one column per entry here, in order.
  */
 export const PIPELINE_FLAGS: { key: ListingFlag; label: string; color: string; short: string }[] = [
-  { key: 'applied',       label: 'Applied',       color: '#8B5CF6', short: 'Applied' },
-  { key: 'phone-screen',  label: 'Phone Screen',  color: '#0EA5E9', short: 'Screen' },
-  { key: 'interviewing',  label: 'Interviewing',  color: '#0284C7', short: 'Interview' },
-  { key: 'offer',         label: 'Offer',         color: '#10B981', short: 'Offer' },
-  { key: 'rejected',      label: 'Rejected',      color: '#EF4444', short: 'Rejected' },
+  // Softened palette harmonized with the indigo-violet primary —
+  // each stage shifts down the cool spectrum (indigo → sky → cyan
+  // → emerald) and only the terminal "rejected" state borrows a
+  // warm tone (rose). Previously the colors used the bright 500
+  // shade across the board which felt loud against the new warm
+  // off-white background.
+  { key: 'applied',       label: 'Applied',       color: '#818CF8', short: 'Applied' },   // indigo-400
+  { key: 'phone-screen',  label: 'Phone Screen',  color: '#38BDF8', short: 'Screen' },    // sky-400
+  { key: 'interviewing',  label: 'Interviewing',  color: '#06B6D4', short: 'Interview' }, // cyan-500
+  { key: 'offer',         label: 'Offer',         color: '#34D399', short: 'Offer' },     // emerald-400
+  { key: 'rejected',      label: 'Rejected',      color: '#FB7185', short: 'Rejected' },  // rose-400
 ];
 
 export const LISTING_FLAGS: { key: ListingFlag; label: string; color: string; short: string }[] = [
   ...PIPELINE_FLAGS,
-  { key: 'incorrect',      label: 'Incorrect Job', color: '#F97316', short: 'Incorrect' },
-  { key: 'not-applicable', label: 'Not Applicable', color: '#6B7280', short: 'N/A' },
+  { key: 'incorrect',      label: 'Incorrect Job', color: '#FB923C', short: 'Incorrect' }, // orange-400
+  { key: 'not-applicable', label: 'Not Applicable', color: '#94A3B8', short: 'N/A' },      // slate-400
 ];
 
 export interface ScoreCacheEntry {
