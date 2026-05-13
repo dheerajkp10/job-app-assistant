@@ -36,7 +36,7 @@ export function CompanyLogo({
     const initial = (companyName || '?').trim().charAt(0).toUpperCase();
     return (
       <span
-        className="inline-flex items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-bold shrink-0"
+        className="inline-flex items-center justify-center rounded-md bg-gradient-to-br from-indigo-500 to-violet-500 text-white font-bold shrink-0"
         style={{ width: size, height: size, fontSize: size * 0.55 }}
         aria-hidden
       >

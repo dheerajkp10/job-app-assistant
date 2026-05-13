@@ -49,7 +49,7 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
           {score}%
         </span>
       </div>
-      {label && <span className="text-xs text-gray-500 mt-1">{label}</span>}
+      {label && <span className="text-xs text-slate-500 mt-1">{label}</span>}
     </div>
   );
 }
@@ -58,11 +58,11 @@ function CategoryBar({ label, score }: { label: string; score: number }) {
   const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : 'bg-red-400';
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-24 text-right">{label}</span>
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+      <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
+      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-gray-700 w-10">{score}%</span>
+      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
     </div>
   );
 }
@@ -314,16 +314,16 @@ export default function AddJobPage() {
         </div>
 
         {/* ATS Score Panel */}
-        <section className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+        <section className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
-            <Target className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-semibold text-gray-900">ATS Match Score</h2>
+            <Target className="w-5 h-5 text-indigo-500" />
+            <h2 className="text-lg font-semibold text-slate-800">ATS Match Score</h2>
           </div>
 
           {scoring && (
             <div className="flex items-center gap-3 py-8 justify-center">
-              <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
-              <span className="text-sm text-gray-500">Analyzing resume against job description...</span>
+              <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
+              <span className="text-sm text-slate-500">Analyzing resume against job description...</span>
             </div>
           )}
 
@@ -333,7 +333,7 @@ export default function AddJobPage() {
               <div>
                 <p className="text-sm text-amber-800 font-medium">{scoreError}</p>
                 {scoreError.includes('resume') && (
-                  <Link href="/settings" className="text-sm text-blue-600 hover:underline mt-1 inline-flex items-center gap-1">
+                  <Link href="/settings" className="text-sm text-indigo-600 hover:underline mt-1 inline-flex items-center gap-1">
                     Go to Settings to upload <ArrowUpRight className="w-3 h-3" />
                   </Link>
                 )}
@@ -394,7 +394,7 @@ export default function AddJobPage() {
                         <button key={k} type="button" onClick={() => toggleKeyword(k)}
                           className={`px-2 py-0.5 rounded text-xs border transition-colors ${
                             on ? 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200'
-                              : 'bg-white text-gray-400 border-gray-200 line-through hover:bg-gray-50'
+                              : 'bg-white text-slate-400 border-slate-200 line-through hover:bg-slate-50'
                           }`}>{k}</button>
                       );
                     })}
@@ -407,15 +407,15 @@ export default function AddJobPage() {
 
         {/* Resume Tailor Panel */}
         {score && (
-          <section className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+          <section className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <FileText className="w-5 h-5 text-purple-500" />
-                <h2 className="text-lg font-semibold text-gray-900">Resume Tailor</h2>
+                <FileText className="w-5 h-5 text-violet-500" />
+                <h2 className="text-lg font-semibold text-slate-800">Resume Tailor</h2>
               </div>
               {!tailorResult && (
                 <button onClick={handleTailor} disabled={tailoring}
-                  className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors">
+                  className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors">
                   {tailoring ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Tailoring...</>
                   ) : (
@@ -426,9 +426,9 @@ export default function AddJobPage() {
             </div>
 
             {!tailorResult && !tailoring && !tailorError && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-slate-500">
                 Click &ldquo;Tailor My Resume&rdquo; to optimize your resume for this role.
-                <span className="block mt-1 text-xs text-gray-400">
+                <span className="block mt-1 text-xs text-slate-400">
                   Only keyword optimization — no false information will be added.
                 </span>
               </p>
@@ -443,29 +443,29 @@ export default function AddJobPage() {
 
             {tailorResult && (
               <div className="space-y-4">
-                <div className="flex items-center gap-6 p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-100">
+                <div className="flex items-center gap-6 p-4 bg-gradient-to-r from-indigo-50 to-violet-50 rounded-lg border border-indigo-100">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-gray-400">{tailorResult.originalScore.overall}%</div>
-                    <div className="text-xs text-gray-400">Before</div>
+                    <div className="text-2xl font-bold text-slate-400">{tailorResult.originalScore.overall}%</div>
+                    <div className="text-xs text-slate-400">Before</div>
                   </div>
-                  <div className="text-2xl text-gray-300">&rarr;</div>
+                  <div className="text-2xl text-slate-300">&rarr;</div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-600">{tailorResult.tailoredScore.overall}%</div>
                     <div className="text-xs text-green-600">After</div>
                   </div>
                   <div className="text-center ml-auto">
-                    <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-2xl font-bold text-indigo-600">
                       +{tailorResult.tailoredScore.overall - tailorResult.originalScore.overall}%
                     </div>
-                    <div className="text-xs text-blue-600">Improvement</div>
+                    <div className="text-xs text-indigo-600">Improvement</div>
                   </div>
                 </div>
 
                 <div>
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Changes Made</h3>
+                  <h3 className="text-sm font-medium text-slate-700 mb-2">Changes Made</h3>
                   <ul className="space-y-1">
                     {tailorResult.changesSummary.map((c, i) => (
-                      <li key={i} className="text-sm text-gray-600 flex gap-2">
+                      <li key={i} className="text-sm text-slate-600 flex gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0 mt-0.5" /> {c}
                       </li>
                     ))}
@@ -474,10 +474,10 @@ export default function AddJobPage() {
 
                 {tailorResult.addedKeywords.length > 0 && (
                   <div>
-                    <h3 className="text-sm font-medium text-gray-700 mb-2">Keywords Added</h3>
+                    <h3 className="text-sm font-medium text-slate-700 mb-2">Keywords Added</h3>
                     <div className="flex flex-wrap gap-1">
                       {tailorResult.addedKeywords.map((k) => (
-                        <span key={k} className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">{k}</span>
+                        <span key={k} className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">{k}</span>
                       ))}
                     </div>
                   </div>
@@ -507,7 +507,7 @@ export default function AddJobPage() {
             Add Another Job
           </button>
           <Link href="/listings"
-            className="inline-flex items-center px-5 py-2.5 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+            className="inline-flex items-center px-5 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors">
             Back to Listings
           </Link>
         </div>
@@ -519,44 +519,44 @@ export default function AddJobPage() {
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">Add Job</h1>
+      <h1 className="text-2xl font-bold text-slate-800 mb-8">Add Job</h1>
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">{error}</div>
       )}
 
       {/* Tab Switcher */}
-      <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
+      <div className="flex gap-1 mb-6 bg-slate-100 rounded-lg p-1 w-fit">
         <button onClick={() => setTab('url')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            tab === 'url' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            tab === 'url' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}>
           <Link2 className="w-4 h-4" /> Paste URL
         </button>
         <button onClick={() => setTab('manual')}
           className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            tab === 'manual' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            tab === 'manual' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'
           }`}>
           <FileText className="w-4 h-4" /> Paste Description
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+      <div className="bg-white rounded-xl border border-slate-200 p-6 space-y-5">
         {/* URL extraction */}
         {tab === 'url' && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Job URL</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Job URL</label>
             <div className="flex gap-3">
               <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://www.linkedin.com/jobs/view/..."
-                className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none" />
               <button onClick={extractFromUrl} disabled={extracting || !url.trim()}
                 className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2">
                 {extracting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {extracting ? 'Extracting...' : 'Extract'}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1.5">
+            <p className="text-xs text-slate-400 mt-1.5">
               Works best with company career sites. LinkedIn / Glassdoor may need manual paste.
             </p>
 
@@ -565,19 +565,19 @@ export default function AddJobPage() {
                 friendly link to the existing listing instead of
                 creating a duplicate manual-* row. */}
             {duplicateMatch && (
-              <div className="mt-3 rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+              <div className="mt-3 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 p-3 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
                 <div className="flex-1 text-sm">
-                  <p className="font-semibold text-blue-900">
+                  <p className="font-semibold text-indigo-900">
                     Already on your Job Listings page
                   </p>
-                  <p className="text-blue-800/90 text-xs mt-0.5">
+                  <p className="text-indigo-800/90 text-xs mt-0.5">
                     {duplicateMatch.title} · {duplicateMatch.company}
                     {duplicateMatch.location ? ` · ${duplicateMatch.location}` : ''}
                   </p>
                   <Link
                     href={`/listings/${duplicateMatch.listingId}`}
-                    className="inline-flex items-center gap-1.5 mt-1.5 text-xs font-medium text-blue-700 hover:text-blue-900"
+                    className="inline-flex items-center gap-1.5 mt-1.5 text-xs font-medium text-indigo-700 hover:text-indigo-900"
                   >
                     Open existing listing <ArrowUpRight className="w-3 h-3" />
                   </Link>
@@ -589,12 +589,12 @@ export default function AddJobPage() {
 
         {/* Portal */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Portal</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Portal</label>
           <div className="flex gap-2">
             {PORTALS.map((p) => (
               <button key={p.key} onClick={() => setPortal(p.key)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                  portal === p.key ? 'text-white border-transparent' : 'text-gray-600 border-gray-300 hover:border-gray-400'
+                  portal === p.key ? 'text-white border-transparent' : 'text-slate-600 border-slate-200 hover:border-slate-300'
                 }`}
                 style={portal === p.key ? { backgroundColor: p.color } : undefined}>
                 {p.label}
@@ -606,41 +606,41 @@ export default function AddJobPage() {
         {/* Company and Title */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Company Name *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Company Name *</label>
             <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)}
               placeholder="e.g. Google"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Job Title *</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Job Title *</label>
             <input type="text" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)}
               placeholder="e.g. Senior Engineering Manager"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none" />
           </div>
         </div>
 
         {/* Location */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Location</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Location</label>
           <input type="text" value={location} onChange={(e) => setLocation(e.target.value)}
             placeholder="e.g. San Francisco, CA (Remote)"
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none" />
         </div>
 
         {/* Description */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Job Description *</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Job Description *</label>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)}
             placeholder="Paste the full job description here..." rows={12}
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y" />
+            className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none resize-y" />
         </div>
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes (optional)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes (optional)</label>
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)}
             placeholder="Any personal notes about this role..." rows={3}
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y" />
+            className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none resize-y" />
         </div>
 
         {/* Submit */}

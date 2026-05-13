@@ -198,7 +198,7 @@ export default function SettingsPage() {
   return (
     <div className="p-8 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
         <button
           onClick={saveAll}
           disabled={saving}
@@ -221,40 +221,40 @@ export default function SettingsPage() {
       )}
 
       {/* User Name */}
-      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <User className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Your Name</h2>
+          <User className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Your Name</h2>
         </div>
         <input
           type="text"
           value={userName}
           onChange={(e) => setUserName(e.target.value)}
           placeholder="Enter your name"
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          className="w-full px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
         />
       </section>
 
       {/* Preferred Roles */}
-      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <Briefcase className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Preferred Roles</h2>
+          <Briefcase className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Preferred Roles</h2>
         </div>
-        <p className="text-xs text-gray-500 mb-3">
+        <p className="text-xs text-slate-500 mb-3">
           Job listings will be filtered to match these role titles.
         </p>
         <div className="flex flex-wrap gap-2 mb-3">
           {preferredRoles.map((r) => (
-            <span key={r} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium">
+            <span key={r} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
               {r}
-              <button type="button" onClick={() => removeRole(r)} className="hover:text-blue-900">
+              <button type="button" onClick={() => removeRole(r)} className="hover:text-indigo-900">
                 <X className="w-3 h-3" />
               </button>
             </span>
           ))}
           {preferredRoles.length === 0 && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-slate-400">
               No roles set — all common tech roles will be shown by default.
             </span>
           )}
@@ -266,20 +266,20 @@ export default function SettingsPage() {
             onChange={(e) => setCustomRole(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addRole()}
             placeholder="Add a role title..."
-            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
           />
           <button type="button" onClick={addRole} disabled={!customRole.trim()}
-            className="px-4 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-40">
+            className="px-4 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg hover:bg-gray-200 disabled:opacity-40">
             Add
           </button>
         </div>
 
         {/* Desired levels */}
-        <div className="mt-6 pt-5 border-t border-gray-100">
-          <label className="block text-xs font-medium text-gray-500 mb-1.5">
+        <div className="mt-6 pt-5 border-t border-slate-100">
+          <label className="block text-xs font-medium text-slate-500 mb-1.5">
             Desired Level{preferredLevels.length > 0 && ` (${preferredLevels.length} selected)`}
           </label>
-          <p className="text-xs text-gray-400 mb-3">
+          <p className="text-xs text-slate-400 mb-3">
             Optional. Listings will be scored higher if they match these seniority tiers.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -292,14 +292,14 @@ export default function SettingsPage() {
                   onClick={() => toggleLevel(tier.key)}
                   className={`text-left p-3 rounded-lg border transition-colors ${
                     on
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                      ? 'border-blue-600 bg-indigo-50'
+                      : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'
                   }`}
                 >
-                  <div className={`text-sm font-semibold ${on ? 'text-blue-700' : 'text-gray-900'}`}>
+                  <div className={`text-sm font-semibold ${on ? 'text-indigo-700' : 'text-slate-800'}`}>
                     {tier.label}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">{tier.examples}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">{tier.examples}</div>
                 </button>
               );
             })}
@@ -308,22 +308,22 @@ export default function SettingsPage() {
       </section>
 
       {/* Preferred Locations + Work Mode */}
-      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <MapPin className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Location &amp; Work Mode</h2>
+          <MapPin className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Location &amp; Work Mode</h2>
         </div>
 
         {/* Work mode */}
         <div className="mb-4">
-          <label className="block text-xs font-medium text-gray-500 mb-2">Work Arrangement</label>
+          <label className="block text-xs font-medium text-slate-500 mb-2">Work Arrangement</label>
           <div className="flex gap-2">
             {WORK_MODES.map((m) => {
               const on = workMode.includes(m.key);
               return (
                 <button key={m.key} type="button" onClick={() => toggleWorkMode(m.key)}
                   className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                    on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'
+                    on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
                   }`}>
                   {m.label}
                 </button>
@@ -335,9 +335,9 @@ export default function SettingsPage() {
         {/* Locations */}
         <div className="flex flex-wrap gap-2 mb-3">
           {preferredLocations.map((loc) => (
-            <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium">
+            <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
               {loc}
-              <button type="button" onClick={() => removeLocation(loc)} className="hover:text-blue-900">
+              <button type="button" onClick={() => removeLocation(loc)} className="hover:text-indigo-900">
                 <X className="w-3 h-3" />
               </button>
             </span>
@@ -355,11 +355,11 @@ export default function SettingsPage() {
         {/* Work authorization. Drives the listings filter — jobs in countries
             outside this list are hidden so the user only sees roles they could
             legally take. Defaults to US for legacy users. */}
-        <div className="mt-6 pt-6 border-t border-gray-100">
-          <label className="block text-xs font-medium text-gray-500 mb-1">
+        <div className="mt-6 pt-6 border-t border-slate-100">
+          <label className="block text-xs font-medium text-slate-500 mb-1">
             Work Authorization
           </label>
-          <p className="text-xs text-gray-400 mb-2">
+          <p className="text-xs text-slate-400 mb-2">
             Job listings outside these countries (e.g. <em>Remote — Canada</em> for a US-only worker) are hidden.
           </p>
           <div className="flex flex-wrap gap-2">
@@ -379,7 +379,7 @@ export default function SettingsPage() {
                   className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                     on
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                      : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
                   }`}
                 >
                   {on && <Check className="inline w-3 h-3 mr-1" />}
@@ -394,12 +394,12 @@ export default function SettingsPage() {
       {/* Auto-refresh — kicks off a background streaming refresh on
           the next listings-page load when the cache is older than
           the chosen window. Off by default. */}
-      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-3">
-          <RefreshCw className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Auto-refresh listings</h2>
+          <RefreshCw className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Auto-refresh listings</h2>
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-3">
+        <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer mb-3">
           <input
             type="checkbox"
             checked={autoRefreshEnabled}
@@ -409,7 +409,7 @@ export default function SettingsPage() {
           Refresh listings automatically when stale
         </label>
         {autoRefreshEnabled && (
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
             <span>Consider listings stale after</span>
             <input
               type="number"
@@ -417,12 +417,12 @@ export default function SettingsPage() {
               max={168}
               value={autoRefreshHours}
               onChange={(e) => setAutoRefreshHours(Math.max(1, Number(e.target.value) || 24))}
-              className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-16 px-2 py-1 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
             />
             <span>hours</span>
           </div>
         )}
-        <p className="text-xs text-gray-400 mt-2">
+        <p className="text-xs text-slate-400 mt-2">
           When enabled, opening the Listings page after the configured window automatically streams a fresh fetch from all 70+ careers boards. You can keep browsing the existing data while it runs.
         </p>
       </section>
@@ -432,13 +432,13 @@ export default function SettingsPage() {
       <NetworkImportPanel />
 
       {/* Salary Range (optional) */}
-      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <DollarSign className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Salary Range (optional)</h2>
+            <DollarSign className="w-5 h-5 text-slate-500" />
+            <h2 className="text-lg font-semibold text-slate-800">Salary Range (optional)</h2>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs text-slate-500 cursor-pointer">
             <input
               type="checkbox"
               checked={salarySkipped}
@@ -462,26 +462,26 @@ export default function SettingsPage() {
 
         {!salarySkipped && (
           <>
-            <p className="text-xs text-gray-500 mb-3">
+            <p className="text-xs text-slate-500 mb-3">
               Enter only a minimum, only a maximum, or both &mdash; all optional.
             </p>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Min total comp (annual)</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Min total comp (annual)</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
                   <input type="number" value={salaryMin} onChange={(e) => setSalaryMin(e.target.value)}
                     placeholder="200000"
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none" />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Max total comp (annual)</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Max total comp (annual)</label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
                   <input type="number" value={salaryMax} onChange={(e) => setSalaryMax(e.target.value)}
                     placeholder="350000"
-                    className="w-full pl-7 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                    className="w-full pl-7 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none" />
                 </div>
               </div>
             </div>
@@ -489,31 +489,31 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => setShowSalaryBreakdown((v) => !v)}
-              className="mt-4 text-xs font-medium text-blue-600 hover:text-blue-700"
+              className="mt-4 text-xs font-medium text-indigo-600 hover:text-indigo-700"
             >
               {showSalaryBreakdown ? '− Hide breakdown' : '+ Show breakdown (base, bonus, equity)'}
             </button>
 
             {showSalaryBreakdown && (
-              <div className="mt-4 space-y-3 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <div className="mt-4 space-y-3 p-4 bg-slate-50 border border-slate-200 rounded-lg">
                 {[
                   { label: 'Base salary', min: salaryBaseMin, max: salaryBaseMax, setMin: setSalaryBaseMin, setMax: setSalaryBaseMax, ph: '180000' },
                   { label: 'Annual bonus', min: salaryBonusMin, max: salaryBonusMax, setMin: setSalaryBonusMin, setMax: setSalaryBonusMax, ph: '30000' },
                   { label: 'Equity / RSUs (annualized)', min: salaryEquityMin, max: salaryEquityMax, setMin: setSalaryEquityMin, setMax: setSalaryEquityMax, ph: '100000' },
                 ].map((row) => (
                   <div key={row.label} className="grid grid-cols-[160px_1fr_1fr] items-center gap-2">
-                    <label className="text-xs text-gray-600">{row.label}</label>
+                    <label className="text-xs text-slate-600">{row.label}</label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
                       <input type="number" value={row.min} onChange={(e) => row.setMin(e.target.value)}
                         placeholder={`min ${row.ph}`}
-                        className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                        className="w-full pl-6 pr-2 py-1.5 border border-slate-200 rounded text-xs focus:ring-2 focus:ring-indigo-200 outline-none" />
                     </div>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs">$</span>
                       <input type="number" value={row.max} onChange={(e) => row.setMax(e.target.value)}
                         placeholder={`max ${row.ph}`}
-                        className="w-full pl-6 pr-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-blue-500 outline-none" />
+                        className="w-full pl-6 pr-2 py-1.5 border border-slate-200 rounded text-xs focus:ring-2 focus:ring-indigo-200 outline-none" />
                     </div>
                   </div>
                 ))}
@@ -523,17 +523,17 @@ export default function SettingsPage() {
         )}
 
         {salarySkipped && (
-          <p className="text-xs text-gray-400 italic">
+          <p className="text-xs text-slate-400 italic">
             Salary preferences are set to skip. Uncheck above to set a target range.
           </p>
         )}
       </section>
 
       {/* Resume Upload */}
-      <section className="bg-white rounded-xl border border-gray-200 p-6">
+      <section className="bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-4">
-          <FileText className="w-5 h-5 text-gray-500" />
-          <h2 className="text-lg font-semibold text-gray-900">Resume</h2>
+          <FileText className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Resume</h2>
         </div>
 
         {resumeFileName && (
@@ -548,25 +548,25 @@ export default function SettingsPage() {
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors ${
-            dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+            dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'
           }`}
         >
-          <Upload className="w-10 h-10 text-gray-400 mx-auto mb-3" />
-          <p className="text-sm text-gray-600 mb-2">
+          <Upload className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+          <p className="text-sm text-slate-600 mb-2">
             {uploading ? 'Uploading...' : 'Drag and drop your resume here, or'}
           </p>
-          <label className="inline-block px-5 py-2.5 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg cursor-pointer hover:bg-gray-200 transition-colors">
+          <label className="inline-block px-5 py-2.5 bg-slate-100 text-slate-700 text-sm font-medium rounded-lg cursor-pointer hover:bg-gray-200 transition-colors">
             Browse Files
             <input type="file" accept=".docx,.pdf" onChange={handleFileInput} className="hidden" />
           </label>
-          <p className="text-xs text-gray-400 mt-2">Supports .docx and .pdf</p>
+          <p className="text-xs text-slate-400 mt-2">Supports .docx and .pdf</p>
         </div>
 
         {resumeText && (
           <div className="mt-6">
-            <h3 className="text-sm font-semibold text-gray-700 mb-2">Parsed Resume Preview</h3>
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 max-h-80 overflow-y-auto">
-              <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono leading-relaxed">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">Parsed Resume Preview</h3>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 max-h-80 overflow-y-auto">
+              <pre className="text-xs text-slate-600 whitespace-pre-wrap font-mono leading-relaxed">
                 {resumeText.slice(0, 3000)}
                 {resumeText.length > 3000 && '\n\n... (truncated)'}
               </pre>

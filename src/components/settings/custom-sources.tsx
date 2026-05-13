@@ -112,32 +112,32 @@ export function CustomSourcesPanel() {
   }
 
   return (
-    <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+    <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
       <div className="flex items-center gap-3 mb-3">
-        <Globe className="w-5 h-5 text-gray-500" />
-        <h2 className="text-lg font-semibold text-gray-900">Custom Company Sources</h2>
+        <Globe className="w-5 h-5 text-slate-500" />
+        <h2 className="text-lg font-semibold text-slate-800">Custom Company Sources</h2>
       </div>
-      <p className="text-xs text-gray-500 mb-4">
+      <p className="text-xs text-slate-500 mb-4">
         Add your own company career boards. Test the token before saving so you don&apos;t add a dead source by mistake.
       </p>
 
       {/* Existing list */}
       {loading ? (
-        <div className="flex items-center gap-2 text-xs text-gray-400 mb-4">
+        <div className="flex items-center gap-2 text-xs text-slate-400 mb-4">
           <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading saved sources…
         </div>
       ) : sources.length === 0 ? (
-        <p className="text-xs text-gray-400 italic mb-4">No custom sources yet.</p>
+        <p className="text-xs text-slate-400 italic mb-4">No custom sources yet.</p>
       ) : (
         <ul className="space-y-1.5 mb-4">
           {sources.map((s) => (
             <li
               key={s.slug}
-              className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100 text-sm"
+              className="flex items-center justify-between gap-2 px-3 py-2 bg-slate-50 rounded-lg border border-slate-100 text-sm"
             >
               <div className="min-w-0">
-                <div className="font-medium text-gray-800 truncate">{s.name}</div>
-                <div className="text-[11px] text-gray-500">
+                <div className="font-medium text-slate-700 truncate">{s.name}</div>
+                <div className="text-[11px] text-slate-500">
                   {s.ats} · token: <code>{s.boardToken}</code>
                   {s.workdayHost ? ` · ${s.workdayHost}` : ''}
                 </div>
@@ -145,7 +145,7 @@ export function CustomSourcesPanel() {
               <button
                 type="button"
                 onClick={() => remove(s.slug)}
-                className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
+                className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
                 title="Remove"
               >
                 <Trash2 className="w-4 h-4" />
@@ -158,21 +158,21 @@ export function CustomSourcesPanel() {
       {/* Add form */}
       <div className="grid grid-cols-2 gap-3 mb-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Company name</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Company name</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Acme Corp"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
           />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">ATS</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">ATS</label>
           <select
             value={ats}
             onChange={(e) => setAts(e.target.value as ATSType)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
           >
             {ATS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -180,35 +180,35 @@ export function CustomSourcesPanel() {
           </select>
         </div>
         <div className="col-span-2">
-          <label className="block text-xs font-medium text-gray-500 mb-1">Board token / slug</label>
+          <label className="block text-xs font-medium text-slate-500 mb-1">Board token / slug</label>
           <input
             type="text"
             value={boardToken}
             onChange={(e) => setBoardToken(e.target.value)}
             placeholder="e.g. acme (Greenhouse), acme-corp (Lever), acme.com (Ashby)"
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
           />
         </div>
         {needsWorkday && (
           <>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Workday host</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Workday host</label>
               <input
                 type="text"
                 value={workdayHost}
                 onChange={(e) => setWorkdayHost(e.target.value)}
                 placeholder="e.g. acme.wd5.myworkdayjobs.com"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Workday site</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Workday site</label>
               <input
                 type="text"
                 value={workdaySite}
                 onChange={(e) => setWorkdaySite(e.target.value)}
                 placeholder="e.g. External_Career_Site"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
               />
             </div>
           </>
@@ -220,7 +220,7 @@ export function CustomSourcesPanel() {
           type="button"
           onClick={probe}
           disabled={!boardToken || probeState.phase === 'probing'}
-          className="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50 disabled:opacity-50"
         >
           {probeState.phase === 'probing' ? (
             <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Testing…</>

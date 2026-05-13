@@ -73,7 +73,7 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
     <div className="relative" ref={wrapperRef}>
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <MapPin className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={query}
@@ -85,7 +85,7 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
             onFocus={() => query && setOpen(true)}
             onKeyDown={onKeyDown}
             placeholder={placeholder || 'Start typing a city (e.g., "Bell" → Bellevue, WA)'}
-            className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
             autoComplete="off"
           />
         </div>
@@ -93,7 +93,7 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
           type="button"
           onClick={() => query.trim() && commit(query)}
           disabled={!query.trim()}
-          className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 disabled:opacity-40 rounded-lg font-medium text-gray-700 inline-flex items-center gap-1"
+          className="px-3 py-2 text-sm bg-slate-100 hover:bg-gray-200 disabled:opacity-40 rounded-lg font-medium text-slate-700 inline-flex items-center gap-1"
           title="Add this location"
         >
           <Plus className="w-4 h-4" />
@@ -104,7 +104,7 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
       {open && suggestions.length > 0 && (
         <ul
           role="listbox"
-          className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
+          className="absolute z-20 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto"
         >
           {suggestions.map((hub, i) => {
             const already = existingLower.has(hub.toLowerCase());
@@ -121,10 +121,10 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
                 }}
                 className={`px-3 py-2 text-sm cursor-pointer flex items-center gap-2 ${
                   already
-                    ? 'text-gray-300 cursor-not-allowed'
+                    ? 'text-slate-300 cursor-not-allowed'
                     : i === activeIdx
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-700 hover:bg-gray-50'
+                      ? 'bg-indigo-50 text-indigo-700'
+                      : 'text-slate-700 hover:bg-slate-50'
                 }`}
               >
                 <MapPin className="w-3.5 h-3.5 shrink-0" />

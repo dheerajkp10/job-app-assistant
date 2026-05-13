@@ -140,12 +140,12 @@ export function NetworkImportPanel() {
   }
 
   return (
-    <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+    <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
       <div className="flex items-center gap-3 mb-3">
-        <Users className="w-5 h-5 text-gray-500" />
-        <h2 className="text-lg font-semibold text-gray-900">Network (LinkedIn import)</h2>
+        <Users className="w-5 h-5 text-slate-500" />
+        <h2 className="text-lg font-semibold text-slate-800">Network (LinkedIn import)</h2>
       </div>
-      <p className="text-xs text-gray-500 mb-3">
+      <p className="text-xs text-slate-500 mb-3">
         Import your <code>Connections.csv</code> from LinkedIn — or the raw <code>.zip</code> archive
         LinkedIn emails you (we&apos;ll unzip it server-side). To combine files from <em>different
         folders</em>, click <strong>Add a file</strong> once per folder; each click opens a fresh
@@ -154,10 +154,10 @@ export function NetworkImportPanel() {
         at that company.
       </p>
       {count > 0 && (
-        <div className="text-xs text-gray-700 mb-3">
+        <div className="text-xs text-slate-700 mb-3">
           <strong>{count.toLocaleString()}</strong> connections imported
           {updatedAt && (
-            <span className="text-gray-400"> · updated {new Date(updatedAt).toLocaleDateString()}</span>
+            <span className="text-slate-400"> · updated {new Date(updatedAt).toLocaleDateString()}</span>
           )}
           {lastUploadInfo && (
             <span className="text-emerald-700">
@@ -202,11 +202,11 @@ export function NetworkImportPanel() {
         }}
         className={`rounded-lg border-2 border-dashed transition-colors p-4 mb-3 ${
           isDragging
-            ? 'border-blue-400 bg-blue-50'
-            : 'border-gray-200 bg-gray-50'
+            ? 'border-blue-400 bg-indigo-50'
+            : 'border-slate-200 bg-slate-50'
         }`}
       >
-        <div className="text-xs text-gray-500 mb-2">
+        <div className="text-xs text-slate-500 mb-2">
           <strong>Drag &amp; drop</strong> files here, or click <strong>Add a file</strong> below.
           Each click opens the picker for one folder at a time — click again to add from a
           different folder. When you&apos;re done, hit <strong>Upload</strong>.
@@ -230,7 +230,7 @@ export function NetworkImportPanel() {
           }
           const nameSeen = new Map<string, number>();
           return (
-            <div className="mb-3 bg-white rounded-lg border border-gray-200 divide-y divide-gray-100">
+            <div className="mb-3 bg-white rounded-lg border border-slate-200 divide-y divide-gray-100">
               {staged.map(({ id, file }) => {
                 const totalForName = nameCounts.get(file.name) ?? 1;
                 const ord = (nameSeen.get(file.name) ?? 0) + 1;
@@ -241,10 +241,10 @@ export function NetworkImportPanel() {
                     key={id}
                     className="flex items-center gap-2 px-3 py-1.5 text-xs"
                   >
-                    <FileText className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 truncate">
-                        <span className="text-gray-800 font-medium truncate">
+                        <span className="text-slate-700 font-medium truncate">
                           {file.name}
                         </span>
                         {totalForName > 1 && (
@@ -256,7 +256,7 @@ export function NetworkImportPanel() {
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-gray-400 truncate">
+                      <div className="text-[11px] text-slate-400 truncate">
                         {(file.size / 1024).toFixed(1)} KB
                         {' · '}
                         modified {mtime.toLocaleDateString()} {mtime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -265,7 +265,7 @@ export function NetworkImportPanel() {
                     <button
                       type="button"
                       onClick={() => removeStaged(id)}
-                      className="ml-auto p-0.5 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 shrink-0"
+                      className="ml-auto p-0.5 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 shrink-0"
                       title="Remove from queue"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -319,7 +319,7 @@ export function NetworkImportPanel() {
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="inline-flex items-center gap-2 px-3 py-1.5 border border-blue-600 text-blue-700 text-xs font-medium rounded-lg hover:bg-blue-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3 py-1.5 border border-blue-600 text-indigo-700 text-xs font-medium rounded-lg hover:bg-indigo-50 disabled:opacity-50"
             title="Opens the file picker for one folder. Pick the Connections.csv (or the .zip) you want and confirm — it lands in the queue below. Click again to add from another folder."
           >
             {staged.length === 0 ? (
@@ -333,7 +333,7 @@ export function NetworkImportPanel() {
               type="button"
               onClick={() => setStaged([])}
               disabled={busy}
-              className="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-600 text-xs font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-50 disabled:opacity-50"
               title="Clear the queue without uploading."
             >
               <X className="w-3.5 h-3.5" /> Clear queue
@@ -343,14 +343,14 @@ export function NetworkImportPanel() {
             <button
               type="button"
               onClick={clearAll}
-              className="inline-flex items-center gap-2 px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50"
+              className="inline-flex items-center gap-2 px-3 py-1.5 border border-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50"
             >
               <Trash2 className="w-3.5 h-3.5" /> Clear all
             </button>
           )}
         </div>
       </div>
-      <p className="text-[11px] text-gray-400 mt-3">
+      <p className="text-[11px] text-slate-400 mt-3">
         Get the CSV from LinkedIn → Me → Settings → Data privacy → Get a copy of your data → Connections.
         Stored only on this machine; never sent to any third party.
       </p>

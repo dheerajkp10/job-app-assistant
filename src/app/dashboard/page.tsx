@@ -375,7 +375,7 @@ export default function DashboardPage() {
               <div className="mt-4 p-3 bg-slate-50 rounded-lg">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-slate-400" />
-                  <span className="text-xs text-gray-600 font-medium truncate">{settings.baseResumeFileName}</span>
+                  <span className="text-xs text-slate-600 font-medium truncate">{settings.baseResumeFileName}</span>
                 </div>
               </div>
             )}
@@ -424,7 +424,7 @@ export default function DashboardPage() {
                         <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[200px]">
                           <div className={`h-full rounded-full ${barColor}`} style={{ width: `${c.avgScore}%` }} />
                         </div>
-                        <span className="text-xs font-medium text-gray-600">{c.avgScore}% avg</span>
+                        <span className="text-xs font-medium text-slate-600">{c.avgScore}% avg</span>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
@@ -918,7 +918,7 @@ function TailorTopJobsModal({
               className="mt-0.5 rounded"
             />
             <div className="flex-1">
-              <span className="font-medium text-gray-800">
+              <span className="font-medium text-slate-700">
                 Pack all keywords on 1 page (aggressive)
               </span>
               <span className="text-slate-500">
@@ -1353,7 +1353,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               className="mt-0.5 rounded"
             />
             <div className="flex-1">
-              <span className="font-medium text-gray-800">
+              <span className="font-medium text-slate-700">
                 Pack all keywords on 1 page (aggressive)
               </span>
               <span className="text-slate-500">

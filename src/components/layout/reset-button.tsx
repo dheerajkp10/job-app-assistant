@@ -41,7 +41,7 @@ export default function ResetButton() {
       <button
         type="button"
         onClick={() => setShowConfirm(true)}
-        className="fixed top-4 right-4 z-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur border border-gray-200 text-xs font-medium text-gray-700 shadow-sm hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors"
+        className="fixed top-4 right-4 z-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur border border-slate-200 text-xs font-medium text-slate-700 shadow-sm hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors"
         aria-label="Reset app and restart onboarding"
         title="Reset app state and restart onboarding"
       >
@@ -52,17 +52,17 @@ export default function ResetButton() {
       {showConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
-            <div className="flex items-start justify-between p-5 border-b border-gray-200">
+            <div className="flex items-start justify-between p-5 border-b border-slate-200">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
                   <AlertTriangle className="w-5 h-5 text-red-600" />
                 </div>
-                <h2 className="text-lg font-semibold text-gray-900">Reset everything?</h2>
+                <h2 className="text-lg font-semibold text-slate-800">Reset everything?</h2>
               </div>
               <button
                 type="button"
                 onClick={() => !resetting && setShowConfirm(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-slate-400 hover:text-slate-600"
                 aria-label="Close"
                 disabled={resetting}
               >
@@ -70,15 +70,15 @@ export default function ResetButton() {
               </button>
             </div>
 
-            <div className="p-5 space-y-3 text-sm text-gray-700">
+            <div className="p-5 space-y-3 text-sm text-slate-700">
               <p>This will permanently delete:</p>
-              <ul className="list-disc pl-5 space-y-1 text-gray-600">
+              <ul className="list-disc pl-5 space-y-1 text-slate-600">
                 <li>Your uploaded resume (.docx / .pdf)</li>
                 <li>All saved preferences (roles, levels, locations, salary, excluded companies)</li>
                 <li>All added jobs and their notes</li>
                 <li>Cached job listings and match scores</li>
               </ul>
-              <p className="text-gray-600">
+              <p className="text-slate-600">
                 You&apos;ll be taken back to the onboarding flow to set everything up from scratch.
                 This cannot be undone.
               </p>
@@ -89,12 +89,12 @@ export default function ResetButton() {
               )}
             </div>
 
-            <div className="flex gap-2 justify-end p-5 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+            <div className="flex gap-2 justify-end p-5 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <button
                 type="button"
                 onClick={() => setShowConfirm(false)}
                 disabled={resetting}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 disabled:opacity-50 transition-colors"
+                className="px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 disabled:opacity-50 transition-colors"
               >
                 Cancel
               </button>

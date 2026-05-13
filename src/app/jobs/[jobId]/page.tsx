@@ -74,9 +74,9 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
     return (
       <div className="p-8">
         <div className="animate-pulse space-y-4">
-          <div className="h-6 w-32 bg-gray-200 rounded" />
-          <div className="h-8 w-64 bg-gray-200 rounded" />
-          <div className="h-96 bg-gray-200 rounded-xl" />
+          <div className="h-6 w-32 bg-slate-200 rounded" />
+          <div className="h-8 w-64 bg-slate-200 rounded" />
+          <div className="h-96 bg-slate-200 rounded-xl" />
         </div>
       </div>
     );
@@ -85,8 +85,8 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
   if (!job) {
     return (
       <div className="p-8 text-center">
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Job not found</h2>
-        <Link href="/listings" className="text-blue-600 hover:underline text-sm">
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Job not found</h2>
+        <Link href="/listings" className="text-indigo-600 hover:underline text-sm">
           Back to Job Listings
         </Link>
       </div>
@@ -101,7 +101,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
       <div className="mb-6">
         <Link
           href="/listings"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4"
+          className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
           Back to Job Listings
@@ -122,7 +122,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold text-gray-900">{job.jobTitle}</h1>
+              <h1 className="text-2xl font-bold text-slate-800">{job.jobTitle}</h1>
               {portal && (
                 <span
                   className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
@@ -132,8 +132,8 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
                 </span>
               )}
             </div>
-            <p className="text-lg text-gray-600 font-medium">{job.companyName}</p>
-            <div className="flex items-center gap-4 mt-2 text-sm text-gray-400">
+            <p className="text-lg text-slate-600 font-medium">{job.companyName}</p>
+            <div className="flex items-center gap-4 mt-2 text-sm text-slate-400">
               {job.location && (
                 <span className="flex items-center gap-1">
                   <MapPin className="w-4 h-4" />
@@ -149,7 +149,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
                   href={job.jobUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-blue-500 hover:text-blue-600"
+                  className="flex items-center gap-1 text-indigo-500 hover:text-indigo-600"
                 >
                   <ExternalLink className="w-4 h-4" />
                   View Original
@@ -180,9 +180,9 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
 
       <div className="grid grid-cols-3 gap-6">
         {/* Left: Job Description */}
-        <div className="col-span-2 bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Job Description</h2>
-          <div className="prose prose-sm max-w-none text-gray-600">
+        <div className="col-span-2 bg-white rounded-xl border border-slate-200 p-6">
+          <h2 className="text-lg font-semibold text-slate-800 mb-4">Job Description</h2>
+          <div className="prose prose-sm max-w-none text-slate-600">
             <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed">
               {job.description}
             </pre>
@@ -192,8 +192,8 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
         {/* Right: Status and Notes */}
         <div className="space-y-6">
           {/* Status */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Status</h2>
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h2 className="text-sm font-semibold text-slate-800 mb-3">Status</h2>
             <div className="space-y-2">
               {JOB_STATUSES.map((s) => (
                 <button
@@ -202,7 +202,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     status === s.key
                       ? 'text-white'
-                      : 'text-gray-600 hover:bg-gray-50'
+                      : 'text-slate-600 hover:bg-slate-50'
                   }`}
                   style={status === s.key ? { backgroundColor: s.color } : undefined}
                 >
@@ -213,14 +213,14 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
           </div>
 
           {/* Notes */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h2 className="text-sm font-semibold text-gray-900 mb-3">Notes</h2>
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h2 className="text-sm font-semibold text-slate-800 mb-3">Notes</h2>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add your notes about this role..."
               rows={6}
-              className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none resize-y"
             />
           </div>
         </div>

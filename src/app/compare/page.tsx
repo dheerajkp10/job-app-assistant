@@ -67,8 +67,8 @@ export default function ComparePage() {
   if (loading) {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Loading comparison…</h2>
+        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin mb-4" />
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Loading comparison…</h2>
       </div>
     );
   }
@@ -76,11 +76,11 @@ export default function ComparePage() {
   if (selected.length === 0) {
     return (
       <div className="p-8 max-w-3xl mx-auto">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-gray-800 to-blue-700 bg-clip-text text-transparent mb-3">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent mb-3">
           Compare Listings
         </h1>
-        <p className="text-sm text-gray-500">
-          No listings selected. Open <Link href="/listings" className="text-blue-600 underline">Job Listings</Link>, tick the &ldquo;Compare&rdquo; box on 2&ndash;3 cards, then come back here.
+        <p className="text-sm text-slate-500">
+          No listings selected. Open <Link href="/listings" className="text-indigo-600 underline">Job Listings</Link>, tick the &ldquo;Compare&rdquo; box on 2&ndash;3 cards, then come back here.
         </p>
       </div>
     );
@@ -127,14 +127,14 @@ export default function ComparePage() {
       <div className="flex items-center gap-2 min-w-0">
         <CompanyLogo companySlug={l.companySlug} companyName={l.company} size={32} />
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-gray-900 line-clamp-2">{l.title}</h3>
-          <p className="text-xs text-gray-600 truncate">{l.company}</p>
+          <h3 className="text-sm font-semibold text-slate-800 line-clamp-2">{l.title}</h3>
+          <p className="text-xs text-slate-600 truncate">{l.company}</p>
         </div>
       </div>
       <button
         type="button"
         onClick={() => removeId(l.id)}
-        className="p-1 rounded text-gray-400 hover:bg-red-50 hover:text-red-600 shrink-0"
+        className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 shrink-0"
         title="Remove from comparison"
       >
         <X className="w-4 h-4" />
@@ -146,14 +146,14 @@ export default function ComparePage() {
     <div className="p-8 max-w-[1500px] mx-auto animate-fade-in">
       <div className="mb-6 flex items-baseline justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-gray-800 to-blue-700 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
             Compare Listings
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-slate-500 mt-1">
             Side-by-side on {selected.length} role{selected.length === 1 ? '' : 's'}.
           </p>
         </div>
-        <Link href="/listings" className="text-sm text-blue-600 hover:text-blue-700">
+        <Link href="/listings" className="text-sm text-indigo-600 hover:text-indigo-700">
           ← Back to Job Listings
         </Link>
       </div>
@@ -178,20 +178,20 @@ export default function ComparePage() {
           return (
             <article
               key={l.id}
-              className="bg-white rounded-xl border border-gray-200 p-5 flex flex-col gap-3"
+              className="bg-white rounded-xl border border-slate-200 p-5 flex flex-col gap-3"
             >
               {renderHeader(l)}
 
               <div className="space-y-1.5 text-xs">
                 {l.location && l.location !== 'Not specified' && (
-                  <div className="flex items-center gap-1.5 text-gray-600">
-                    <MapPin className="w-3 h-3 text-gray-400" />
+                  <div className="flex items-center gap-1.5 text-slate-600">
+                    <MapPin className="w-3 h-3 text-slate-400" />
                     {l.location}
                   </div>
                 )}
                 {detectWorkMode(l.location) && (
                   <div className="flex items-center gap-1.5">
-                    <Briefcase className="w-3 h-3 text-gray-400" />
+                    <Briefcase className="w-3 h-3 text-slate-400" />
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">
                       {detectWorkMode(l.location)}
                     </span>
@@ -204,18 +204,18 @@ export default function ComparePage() {
                   </div>
                 )}
                 {formatPosted(l.postedAt) && (
-                  <div className="flex items-center gap-1.5 text-gray-500">
-                    <Calendar className="w-3 h-3 text-gray-400" />
+                  <div className="flex items-center gap-1.5 text-slate-500">
+                    <Calendar className="w-3 h-3 text-slate-400" />
                     Posted {formatPosted(l.postedAt)}
                   </div>
                 )}
                 {l.department && (
-                  <div className="text-gray-500">{l.department}</div>
+                  <div className="text-slate-500">{l.department}</div>
                 )}
               </div>
 
-              <div className="border-t border-gray-100 pt-3">
-                <p className="text-xs uppercase tracking-wide text-gray-400 mb-1.5">ATS Score</p>
+              <div className="border-t border-slate-100 pt-3">
+                <p className="text-xs uppercase tracking-wide text-slate-400 mb-1.5">ATS Score</p>
                 {score && score.totalCount > 0 ? (
                   <div className="space-y-1">
                     <div className="flex items-baseline gap-2">
@@ -230,11 +230,11 @@ export default function ComparePage() {
                       >
                         {score.overall}%
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-slate-500">
                         ({score.matchedCount} / {score.totalCount} matched)
                       </span>
                     </div>
-                    <div className="space-y-0.5 text-[11px] text-gray-600 mt-2">
+                    <div className="space-y-0.5 text-[11px] text-slate-600 mt-2">
                       <div className="flex justify-between"><span>Technical</span><span>{score.technical}%</span></div>
                       <div className="flex justify-between"><span>Management</span><span>{score.management}%</span></div>
                       <div className="flex justify-between"><span>Domain</span><span>{score.domain}%</span></div>
@@ -245,14 +245,14 @@ export default function ComparePage() {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400 italic">Not scorable</p>
+                  <p className="text-xs text-slate-400 italic">Not scorable</p>
                 )}
               </div>
 
-              <div className="border-t border-gray-100 pt-3 mt-auto flex gap-2">
+              <div className="border-t border-slate-100 pt-3 mt-auto flex gap-2">
                 <Link
                   href={`/listings/${l.id}`}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-700 text-xs font-medium rounded-lg hover:bg-gray-50"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-700 text-xs font-medium rounded-lg hover:bg-slate-50"
                 >
                   Open
                 </Link>

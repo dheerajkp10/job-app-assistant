@@ -21,7 +21,7 @@ export default function Sidebar() {
           <Briefcase className="w-7 h-7 text-blue-400" />
           <div>
             <h1 className="text-lg font-bold leading-tight">Job App</h1>
-            <p className="text-xs text-gray-400">Assistant</p>
+            <p className="text-xs text-slate-400">Assistant</p>
           </div>
         </Link>
       </div>
@@ -36,7 +36,7 @@ export default function Sidebar() {
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  : 'text-slate-300 hover:bg-gray-800 hover:text-white'
               }`}
             >
               <Icon className="w-5 h-5" />
@@ -47,7 +47,7 @@ export default function Sidebar() {
       </nav>
 
       <div className="p-4 border-t border-gray-800">
-        <p className="text-xs text-gray-500 text-center">Job Application Assistant v1.0</p>
+        <p className="text-xs text-slate-500 text-center">Job Application Assistant v1.0</p>
       </div>
     </aside>
   );
