@@ -19,16 +19,31 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
   const radius = (size - 10) / 2;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (score / 100) * circumference;
-  const color = score >= 70 ? '#22c55e' : score >= 45 ? '#eab308' : '#ef4444';
+  // Per-tier gradient (vs flat fill) — matches the new design
+  // language. IDs are score-bucketed so the same ring instance
+  // doesn't reuse another tier's gradient.
+  const tier = score >= 70 ? 'high' : score >= 45 ? 'mid' : 'low';
+  const colorPair: [string, string] =
+    tier === 'high' ? ['#10B981', '#14B8A6']   // emerald → teal
+    : tier === 'mid'  ? ['#FBBF24', '#FB923C'] // amber → orange
+    :                   ['#FB7185', '#F472B6']; // rose → pink
+  const gradientId = `score-ring-${tier}-${size}`;
+  const displayColor = colorPair[0];
 
   return (
     <div className="flex flex-col items-center">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e5e7eb" strokeWidth="8" fill="none" />
+          <defs>
+            <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor={colorPair[0]} />
+              <stop offset="100%" stopColor={colorPair[1]} />
+            </linearGradient>
+          </defs>
+          <circle cx={size / 2} cy={size / 2} r={radius} stroke="#F1F5F9" strokeWidth="8" fill="none" />
           <circle
             cx={size / 2} cy={size / 2} r={radius}
-            stroke={color} strokeWidth="8" fill="none"
+            stroke={`url(#${gradientId})`} strokeWidth="8" fill="none"
             strokeDasharray={circumference} strokeDashoffset={offset}
             strokeLinecap="round"
             className="transition-all duration-700"
@@ -36,25 +51,29 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
         </svg>
         <span
           className="absolute inset-0 flex items-center justify-center text-2xl font-bold"
-          style={{ color }}
+          style={{ color: displayColor }}
         >
           {score}%
         </span>
       </div>
-      {label && <span className="text-xs text-gray-500 mt-1.5 font-medium">{label}</span>}
+      {label && <span className="text-xs text-slate-500 mt-1.5 font-medium">{label}</span>}
     </div>
   );
 }
 
 function CategoryBar({ label, score }: { label: string; score: number }) {
-  const color = score >= 70 ? 'bg-green-500' : score >= 45 ? 'bg-yellow-500' : 'bg-red-400';
+  // Match the new score-tier palette used by ScoreRing.
+  const color =
+    score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+    : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
+    : 'bg-gradient-to-r from-rose-400 to-pink-400';
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-20 text-right">{label}</span>
-      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden">
+      <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
+      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-gray-700 w-10">{score}%</span>
+      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
     </div>
   );
 }
@@ -73,13 +92,15 @@ function StatCard({
   color?: 'blue' | 'green' | 'purple' | 'amber';
 }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    green: 'bg-green-50 text-green-600 border-green-100',
-    purple: 'bg-purple-50 text-purple-600 border-purple-100',
+    blue: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+    green: 'bg-emerald-50 text-emerald-600 border-emerald-100',
+    purple: 'bg-violet-50 text-violet-600 border-violet-100',
     amber: 'bg-amber-50 text-amber-600 border-amber-100',
   };
   return (
-    <div className={`rounded-xl border p-5 ${colors[color]}`}>
+    <div
+      className={`rounded-2xl border p-5 shadow-card transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5 ${colors[color]}`}
+    >
       <div className="flex items-center gap-2 mb-2">
         <Icon className="w-4 h-4" />
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
@@ -276,7 +297,7 @@ export default function DashboardPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
         <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Loading Dashboard...</h2>
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Loading Dashboard...</h2>
       </div>
     );
   }
@@ -289,14 +310,14 @@ export default function DashboardPage() {
     <div className="p-8 max-w-7xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <div className="inline-flex items-center gap-2 mb-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-100">
-          <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-          <span className="text-xs font-medium text-blue-700">Live job search</span>
+        <div className="inline-flex items-center gap-2 mb-2 px-3 py-1 rounded-full bg-indigo-50 border border-indigo-100 shadow-sm shadow-indigo-500/10">
+          <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+          <span className="text-xs font-medium text-indigo-700">Live job search</span>
         </div>
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-indigo-700 to-purple-700 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
           {settings.userName ? `Welcome back, ${settings.userName}` : 'Dashboard'}
         </h1>
-        <p className="text-sm text-gray-500 mt-1">
+        <p className="text-sm text-slate-500 mt-1">
           Your job search overview and resume performance
         </p>
       </div>
@@ -315,10 +336,10 @@ export default function DashboardPage() {
             its row neighbor (Top Companies) and any future addition
             to the score breakdown / tier-counts area scrolls instead
             of growing the card. */}
-        <div className="col-span-1 bg-white rounded-xl border border-gray-200 p-6 flex flex-col">
+        <div className="col-span-1 bg-white rounded-2xl border border-slate-100 p-6 shadow-card flex flex-col">
           <div className="flex items-center gap-2 mb-5">
             <Target className="w-5 h-5 text-blue-500" />
-            <h2 className="text-base font-semibold text-gray-900">Resume Performance</h2>
+            <h2 className="text-base font-semibold text-slate-800">Resume Performance</h2>
           </div>
 
           <div className="flex-1 overflow-y-auto pr-1 max-h-[340px] dashboard-scroll">
@@ -337,15 +358,15 @@ export default function DashboardPage() {
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div>
                   <div className="text-lg font-bold text-green-600">{stats.high}</div>
-                  <div className="text-xs text-gray-500">Strong</div>
+                  <div className="text-xs text-slate-500">Strong</div>
                 </div>
                 <div>
                   <div className="text-lg font-bold text-yellow-600">{stats.medium}</div>
-                  <div className="text-xs text-gray-500">Moderate</div>
+                  <div className="text-xs text-slate-500">Moderate</div>
                 </div>
                 <div>
                   <div className="text-lg font-bold text-red-500">{stats.low}</div>
-                  <div className="text-xs text-gray-500">Weak</div>
+                  <div className="text-xs text-slate-500">Weak</div>
                 </div>
               </div>
             </div>
@@ -353,7 +374,7 @@ export default function DashboardPage() {
             {settings.baseResumeFileName && (
               <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-gray-400" />
+                  <FileText className="w-4 h-4 text-slate-400" />
                   <span className="text-xs text-gray-600 font-medium truncate">{settings.baseResumeFileName}</span>
                 </div>
               </div>
@@ -365,19 +386,19 @@ export default function DashboardPage() {
             the dashboard layout stays stable as more companies hit
             the top-10 cutoff and the card height matches its row
             neighbor (Resume Performance). */}
-        <div className="col-span-2 bg-white rounded-xl border border-gray-200 p-6 flex flex-col">
+        <div className="col-span-2 bg-white rounded-2xl border border-slate-100 p-6 shadow-card flex flex-col">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <Star className="w-5 h-5 text-amber-500" />
-              <h2 className="text-base font-semibold text-gray-900">Top Companies by ATS Match</h2>
+              <h2 className="text-base font-semibold text-slate-800">Top Companies by ATS Match</h2>
             </div>
-            <Link href="/listings" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+            <Link href="/listings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
               View all &rarr;
             </Link>
           </div>
 
           {topCompanies.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-slate-400">
               <Building2 className="w-10 h-10 mx-auto mb-2 opacity-50" />
               <p className="text-sm">No scored listings yet. Browse listings to start scoring.</p>
             </div>
@@ -387,17 +408,20 @@ export default function DashboardPage() {
             // rows × ~66px + 4 gaps ≈ 340px.
             <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[340px] dashboard-scroll">
               {topCompanies.map((c, i) => {
-                const barColor = c.avgScore >= 60 ? 'bg-green-500' : c.avgScore >= 40 ? 'bg-yellow-500' : 'bg-red-400';
+                const barColor =
+                  c.avgScore >= 60 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                  : c.avgScore >= 40 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
+                  : 'bg-gradient-to-r from-rose-400 to-pink-400';
                 return (
-                  <div key={c.company} className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                    <span className="text-xs font-bold text-gray-400 w-5 text-right">{i + 1}</span>
+                  <div key={c.company} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition-colors">
+                    <span className="text-xs font-bold text-slate-400 w-5 text-right">{i + 1}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900 truncate">{c.company}</span>
-                        <span className="text-xs text-gray-400">{c.count} role{c.count > 1 ? 's' : ''}</span>
+                        <span className="text-sm font-semibold text-slate-800 truncate">{c.company}</span>
+                        <span className="text-xs text-slate-400">{c.count} role{c.count > 1 ? 's' : ''}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
-                        <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden max-w-[200px]">
+                        <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[200px]">
                           <div className={`h-full rounded-full ${barColor}`} style={{ width: `${c.avgScore}%` }} />
                         </div>
                         <span className="text-xs font-medium text-gray-600">{c.avgScore}% avg</span>
@@ -405,7 +429,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-right shrink-0">
                       <div className="text-sm font-bold text-gray-700">{c.bestScore}%</div>
-                      <div className="text-xs text-gray-400">best</div>
+                      <div className="text-xs text-slate-400">best</div>
                     </div>
                   </div>
                 );
@@ -416,29 +440,29 @@ export default function DashboardPage() {
       </div>
 
       {/* Top Matching Listings */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+      <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-card mb-8">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-blue-500" />
-            <h2 className="text-base font-semibold text-gray-900">Top Matching Jobs</h2>
+            <h2 className="text-base font-semibold text-slate-800">Top Matching Jobs</h2>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMasterModalOpen(true)}
               title="Generate one resume optimized for broad ATS coverage across every open listing matching your preferences."
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-indigo-500 via-purple-500 to-fuchsia-600 text-white hover:from-indigo-600 hover:via-purple-600 hover:to-fuchsia-700 shadow-sm transition-all"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Generate Master Resume
             </button>
-            <Link href="/listings" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+            <Link href="/listings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
               View all &rarr;
             </Link>
           </div>
         </div>
 
         {topListings.length === 0 ? (
-          <div className="text-center py-8 text-gray-400">
+          <div className="text-center py-8 text-slate-400">
             <Briefcase className="w-10 h-10 mx-auto mb-2 opacity-50" />
             <p className="text-sm">No scored listings yet.</p>
           </div>
@@ -453,19 +477,22 @@ export default function DashboardPage() {
           <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[280px] dashboard-scroll">
             {topListings.map((listing) => {
               const score = scoreCache[listing.id];
-              const scoreColor = score.overall >= 60 ? 'text-green-600 bg-green-50 border-green-200' : score.overall >= 40 ? 'text-yellow-600 bg-yellow-50 border-yellow-200' : 'text-red-500 bg-red-50 border-red-200';
+              const scoreColor =
+                score.overall >= 60 ? 'text-emerald-700 bg-emerald-50 border-emerald-100'
+                : score.overall >= 40 ? 'text-amber-700 bg-amber-50 border-amber-100'
+                : 'text-rose-700 bg-rose-50 border-rose-100';
               return (
                 <Link
                   key={listing.id}
                   href={`/listings/${listing.id}`}
-                  className="flex items-start gap-3 p-4 rounded-lg border border-gray-100 hover:border-blue-200 hover:shadow-sm transition-all group"
+                  className="flex items-start gap-3 p-4 rounded-xl border border-slate-100 hover:border-indigo-200 hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 group bg-white"
                 >
-                  <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-lg text-sm font-bold border ${scoreColor}`}>
+                  <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-xl text-sm font-bold border ${scoreColor}`}>
                     {score.overall}%
                   </span>
                   <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-gray-900 truncate group-hover:text-blue-600">{listing.title}</h4>
-                    <p className="text-xs text-gray-500 truncate">{listing.company} &middot; {listing.location}</p>
+                    <h4 className="text-sm font-semibold text-slate-800 truncate group-hover:text-indigo-600">{listing.title}</h4>
+                    <p className="text-xs text-slate-500 truncate">{listing.company} &middot; {listing.location}</p>
                   </div>
                 </Link>
               );
@@ -475,13 +502,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Profile & Preferences */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
+      <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-card">
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
-            <User className="w-5 h-5 text-gray-500" />
-            <h2 className="text-base font-semibold text-gray-900">Your Profile & Preferences</h2>
+            <User className="w-5 h-5 text-slate-500" />
+            <h2 className="text-base font-semibold text-slate-800">Your Profile & Preferences</h2>
           </div>
-          <Link href="/settings" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
+          <Link href="/settings" className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
             Edit &rarr;
           </Link>
         </div>
@@ -490,12 +517,12 @@ export default function DashboardPage() {
           {/* Left column */}
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Name</label>
-              <p className="text-sm font-medium text-gray-900">{settings.userName || 'Not set'}</p>
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Name</label>
+              <p className="text-sm font-medium text-slate-800">{settings.userName || 'Not set'}</p>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">
                 <span className="inline-flex items-center gap-1"><Briefcase className="w-3 h-3" /> Target Roles</span>
               </label>
               {settings.preferredRoles.length > 0 ? (
@@ -505,12 +532,12 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-gray-400">No roles specified</p>
+                <p className="text-xs text-slate-400">No roles specified</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">
                 <span className="inline-flex items-center gap-1"><MapPin className="w-3 h-3" /> Locations</span>
               </label>
               {settings.preferredLocations.length > 0 ? (
@@ -520,7 +547,7 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-gray-400">No locations specified</p>
+                <p className="text-xs text-slate-400">No locations specified</p>
               )}
             </div>
           </div>
@@ -528,7 +555,7 @@ export default function DashboardPage() {
           {/* Right column */}
           <div className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1.5">Work Mode</label>
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Work Mode</label>
               {settings.workMode.length > 0 ? (
                 <div className="flex gap-2">
                   {settings.workMode.map((m) => (
@@ -538,31 +565,31 @@ export default function DashboardPage() {
                   ))}
                 </div>
               ) : (
-                <p className="text-xs text-gray-400">Any</p>
+                <p className="text-xs text-slate-400">Any</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">
                 <span className="inline-flex items-center gap-1"><DollarSign className="w-3 h-3" /> Salary Range</span>
               </label>
               {settings.salaryMin || settings.salaryMax ? (
-                <p className="text-sm font-medium text-gray-900">
+                <p className="text-sm font-medium text-slate-800">
                   {settings.salaryMin ? `$${settings.salaryMin.toLocaleString()}` : 'Any'}
                   {' \u2013 '}
                   {settings.salaryMax ? `$${settings.salaryMax.toLocaleString()}` : 'Any'}
                 </p>
               ) : (
-                <p className="text-xs text-gray-400">Not specified</p>
+                <p className="text-xs text-slate-400">Not specified</p>
               )}
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Resume</label>
+              <label className="block text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Resume</label>
               {settings.baseResumeFileName ? (
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-green-500" />
-                  <span className="text-sm font-medium text-gray-900">{settings.baseResumeFileName}</span>
+                  <span className="text-sm font-medium text-slate-800">{settings.baseResumeFileName}</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">
@@ -764,15 +791,15 @@ function TailorTopJobsModal({
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-500" />
-              <h2 className="text-lg font-semibold text-gray-900">Tailor Resume for Top Jobs</h2>
+              <h2 className="text-lg font-semibold text-slate-800">Tailor Resume for Top Jobs</h2>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               Pick keywords to add to your resume. Ranked by how many of your top matching jobs mention them.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            className="p-1 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -781,10 +808,10 @@ function TailorTopJobsModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading && (
-            <div className="py-12 flex flex-col items-center gap-3 text-gray-500">
+            <div className="py-12 flex flex-col items-center gap-3 text-slate-500">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
               <p className="text-sm">Analyzing {listings.length} jobs...</p>
-              <p className="text-xs text-gray-400">This fetches each job description — may take ~15s.</p>
+              <p className="text-xs text-slate-400">This fetches each job description — may take ~15s.</p>
             </div>
           )}
 
@@ -799,19 +826,19 @@ function TailorTopJobsModal({
               {/* Summary strip */}
               <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Current avg ATS</div>
-                  <div className="text-2xl font-bold text-gray-900">{analysis.avgOriginalScore}%</div>
-                  <div className="text-xs text-gray-500 mt-0.5">across {analysis.jobsAnalyzed} jobs</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Current avg ATS</div>
+                  <div className="text-2xl font-bold text-slate-800">{analysis.avgOriginalScore}%</div>
+                  <div className="text-xs text-slate-500 mt-0.5">across {analysis.jobsAnalyzed} jobs</div>
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Missing keywords</div>
-                  <div className="text-2xl font-bold text-gray-900">{keywords.length}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">union across all jobs</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Missing keywords</div>
+                  <div className="text-2xl font-bold text-slate-800">{keywords.length}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">union across all jobs</div>
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Selected</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Selected</div>
                   <div className="text-2xl font-bold text-indigo-600">{selected.size}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">will be added to resume</div>
+                  <div className="text-xs text-slate-500 mt-0.5">will be added to resume</div>
                 </div>
               </div>
 
@@ -822,7 +849,7 @@ function TailorTopJobsModal({
               )}
 
               {keywords.length === 0 ? (
-                <div className="py-8 text-center text-gray-500 text-sm">
+                <div className="py-8 text-center text-slate-500 text-sm">
                   Your resume already covers every keyword found in these jobs. Nice.
                 </div>
               ) : (
@@ -835,7 +862,7 @@ function TailorTopJobsModal({
                       <div key={cat}>
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="text-sm font-semibold text-gray-700">
-                            {CATEGORY_LABEL[cat]} <span className="text-gray-400 font-normal">({kws.length})</span>
+                            {CATEGORY_LABEL[cat]} <span className="text-slate-400 font-normal">({kws.length})</span>
                           </h3>
                           <button
                             onClick={() => selectAllInCategory(cat, keywords)}
@@ -854,7 +881,7 @@ function TailorTopJobsModal({
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
                                   isSelected
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
-                                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                                    : 'bg-gray-50 text-slate-500 border-gray-200 hover:bg-gray-100'
                                 }`}
                                 title={kw.jobTitles.join(' · ')}
                               >
@@ -894,7 +921,7 @@ function TailorTopJobsModal({
               <span className="font-medium text-gray-800">
                 Pack all keywords on 1 page (aggressive)
               </span>
-              <span className="text-gray-500">
+              <span className="text-slate-500">
                 {' '}— floors at 9pt body, 0.4&quot; margins; no content dropped.
               </span>
             </div>
@@ -926,7 +953,7 @@ function TailorTopJobsModal({
 
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50">
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-slate-500">
             {error && !loading && analysis && <span className="text-red-600">{error}</span>}
           </div>
           <div className="flex items-center gap-2">
@@ -1140,15 +1167,15 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-500" />
-              <h2 className="text-lg font-semibold text-gray-900">Generate Master Resume</h2>
+              <h2 className="text-lg font-semibold text-slate-800">Generate Master Resume</h2>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               One resume tuned for broad ATS coverage across every open listing matching your preferences. Review the auto-picked keywords below, then download.
             </p>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            className="p-1 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -1157,10 +1184,10 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6">
           {loading && (
-            <div className="py-12 flex flex-col items-center gap-3 text-gray-500">
+            <div className="py-12 flex flex-col items-center gap-3 text-slate-500">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
               <p className="text-sm">Analyzing listings matching your preferences…</p>
-              <p className="text-xs text-gray-400">Stratified-samples up to 100 by role family. Takes 30–90s.</p>
+              <p className="text-xs text-slate-400">Stratified-samples up to 100 by role family. Takes 30–90s.</p>
             </div>
           )}
 
@@ -1199,17 +1226,17 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               {/* Summary strip */}
               <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Current avg ATS</div>
-                  <div className="text-2xl font-bold text-gray-900">{analysis.avgOriginalScore}%</div>
-                  <div className="text-xs text-gray-500 mt-0.5">across {analysis.jobsAnalyzed} jobs</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Current avg ATS</div>
+                  <div className="text-2xl font-bold text-slate-800">{analysis.avgOriginalScore}%</div>
+                  <div className="text-xs text-slate-500 mt-0.5">across {analysis.jobsAnalyzed} jobs</div>
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Missing keywords</div>
-                  <div className="text-2xl font-bold text-gray-900">{keywords.length}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">union across cohort</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Missing keywords</div>
+                  <div className="text-2xl font-bold text-slate-800">{keywords.length}</div>
+                  <div className="text-xs text-slate-500 mt-0.5">union across cohort</div>
                 </div>
                 <div className="flex-1">
-                  <div className="text-xs text-gray-500 uppercase tracking-wide">Selected</div>
+                  <div className="text-xs text-slate-500 uppercase tracking-wide">Selected</div>
                   <div
                     className={`text-2xl font-bold ${
                       selected.size < MIN_KEEP ? 'text-amber-600' : 'text-indigo-600'
@@ -1222,7 +1249,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-500 mt-0.5">will be added to resume</div>
+                  <div className="text-xs text-slate-500 mt-0.5">will be added to resume</div>
                 </div>
               </div>
 
@@ -1249,7 +1276,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                   onChange={(e) => autoSelectTopN(parseInt(e.target.value, 10))}
                   className="w-full accent-indigo-600"
                 />
-                <div className="flex justify-between text-[10px] text-gray-400 mt-1">
+                <div className="flex justify-between text-[10px] text-slate-400 mt-1">
                   <span>{TOP_N_MIN} (lean)</span>
                   <span>{TOP_N_MAX} (max coverage)</span>
                 </div>
@@ -1262,7 +1289,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               )}
 
               {keywords.length === 0 ? (
-                <div className="py-8 text-center text-gray-500 text-sm">
+                <div className="py-8 text-center text-slate-500 text-sm">
                   Your resume already covers every keyword found in this cohort. Nice.
                 </div>
               ) : (
@@ -1275,7 +1302,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                       <div key={cat}>
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="text-sm font-semibold text-gray-700">
-                            {CATEGORY_LABEL[cat]} <span className="text-gray-400 font-normal">({kws.length})</span>
+                            {CATEGORY_LABEL[cat]} <span className="text-slate-400 font-normal">({kws.length})</span>
                           </h3>
                           <button
                             onClick={() => selectAllInCategory(cat, keywords)}
@@ -1294,7 +1321,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
                                   isSelected
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
-                                    : 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100'
+                                    : 'bg-gray-50 text-slate-500 border-gray-200 hover:bg-gray-100'
                                 }`}
                                 title={kw.jobTitles.join(' · ')}
                               >
@@ -1329,7 +1356,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               <span className="font-medium text-gray-800">
                 Pack all keywords on 1 page (aggressive)
               </span>
-              <span className="text-gray-500">
+              <span className="text-slate-500">
                 {' '}— floors at 9pt body, 0.4&quot; margins; no content dropped.
               </span>
             </div>
