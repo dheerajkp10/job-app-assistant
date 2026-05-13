@@ -889,3 +889,436 @@ export async function editDocxTemplate(
 
   return { buffer, addedKeywords, changesSummary };
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Compression primitives (mandatory-mode tailoring)
+// ────────────────────────────────────────────────────────────────────
+//
+// These editors mutate a docx buffer to reclaim vertical space
+// without dropping content. Each is idempotent and non-destructive
+// — they only change formatting (margins, spacing, sizes), never
+// text. The mandatory-mode tailor pipeline (see
+// `runCompressionCascade`) applies them in least-aggressive-first
+// order until the rendered PDF fits on a single page.
+//
+// All measurements use Word's native units:
+//   - Page margins: twips (1 in = 1440 twips, 1 pt = 20 twips)
+//   - Font sizes: half-points (so 18 = 9pt, 21 = 10.5pt, 22 = 11pt)
+//   - Line spacing: 240ths of a line (240 = single, 276 = 1.15)
+//   - Paragraph spacing (before/after): 20ths of a point
+//
+// We re-encode the docx with maximum compression so the round-trip
+// doesn't bloat the binary; LibreOffice + Word both accept that.
+
+/** Mutate page margins on the first <w:sectPr><w:pgMar/> in
+ *  document.xml. We only touch top/bottom/left/right; gutter/header/
+ *  footer are left alone. */
+export async function setPageMargins(
+  docxBuffer: Buffer,
+  topBottomTwips: number,
+  leftRightTwips: number,
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const file = zip.file('word/document.xml');
+  if (!file) return docxBuffer;
+  let xml = await file.async('string');
+  const pgMarRe = /<w:pgMar\s[^/>]*\/>/;
+  const m = xml.match(pgMarRe);
+  if (!m) return docxBuffer;
+
+  const setAttr = (tag: string, attr: string, value: number) =>
+    tag.match(new RegExp(`${attr}="\\d+"`))
+      ? tag.replace(new RegExp(`${attr}="\\d+"`), `${attr}="${value}"`)
+      : tag.replace('/>', ` ${attr}="${value}"/>`);
+
+  let updated = m[0];
+  updated = setAttr(updated, 'w:top', topBottomTwips);
+  updated = setAttr(updated, 'w:bottom', topBottomTwips);
+  updated = setAttr(updated, 'w:left', leftRightTwips);
+  updated = setAttr(updated, 'w:right', leftRightTwips);
+  xml = xml.replace(pgMarRe, updated);
+
+  zip.file('word/document.xml', xml);
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/** Set the line-height multiplier on every paragraph. `linePct` is
+ *  in Word's 240ths-of-a-line units (240 = 1.0, 252 = 1.05, 276 =
+ *  1.15). We rewrite <w:spacing w:line="..." w:lineRule="auto"/> on
+ *  every paragraph, inserting a `<w:spacing/>` into pPr when missing.
+ *  We also force `w:lineRule="auto"` so the value is treated as a
+ *  multiplier, not an exact-pt value (some templates ship with
+ *  `lineRule="exact"` which makes shrinking ineffective). */
+export async function setLineHeight(
+  docxBuffer: Buffer,
+  linePct: number,
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const file = zip.file('word/document.xml');
+  if (!file) return docxBuffer;
+  let xml = await file.async('string');
+
+  // Update existing <w:spacing/> tags inside each paragraph's pPr.
+  xml = xml.replace(/<w:spacing\b[^/]*\/>/g, (tag) => {
+    let t = tag;
+    t = t.match(/w:line="[^"]*"/)
+      ? t.replace(/w:line="[^"]*"/, `w:line="${linePct}"`)
+      : t.replace('/>', ` w:line="${linePct}"/>`);
+    t = t.match(/w:lineRule="[^"]*"/)
+      ? t.replace(/w:lineRule="[^"]*"/, `w:lineRule="auto"`)
+      : t.replace('/>', ` w:lineRule="auto"/>`);
+    return t;
+  });
+
+  // For paragraphs that have a <w:pPr> but no <w:spacing>, inject
+  // one. We use a non-greedy match so we hit each pPr individually.
+  xml = xml.replace(/<w:pPr>(?![\s\S]*?<w:spacing\b)([\s\S]*?)<\/w:pPr>/g,
+    (_match, inner: string) =>
+      `<w:pPr><w:spacing w:line="${linePct}" w:lineRule="auto"/>${inner}</w:pPr>`,
+  );
+
+  zip.file('word/document.xml', xml);
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/** Cap paragraph before/after spacing across every paragraph. Values
+ *  in twentieths-of-a-point (20 = 1pt). Only *decreases* existing
+ *  values — we don't blow up spacing that was already tight. */
+export async function setParagraphSpacing(
+  docxBuffer: Buffer,
+  maxBeforeTwips: number,
+  maxAfterTwips: number,
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const file = zip.file('word/document.xml');
+  if (!file) return docxBuffer;
+  let xml = await file.async('string');
+
+  xml = xml.replace(/<w:spacing\b[^/]*\/>/g, (tag) => {
+    let t = tag;
+    t = t.replace(/w:before="(\d+)"/, (_m, vRaw: string) => {
+      const v = parseInt(vRaw, 10);
+      return `w:before="${Math.min(v, maxBeforeTwips)}"`;
+    });
+    t = t.replace(/w:after="(\d+)"/, (_m, vRaw: string) => {
+      const v = parseInt(vRaw, 10);
+      return `w:after="${Math.min(v, maxAfterTwips)}"`;
+    });
+    return t;
+  });
+
+  zip.file('word/document.xml', xml);
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/** Shrink every body-text font size that's currently >= `floorHalfPts`
+ *  down to `floorHalfPts`. We deliberately leave smaller sizes alone
+ *  (so footnotes/super/subscript don't get *bigger*). Half-points:
+ *  18 = 9pt, 20 = 10pt, 21 = 10.5pt, 22 = 11pt.
+ *
+ *  Headers (font ≥ headerHalfPtsMin) are NOT shrunk here — that's a
+ *  separate, later step (`setHeaderFontSize`). Body floor is the
+ *  most user-impactful single step, so we keep it as its own knob. */
+export async function setBodyFontSize(
+  docxBuffer: Buffer,
+  floorHalfPts: number,
+  headerHalfPtsMin: number = 24, // ≥ 12pt
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  // We need to touch both document.xml (run-level overrides) and
+  // styles.xml (defaults that propagate to unstyled runs).
+  for (const path of ['word/document.xml', 'word/styles.xml']) {
+    const file = zip.file(path);
+    if (!file) continue;
+    let xml = await file.async('string');
+    // <w:sz w:val="22"/> and <w:szCs w:val="22"/> are paired
+    // (script-complex variants). Touch both with the same rule.
+    const adjust = (tag: 'w:sz' | 'w:szCs') => {
+      const re = new RegExp(`<${tag} w:val="(\\d+)"/>`, 'g');
+      xml = xml.replace(re, (m, vRaw: string) => {
+        const v = parseInt(vRaw, 10);
+        // Skip headers (12pt+) — they're managed separately.
+        if (v >= headerHalfPtsMin) return m;
+        // Skip already-smaller-than-floor (footnotes etc.).
+        if (v <= floorHalfPts) return m;
+        return `<${tag} w:val="${floorHalfPts}"/>`;
+      });
+    };
+    adjust('w:sz');
+    adjust('w:szCs');
+    zip.file(path, xml);
+  }
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/** Shrink section-header fonts. Counterpart to setBodyFontSize that
+ *  only touches sizes ≥ `headerHalfPtsMin`. Headers are usually
+ *  14pt (28) — we shrink to e.g. 24 (12pt). */
+export async function setHeaderFontSize(
+  docxBuffer: Buffer,
+  headerHalfPts: number,
+  headerHalfPtsMin: number = 24,
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  for (const path of ['word/document.xml', 'word/styles.xml']) {
+    const file = zip.file(path);
+    if (!file) continue;
+    let xml = await file.async('string');
+    const adjust = (tag: 'w:sz' | 'w:szCs') => {
+      const re = new RegExp(`<${tag} w:val="(\\d+)"/>`, 'g');
+      xml = xml.replace(re, (m, vRaw: string) => {
+        const v = parseInt(vRaw, 10);
+        if (v < headerHalfPtsMin) return m;       // body — leave alone
+        if (v <= headerHalfPts) return m;          // already small enough
+        return `<${tag} w:val="${headerHalfPts}"/>`;
+      });
+    };
+    adjust('w:sz');
+    adjust('w:szCs');
+    zip.file(path, xml);
+  }
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/** Collapse runs of internal whitespace inside <w:t> text nodes and
+ *  trim trailing whitespace inside paragraphs. Cheap last-ditch
+ *  step that occasionally reclaims a line or two. Preserves
+ *  meaningful whitespace (single spaces between words) — only
+ *  collapses doubled/tripled spaces. */
+export async function trimInternalWhitespace(docxBuffer: Buffer): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const file = zip.file('word/document.xml');
+  if (!file) return docxBuffer;
+  let xml = await file.async('string');
+  xml = xml.replace(/<w:t([^>]*)>([\s\S]*?)<\/w:t>/g, (_m, attrs: string, text: string) => {
+    const collapsed = text.replace(/[ \t]{2,}/g, ' ');
+    return `<w:t${attrs}>${collapsed}</w:t>`;
+  });
+  zip.file('word/document.xml', xml);
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Compression cascade runner
+// ────────────────────────────────────────────────────────────────────
+//
+// Mandatory-mode tailoring: we never drop user-selected keywords,
+// only compress layout. Steps applied in least-aggressive-first
+// order so the most-formatting-preserving fit wins. Floors per the
+// user's spec (decided 2026-05-12):
+//   - 9pt body font  (no smaller — readability)
+//   - 0.4" margins   (no narrower — most ATS parsers tolerate)
+//   - destructive content-dropping steps NOT permitted
+//   - on exhaustion: serve best-effort multi-page (existing behavior)
+
+/** One node in the cascade. Each carries a human-readable label
+ *  (for the UI "what was sacrificed" summary) and an async editor
+ *  that takes the current docx buffer and returns a tighter one. */
+export interface CompressionStep {
+  label: string;
+  apply: (docx: Buffer) => Promise<Buffer>;
+}
+
+/** The cascade — applied top-to-bottom. Order is deliberate:
+ *  margin/spacing tweaks come first (least visible), then line
+ *  height, then font shrinking, then the most aggressive (dropping
+ *  the ADDITIONAL section). The final font/margin steps respect
+ *  the user-set floors (9pt body, 0.4" margins). */
+export function buildCompressionCascade(): CompressionStep[] {
+  const INCH = 1440; // twips per inch
+  const PT = 20;     // twips per point
+  return [
+    // 1. Margin pass 1 — 0.5" → 0.45"
+    {
+      label: 'margins 0.45"',
+      apply: (b) => setPageMargins(b, Math.round(0.45 * INCH), Math.round(0.45 * INCH)),
+    },
+    // 2. Paragraph spacing pass 1 — 25% cut (cap before/after at 6pt)
+    {
+      label: 'paragraph spacing −25%',
+      apply: (b) => setParagraphSpacing(b, 6 * PT, 6 * PT),
+    },
+    // 3. Line height 1.1
+    {
+      label: 'line height 1.10',
+      apply: (b) => setLineHeight(b, 264),
+    },
+    // 4. Margin pass 2 — 0.4" floor
+    {
+      label: 'margins 0.4" (floor)',
+      apply: (b) => setPageMargins(b, Math.round(0.4 * INCH), Math.round(0.4 * INCH)),
+    },
+    // 5. Paragraph spacing pass 2 — 50% cut (cap at 3pt)
+    {
+      label: 'paragraph spacing −50%',
+      apply: (b) => setParagraphSpacing(b, 3 * PT, 3 * PT),
+    },
+    // 6. Line height 1.05
+    {
+      label: 'line height 1.05',
+      apply: (b) => setLineHeight(b, 252),
+    },
+    // 7. Body font 10.5pt
+    {
+      label: 'body font 10.5pt',
+      apply: (b) => setBodyFontSize(b, 21),
+    },
+    // 8. Line height 1.0
+    {
+      label: 'line height 1.00',
+      apply: (b) => setLineHeight(b, 240),
+    },
+    // 9. Body font 10pt
+    {
+      label: 'body font 10pt',
+      apply: (b) => setBodyFontSize(b, 20),
+    },
+    // 10. Trim whitespace (cheap, late)
+    {
+      label: 'trim internal whitespace',
+      apply: (b) => trimInternalWhitespace(b),
+    },
+    // 11. Compact section headers — 14pt → 12pt
+    {
+      label: 'section headers 12pt',
+      apply: (b) => setHeaderFontSize(b, 24),
+    },
+    // 12. Paragraph spacing pass 3 — minimum (0pt)
+    {
+      label: 'paragraph spacing −100%',
+      apply: (b) => setParagraphSpacing(b, 0, 0),
+    },
+    // 13. Body font 9.5pt
+    {
+      label: 'body font 9.5pt',
+      apply: (b) => setBodyFontSize(b, 19),
+    },
+    // 14. Body font 9pt (floor)
+    {
+      label: 'body font 9pt (floor)',
+      apply: (b) => setBodyFontSize(b, 18),
+    },
+    // 15. Drop ADDITIONAL section (last-ditch, non-destructive to WE
+    //     content). User explicitly opted out of dropping WE
+    //     positions or education subtitles, so this is the final
+    //     step before we surrender to multi-page.
+    {
+      label: 'drop ADDITIONAL section',
+      apply: async (b) => {
+        const JSZip = (await import('jszip')).default;
+        const zip = await JSZip.loadAsync(b);
+        const file = zip.file('word/document.xml');
+        if (!file) return b;
+        const xml = await file.async('string');
+        const { xml: stripped, removed } = removeAdditionalSection(xml);
+        if (!removed) return b;
+        zip.file('word/document.xml', stripped);
+        return Buffer.from(
+          await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+        );
+      },
+    },
+  ];
+}
+
+export interface CompressionResult {
+  /** Final docx buffer (best-effort if cascade exhausted). */
+  docx: Buffer;
+  /** Final PDF buffer from the matching docx. */
+  pdf: Buffer;
+  /** Pages in the final PDF. 1 = success, ≥ 2 = best-effort. */
+  pageCount: number;
+  /** Cascade steps that were applied to reach this state, in order. */
+  stepsApplied: string[];
+  /** True if we ran out of cascade steps before hitting 1 page. */
+  exhausted: boolean;
+}
+
+/**
+ * Run the cascade until `pageCount(pdf) <= 1` or the cascade is
+ * exhausted. The caller supplies `render(docx) → pdf` (which is
+ * just the existing LibreOffice + adjustDocxForLibreOffice chain)
+ * and `countPages(pdf)` (the cheap `/Type /Page` regex from the
+ * tailor routes). We're agnostic to those so this module stays
+ * free of `child_process` / `fs` imports.
+ */
+export async function runCompressionCascade(args: {
+  initialDocx: Buffer;
+  render: (docx: Buffer) => Promise<Buffer>;
+  countPages: (pdf: Buffer) => number;
+}): Promise<CompressionResult> {
+  const { initialDocx, render, countPages } = args;
+  // First pass — render the user's full-keyword resume as-is. If it
+  // happens to already fit on a page, we ship it untouched. This is
+  // also the baseline best-effort result we fall back to if the
+  // cascade exhausts.
+  let currentDocx = initialDocx;
+  let currentPdf = await render(currentDocx);
+  let pages = countPages(currentPdf);
+  const stepsApplied: string[] = [];
+
+  // Track the best-effort (fewest pages, latest steps applied) in
+  // case the final step actually makes things worse — that's rare
+  // but possible if a header rewrite causes a wrap.
+  let best: CompressionResult = {
+    docx: currentDocx,
+    pdf: currentPdf,
+    pageCount: pages,
+    stepsApplied: [...stepsApplied],
+    exhausted: false,
+  };
+
+  if (pages <= 1) return best;
+
+  const cascade = buildCompressionCascade();
+  for (const step of cascade) {
+    const nextDocx = await step.apply(currentDocx);
+    const nextPdf = await render(nextDocx);
+    const nextPages = countPages(nextPdf);
+
+    // Always advance — even a non-improving step might be a
+    // prerequisite for a later one (e.g. line-height shrink only
+    // pays off after paragraph spacing is already capped).
+    currentDocx = nextDocx;
+    currentPdf = nextPdf;
+    pages = nextPages;
+    stepsApplied.push(step.label);
+
+    // Track best-so-far: prefer 1-page, then fewest pages.
+    if (
+      (pages <= 1 && best.pageCount > 1) ||
+      (pages < best.pageCount)
+    ) {
+      best = {
+        docx: currentDocx,
+        pdf: currentPdf,
+        pageCount: pages,
+        stepsApplied: [...stepsApplied],
+        exhausted: false,
+      };
+    }
+
+    if (pages <= 1) return best;
+  }
+
+  // Exhausted — return whatever ended up tightest.
+  return { ...best, exhausted: true };
+}

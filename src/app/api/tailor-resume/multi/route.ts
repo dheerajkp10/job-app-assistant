@@ -3,7 +3,12 @@ import { readDb, saveScore } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractKeywords, scoreResume } from '@/lib/ats-scorer';
 import { buildSummaryPhrase } from '@/lib/resume-tailor';
-import { editDocxTemplate, adjustDocxForLibreOffice, resolveDocxTemplate } from '@/lib/docx-editor';
+import {
+  editDocxTemplate,
+  adjustDocxForLibreOffice,
+  resolveDocxTemplate,
+  runCompressionCascade,
+} from '@/lib/docx-editor';
 import { detectSuggestions } from '@/lib/resume-suggestions';
 import { measurePdfTextBounds } from '@/lib/pdf-bounds';
 import { execFile } from 'child_process';
@@ -49,7 +54,12 @@ interface AggregatedKeyword {
  *     user's selected keywords are always preserved.
  */
 export async function POST(req: NextRequest) {
-  const { listingIds, selectedKeywords, selectedSuggestions, format } = await req.json();
+  const { listingIds, selectedKeywords, selectedSuggestions, format, mode } = await req.json();
+  // Mandatory mode (DEFAULT) — every user-selected keyword lands and
+  // the compression cascade fits the result on one page. Budget-ladder
+  // mode is the legacy opt-out. Same semantics as /api/tailor-resume.
+  const tailorMode: 'mandatory' | 'budget-ladder' =
+    mode === 'budget-ladder' ? 'budget-ladder' : 'mandatory';
 
   if (!Array.isArray(listingIds) || listingIds.length === 0) {
     return NextResponse.json({ error: 'listingIds array is required' }, { status: 400 });
@@ -334,6 +344,62 @@ export async function POST(req: NextRequest) {
     let bestResult: GenerationResult | null = null;
 
     try {
+      // ─── Mandatory mode (DEFAULT) ────────────────────────────────
+      // Inject every user-selected keyword via the tier-0 budget
+      // (which already uncaps per-category), then run the
+      // compression cascade. Cascade enforces the floors decided
+      // 2026-05-12: ≥ 9pt body, ≥ 0.4" margins, no content drops.
+      // On exhaustion we serve the best-effort multi-page result.
+      if (tailorMode === 'mandatory') {
+        const baseResult = await tryGenerate({
+          byCategory,
+          budget: userSelectionBudget,
+          jdCorpus,
+          suggestionDomainItems,
+          suggestionInsertion,
+          suggestionReplaces,
+          suggestionExtraSkills,
+        });
+        const initialDocx = await adjustDocxForLibreOffice(baseResult.docx);
+        const cascadeResult = await runCompressionCascade({
+          initialDocx,
+          render: convertDocxToPdf,
+          countPages: countPdfPages,
+        });
+        const finalResult: GenerationResult = {
+          docx: cascadeResult.docx,
+          pdf: cascadeResult.pdf,
+          pageCount: cascadeResult.pageCount,
+          modifiedScore: baseResult.modifiedScore,
+          addedWeBullets: baseResult.addedWeBullets,
+        };
+        if (cascadeResult.pageCount <= 1) {
+          // eslint-disable-next-line no-console
+          console.log(
+            `Multi-tailor[mandatory]: 1-page fit via ${cascadeResult.stepsApplied.length} compression step(s): ` +
+            `${cascadeResult.stepsApplied.join(', ') || '(none — fit out of the box)'}. ` +
+            `Score: ${finalResult.modifiedScore}% (baseline ${originalScore.overall}%).`,
+          );
+          const balanced = await balanceWhitespace(finalResult.docx, finalResult.pdf);
+          return serveTailored(
+            { ...finalResult, docx: balanced.docx, pdf: balanced.pdf },
+            format, userName, details.length,
+            cascadeResult.stepsApplied,
+          );
+        }
+        // eslint-disable-next-line no-console
+        console.warn(
+          `Multi-tailor[mandatory]: cascade exhausted after ${cascadeResult.stepsApplied.length} step(s); ` +
+          `best-effort result is ${cascadeResult.pageCount} page(s). ` +
+          `Applied: ${cascadeResult.stepsApplied.join(', ')}.`,
+        );
+        return serveTailored(
+          finalResult, format, userName, details.length,
+          [...cascadeResult.stepsApplied, 'exhausted'],
+        );
+      }
+
+      // ─── Budget-ladder mode (legacy / opt-out) ───────────────────
       for (let i = 0; i < attempts.length; i++) {
         const budget = attempts[i];
         const result = await tryGenerate({
@@ -565,40 +631,71 @@ function safeBaseName(userName: string, numJobs: number): string {
     .slice(0, 80);
 }
 
+/** Headers shared by both serve* helpers. Same shape as the
+ *  single-job route — JSON-encodes the compression steps applied
+ *  (mandatory mode only) into X-Compression-Steps so the UI can
+ *  render a "fit applied: …" footer. */
+function tailoringHeaders(
+  contentType: string,
+  contentDisposition: string,
+  contentLength: number,
+  compressionSteps?: string[],
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Content-Disposition': contentDisposition,
+    'Content-Length': String(contentLength),
+  };
+  if (compressionSteps && compressionSteps.length > 0) {
+    headers['X-Compression-Steps'] = JSON.stringify(compressionSteps);
+    headers['Access-Control-Expose-Headers'] = 'X-Compression-Steps';
+  }
+  return headers;
+}
+
 function serveTailored(
   result: GenerationResult,
   format: 'pdf' | 'docx',
   userName: string,
-  numJobs: number
+  numJobs: number,
+  compressionSteps?: string[],
 ): NextResponse {
   return format === 'docx'
-    ? serveDocx(result.docx, userName, numJobs)
-    : servePdf(result.pdf, userName, numJobs);
+    ? serveDocx(result.docx, userName, numJobs, compressionSteps)
+    : servePdf(result.pdf, userName, numJobs, compressionSteps);
 }
 
-function servePdf(pdfBuffer: Buffer, userName: string, numJobs: number): NextResponse {
+function servePdf(
+  pdfBuffer: Buffer, userName: string, numJobs: number,
+  compressionSteps?: string[],
+): NextResponse {
   const safeName = safeBaseName(userName, numJobs);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new NextResponse(pdfBuffer as any, {
     status: 200,
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${safeName}.pdf"`,
-      'Content-Length': String(pdfBuffer.length),
-    },
+    headers: tailoringHeaders(
+      'application/pdf',
+      `attachment; filename="${safeName}.pdf"`,
+      pdfBuffer.length,
+      compressionSteps,
+    ),
   });
 }
 
-function serveDocx(docxBuffer: Buffer, userName: string, numJobs: number): NextResponse {
+function serveDocx(
+  docxBuffer: Buffer, userName: string, numJobs: number,
+  compressionSteps?: string[],
+): NextResponse {
   const safeName = safeBaseName(userName, numJobs);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new NextResponse(docxBuffer as any, {
     status: 200,
-    headers: {
-      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'Content-Disposition': `attachment; filename="${safeName}.docx"`,
-      'Content-Length': String(docxBuffer.length),
-    },
+    headers: tailoringHeaders(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      `attachment; filename="${safeName}.docx"`,
+      docxBuffer.length,
+      compressionSteps,
+    ),
   });
 }
 

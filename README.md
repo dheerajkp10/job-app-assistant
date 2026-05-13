@@ -27,9 +27,10 @@ A local-first web app for tracking and improving job applications. It pulls live
 - Each suggestion is opt-in and applied à la carte. Same suggestions feed the multi-job optimizer.
 
 ### Tailored PDF output
-- **One-page PDF guarantee** via a budget ladder. Iterates through up to 9 budget tiers, optionally drops the ADDITIONAL section as a last resort, then runs a measurement-driven balance pass that re-renders with shifted margins so top/bottom whitespace is symmetric.
-- **User-selection budget tier 0** — when you explicitly pick keywords to include, the first attempt honors your full selection at face value. Lower tiers only kick in if the page-fit gate fails.
-- **Multi-job tailor** — generate one resume that targets your top-20 (or pipeline-flagged) jobs simultaneously, with cross-job keyword frequency ranking.
+- **Mandatory-mode tailoring (DEFAULT, since 2026-05-12)** — keywords come first, layout adapts. The server injects every keyword you selected unconditionally, then walks a compression cascade (margin tightening → paragraph spacing cuts → line-height reduction → body-font shrink → ADDITIONAL-section drop) until the rendered PDF lands on one page. Floors are enforced so the result stays readable: body font ≥ 9pt, margins ≥ 0.4", no destructive content drops (your Work Experience and Education stay intact). The UI shows a footer summarizing exactly which cascade steps fired (e.g. *Fit applied: margins 0.4", line height 1.05, body 10pt*).
+- **Budget-ladder mode (opt-out)** — uncheck "Pack all keywords on 1 page" in the Tailor section to fall back to the legacy iterate-9-tiers behavior, which is more formatting-preserving but may drop keywords on tight resumes.
+- **Whitespace balance pass** runs on every 1-page fit: measures actual rendered top/bottom whitespace and shifts the top margin so visible whitespace is symmetric.
+- **Multi-job tailor** — generate one resume that targets your top-20 (or pipeline-flagged) jobs simultaneously, with cross-job keyword frequency ranking. Uses the same mandatory-mode cascade.
 - **Smart text replacement** — when a tailoring suggestion proposes "Software Engineering Manager" instead of your existing "Software Development Manager", the app rewrites that phrase across every formatting boundary in your `.docx`, not just the Summary.
 
 ### Application pipeline (Kanban)
@@ -256,7 +257,10 @@ Salary cohorts need ≥3 peers in the same role family + location bucket with pa
 The static source list is verified at commit time but board tokens occasionally rotate. Open `src/lib/sources.ts` and try alternate slugs, or add the company as a Custom Source from Settings.
 
 **Resume tailoring overflows to 2 pages.**
-The pipeline has a budget ladder + "ADDITIONAL section removed" fallback. If your base resume is already tightly packed, the app serves the closest-to-1-page best-effort attempt and logs the budget tier that lost. Trim a bullet or two in your `.docx` and re-upload.
+Mandatory mode (the default) injects every selected keyword and then walks a compression cascade (margins → paragraph spacing → line height → body font → drop ADDITIONAL section) to fit on one page. Floors: body ≥ 9pt, margins ≥ 0.4". If your base resume is already tightly packed enough that even max compression overflows, the UI shows an amber **"Couldn't fit on 1 page"** footer naming the steps that were tried, and ships the best-effort multi-page anyway (so your keywords aren't lost). To force a 1-page result: deselect a few low-frequency keywords or trim a bullet in your `.docx` and re-upload.
+
+**I want the old keyword-pruning behavior back.**
+Uncheck **"Pack all keywords on 1 page (aggressive)"** in the listings Tailor section (or the multi-tailor modal). That switches the request to `mode: 'budget-ladder'`, restoring the legacy 9-tier iterate-and-drop-keywords behavior.
 
 **Hydration mismatch warnings in the console.**
 The known offenders have been fixed (notably the LinkedIn network panel's `webkitdirectory` attribute, now attached imperatively after mount). If you see new ones, check whether a browser extension is injecting attributes (Grammarly, Dark Reader, 1Password, translation extensions) — try in Incognito to confirm.

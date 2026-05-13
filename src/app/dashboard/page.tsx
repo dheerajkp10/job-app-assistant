@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   User, Briefcase, MapPin, DollarSign, FileText, Target, Building2,
-  ChevronRight, Globe, PlusCircle, Loader2, BarChart3,
+  Loader2, BarChart3,
   CheckCircle2, AlertTriangle, Star, Zap, Sparkles, Download, X, Check,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
@@ -310,49 +310,6 @@ export default function DashboardPage() {
         <p className="text-sm text-gray-500 mt-1">
           Your job search overview and resume performance
         </p>
-      </div>
-
-      {/* Quick actions */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <Link
-          href="/listings"
-          className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all group"
-        >
-          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <Globe className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-900 group-hover:text-blue-600">Browse Listings</h3>
-            <p className="text-xs text-gray-500">{stats.totalListings} matching roles</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
-        </Link>
-        <Link
-          href="/jobs/add"
-          className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-green-300 hover:shadow-sm transition-all group"
-        >
-          <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center">
-            <PlusCircle className="w-5 h-5 text-green-600" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-900 group-hover:text-green-600">Add a Job</h3>
-            <p className="text-xs text-gray-500">Paste a URL to score & tailor</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-green-600" />
-        </Link>
-        <Link
-          href="/settings"
-          className="flex items-center gap-3 p-4 bg-white rounded-xl border border-gray-200 hover:border-purple-300 hover:shadow-sm transition-all group"
-        >
-          <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center">
-            <User className="w-5 h-5 text-purple-600" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm font-semibold text-gray-900 group-hover:text-purple-600">Settings</h3>
-            <p className="text-xs text-gray-500">Preferences & resume</p>
-          </div>
-          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-purple-600" />
-        </Link>
       </div>
 
       {/* Stats cards */}
@@ -689,6 +646,15 @@ function TailorTopJobsModal({
   // time — we disable both buttons while a download is in flight so we
   // don't run two LibreOffice jobs concurrently on the server.
   const [downloadingFormat, setDownloadingFormat] = useState<'pdf' | 'docx' | null>(null);
+  // Mandatory-mode toggle — default-on. When ON the server injects
+  // every selected keyword and runs the compression cascade
+  // (margins/spacing/line-height/font shrink, floors at 9pt body
+  // and 0.4" margins). When OFF the legacy budget-ladder runs.
+  const [mandatoryMode, setMandatoryMode] = useState(true);
+  // Compression steps reported by the server in X-Compression-Steps;
+  // populated after each download. Trailing 'exhausted' token means
+  // the cascade ran out before fitting on 1 page.
+  const [compressionSteps, setCompressionSteps] = useState<string[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -739,6 +705,7 @@ function TailorTopJobsModal({
     setDownloadingFormat(format);
     setError(null);
     try {
+      setCompressionSteps(null);
       const res = await fetch('/api/tailor-resume/multi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -746,11 +713,26 @@ function TailorTopJobsModal({
           listingIds: listings.map((l) => l.id),
           selectedKeywords: Array.from(selected),
           format,
+          mode: mandatoryMode ? 'mandatory' : 'budget-ladder',
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `Request failed (${res.status})`);
+      }
+      // Pull the mandatory-mode cascade summary out of the response
+      // header (server-side: tailoringHeaders in the multi route).
+      const stepsHeader = res.headers.get('X-Compression-Steps');
+      if (stepsHeader) {
+        try {
+          const parsed = JSON.parse(stepsHeader);
+          if (Array.isArray(parsed)) {
+            const valid = parsed.filter((s): s is string => typeof s === 'string');
+            setCompressionSteps(valid.length > 0 ? valid : null);
+          }
+        } catch {
+          // Malformed header — ignore; UI just won't show the footer.
+        }
       }
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
@@ -900,6 +882,54 @@ function TailorTopJobsModal({
               )}
             </>
           )}
+        </div>
+
+        {/* Mandatory-mode toggle row — sits just above the footer
+            CTAs. Default-on so the typical multi-tailor click ships
+            every selected keyword and lets the cascade fit it. */}
+        <div className="px-4 pt-3 border-t border-gray-100 bg-gray-50">
+          <label
+            className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer"
+            title="When ON, every selected keyword lands and the server tightens margins/spacing/font to fit one page. When OFF, the legacy budget ladder runs and some keywords may be dropped."
+          >
+            <input
+              type="checkbox"
+              checked={mandatoryMode}
+              onChange={(e) => setMandatoryMode(e.target.checked)}
+              className="mt-0.5 rounded"
+            />
+            <div className="flex-1">
+              <span className="font-medium text-gray-800">
+                Pack all keywords on 1 page (aggressive)
+              </span>
+              <span className="text-gray-500">
+                {' '}— floors at 9pt body, 0.4&quot; margins; no content dropped.
+              </span>
+            </div>
+          </label>
+          {compressionSteps && compressionSteps.length > 0 && (() => {
+            const exhausted = compressionSteps[compressionSteps.length - 1] === 'exhausted';
+            const realSteps = exhausted ? compressionSteps.slice(0, -1) : compressionSteps;
+            return (
+              <div
+                className={`mt-2 text-[11px] rounded-lg px-3 py-2 border ${
+                  exhausted
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                }`}
+              >
+                {exhausted ? (
+                  <>
+                    <strong>Couldn&apos;t fit on 1 page.</strong> Applied max compression ({realSteps.join(', ')}) but the result is still {'>'} 1 page. Best-effort download served — deselect a few keywords or tighten the base resume.
+                  </>
+                ) : (
+                  <>
+                    <strong>Fit applied:</strong> {realSteps.join(', ')}.
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}

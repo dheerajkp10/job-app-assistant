@@ -7,6 +7,7 @@ import {
   adjustDocxForLibreOffice,
   resolveDocxTemplate,
   removeAdditionalSection,
+  runCompressionCascade,
 } from '@/lib/docx-editor';
 import { measurePdfTextBounds } from '@/lib/pdf-bounds';
 import { detectSuggestions } from '@/lib/resume-suggestions';
@@ -31,7 +32,18 @@ import { randomUUID } from 'crypto';
  *                       the user-accepted subset is round-tripped here).
  */
 export async function POST(req: NextRequest) {
-  const { listingId, format, selectedKeywords, selectedSuggestions } = await req.json();
+  const {
+    listingId, format, selectedKeywords, selectedSuggestions,
+    // 'mandatory' (DEFAULT, since 2026-05-12): inject every
+    // user-selected keyword AND run a compression cascade to fit on
+    // one page. 'budget-ladder': legacy behavior — shrink keyword
+    // injection until one-page fit, even if user picks get dropped.
+    // The UI exposes a checkbox in the tailor section to toggle this
+    // back to budget-ladder if needed.
+    mode,
+  } = await req.json();
+  const tailorMode: 'mandatory' | 'budget-ladder' =
+    mode === 'budget-ladder' ? 'budget-ladder' : 'mandatory';
 
   if (!listingId) {
     return NextResponse.json({ error: 'listingId is required' }, { status: 400 });
@@ -467,6 +479,81 @@ export async function POST(req: NextRequest) {
     return { docx: newDocx, pdf: newPdf };
   }
 
+  // ─── Mandatory mode (DEFAULT) ──────────────────────────────────────
+  // Inject every user-selected keyword unconditionally, then run a
+  // compression cascade (margin/spacing/line-height/font tweaks) to
+  // fit on one page. This is the "no keyword left behind" path —
+  // the budget ladder below is only used when the user explicitly
+  // opts back into 'budget-ladder' mode.
+  //
+  // Compression floors enforced in buildCompressionCascade():
+  //   - body font ≥ 9pt
+  //   - margins   ≥ 0.4"
+  //   - destructive content drops NOT performed (per user direction)
+  // On final overflow we still serve the closest-to-1-page result
+  // (best-effort) so user-selected keywords never silently disappear.
+  if (tailorMode === 'mandatory') {
+    // First budget tier (the WE-enabled max) — its slice caps are
+    // already expanded by `cap()` so every user-selected keyword
+    // lands. The 'standard' pass keeps the ADDITIONAL section
+    // intact; the cascade will drop it as a late-stage step if
+    // needed.
+    const initialBudget = attempts[0];
+    const baseAttempt = await tryBudget(initialBudget, origDocxBytes);
+    // Render through adjustDocxForLibreOffice so the docx we feed
+    // the cascade matches the rendered geometry. (Same pattern the
+    // budget-ladder path uses below.)
+    const initialDocx = await adjustDocxForLibreOffice(baseAttempt.docxBuffer);
+    const cascadeResult = await runCompressionCascade({
+      initialDocx,
+      render: convertDocxToPdf,
+      countPages: countPdfPages,
+    });
+    if (cascadeResult.pageCount <= 1) {
+      // 1-page fit achieved. Run the whitespace-balance pass on
+      // top so top/bottom margins look symmetric. Balance pass is
+      // a no-op on exact-fit pages and reverts if it overflows.
+      const balanced = await balanceWhitespace(cascadeResult.docx, cascadeResult.pdf);
+      // eslint-disable-next-line no-console
+      console.log(
+        `Tailor[mandatory]: 1-page fit via ${cascadeResult.stepsApplied.length} compression step(s): ` +
+        `${cascadeResult.stepsApplied.join(', ') || '(none — fit out of the box)'}.`,
+      );
+      if (format === 'docx') {
+        return serveDocx(
+          balanced.docx, userName, listing.company, listing.title,
+          cascadeResult.stepsApplied,
+        );
+      }
+      return servePdf(
+        balanced.pdf, userName, listing.company, listing.title,
+        cascadeResult.stepsApplied,
+      );
+    }
+    // Cascade exhausted — still > 1 page. Per user direction we
+    // serve the best-effort multi-page anyway rather than hard-
+    // failing. The X-Compression-Steps header tells the UI what
+    // was attempted, plus a marker that we exhausted the cascade.
+    // eslint-disable-next-line no-console
+    console.warn(
+      `Tailor[mandatory]: cascade exhausted after ${cascadeResult.stepsApplied.length} step(s); ` +
+      `best-effort result is ${cascadeResult.pageCount} page(s). ` +
+      `Applied: ${cascadeResult.stepsApplied.join(', ')}.`,
+    );
+    const exhaustedSteps = [...cascadeResult.stepsApplied, 'exhausted'];
+    if (format === 'docx') {
+      return serveDocx(
+        cascadeResult.docx, userName, listing.company, listing.title,
+        exhaustedSteps,
+      );
+    }
+    return servePdf(
+      cascadeResult.pdf, userName, listing.company, listing.title,
+      exhaustedSteps,
+    );
+  }
+
+  // ─── Budget-ladder mode (legacy / opt-out) ────────────────────────
   for (const pass of ladderPasses) {
     for (let tierIdx = 0; tierIdx < attempts.length; tierIdx++) {
       const b = attempts[tierIdx];
@@ -543,30 +630,61 @@ function safeBaseName(userName: string, company: string, title: string): string 
     .slice(0, 80);
 }
 
-function servePdf(pdfBuffer: Buffer, userName: string, company: string, title: string) {
+/** Build the headers shared by servePdf/serveDocx. The optional
+ *  `compressionSteps` array (mandatory-mode only) is JSON-encoded
+ *  into `X-Compression-Steps` so the client can render a "fit
+ *  applied" footer without us baking it into the binary itself.
+ *  `Access-Control-Expose-Headers` is needed for the browser to
+ *  surface custom headers to `fetch().response.headers.get()`. */
+function tailoringHeaders(
+  contentType: string,
+  contentDisposition: string,
+  contentLength: number,
+  compressionSteps?: string[],
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': contentType,
+    'Content-Disposition': contentDisposition,
+    'Content-Length': String(contentLength),
+  };
+  if (compressionSteps && compressionSteps.length > 0) {
+    headers['X-Compression-Steps'] = JSON.stringify(compressionSteps);
+    headers['Access-Control-Expose-Headers'] = 'X-Compression-Steps';
+  }
+  return headers;
+}
+
+function servePdf(
+  pdfBuffer: Buffer, userName: string, company: string, title: string,
+  compressionSteps?: string[],
+) {
   const safeName = safeBaseName(userName, company, title);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new NextResponse(pdfBuffer as any, {
     status: 200,
-    headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename="${safeName}.pdf"`,
-      'Content-Length': String(pdfBuffer.length),
-    },
+    headers: tailoringHeaders(
+      'application/pdf',
+      `attachment; filename="${safeName}.pdf"`,
+      pdfBuffer.length,
+      compressionSteps,
+    ),
   });
 }
 
-function serveDocx(docxBuffer: Buffer, userName: string, company: string, title: string) {
+function serveDocx(
+  docxBuffer: Buffer, userName: string, company: string, title: string,
+  compressionSteps?: string[],
+) {
   const safeName = safeBaseName(userName, company, title);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return new NextResponse(docxBuffer as any, {
     status: 200,
-    headers: {
-      'Content-Type':
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'Content-Disposition': `attachment; filename="${safeName}.docx"`,
-      'Content-Length': String(docxBuffer.length),
-    },
+    headers: tailoringHeaders(
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      `attachment; filename="${safeName}.docx"`,
+      docxBuffer.length,
+      compressionSteps,
+    ),
   });
 }
 

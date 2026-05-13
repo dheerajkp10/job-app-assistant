@@ -1637,6 +1637,18 @@ function ListingCard({
 
   // Tailor state
   const [tailorResult, setTailorResult] = useState<TailorResult | null>(null);
+  // Mandatory mode — when ON (default), the tailor route injects
+  // every user-selected keyword AND runs a compression cascade
+  // (margins/spacing/line-height/font shrink) to keep the result on
+  // one page. When OFF the legacy budget-ladder runs, which is more
+  // formatting-preserving but may drop keywords on tight resumes.
+  const [mandatoryMode, setMandatoryMode] = useState(true);
+  // Compression steps the server applied to fit on 1 page. Surfaced
+  // as a footer under the download CTA so the user knows what was
+  // sacrificed (e.g. "margins 0.4", line height 1.05, body 10pt").
+  // Special trailing token 'exhausted' means we couldn't fit even at
+  // max compression and shipped a best-effort multi-page.
+  const [compressionSteps, setCompressionSteps] = useState<string[] | null>(null);
   const [tailoring, setTailoring] = useState(false);
   const [tailorError, setTailorError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -1731,6 +1743,7 @@ function ListingCard({
           format: 'json',
           selectedKeywords: Array.from(selectedKeywords),
           selectedSuggestions: Array.from(selectedSuggestions),
+          mode: mandatoryMode ? 'mandatory' : 'budget-ladder',
         }),
       });
       const data = await res.json();
@@ -1801,6 +1814,9 @@ function ListingCard({
       // API (EventSource doesn't support POST). The terminal 'done'
       // event carries a base64-encoded PDF that we decode and
       // download via a Blob URL.
+      // Reset any prior compression footer before we kick off — we'll
+      // re-populate from the `done` event when the new render lands.
+      setCompressionSteps(null);
       const res = await fetch('/api/tailor-resume/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1809,6 +1825,7 @@ function ListingCard({
           format: 'pdf',
           selectedKeywords: Array.from(selectedKeywords),
           selectedSuggestions: Array.from(selectedSuggestions),
+          mode: mandatoryMode ? 'mandatory' : 'budget-ladder',
         }),
       });
       if (!res.body) throw new Error('No response body');
@@ -1851,6 +1868,14 @@ function ListingCard({
             const base64 = String(event.base64 ?? '');
             const contentType = String(event.contentType ?? 'application/pdf');
             const filename = String(event.filename ?? 'tailored_resume.pdf');
+            // Mandatory-mode footer: which cascade steps were
+            // applied (margins, spacing, fonts, ADDITIONAL drop).
+            const steps = Array.isArray(event.compressionSteps)
+              ? (event.compressionSteps as unknown[]).filter(
+                  (s): s is string => typeof s === 'string',
+                )
+              : [];
+            setCompressionSteps(steps.length > 0 ? steps : null);
             const binary = atob(base64);
             const bytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -2416,6 +2441,34 @@ function ListingCard({
                   </div>
                 )}
 
+                {/* Mandatory-mode toggle. Default-ON: the server
+                    injects every keyword you selected and runs a
+                    compression cascade (margins/spacing/line-height/
+                    font shrink) to fit on one page. OFF reverts to
+                    the legacy budget ladder, which is more
+                    formatting-preserving but can drop keywords on
+                    tight resumes. Floors enforced server-side: ≥ 9pt
+                    body, ≥ 0.4" margins, no content drops. */}
+                <label
+                  className="flex items-start gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 cursor-pointer hover:bg-gray-50"
+                  title="When ON, the server keeps every keyword you picked and compresses layout to fit. When OFF, keywords may be dropped to preserve formatting."
+                >
+                  <input
+                    type="checkbox"
+                    checked={mandatoryMode}
+                    onChange={(e) => setMandatoryMode(e.target.checked)}
+                    className="mt-0.5 rounded"
+                  />
+                  <div className="flex-1">
+                    <span className="font-medium text-gray-800">
+                      Pack all keywords on 1 page (aggressive)
+                    </span>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Recommended. Injects every selected keyword and tightens margins / line-height / font size as needed (floor: 9pt body, 0.4&quot; margins).
+                    </p>
+                  </div>
+                </label>
+
                 {/* Download button */}
                 <button
                   onClick={handleDownload}
@@ -2428,6 +2481,34 @@ function ListingCard({
                     <><Download className="w-4 h-4" /> Download Tailored Resume (PDF)</>
                   )}
                 </button>
+
+                {/* Compression footer — surfaces post-render what the
+                    cascade had to do. 'exhausted' as the final token
+                    means we couldn't hit 1 page even at max
+                    compression and shipped a best-effort multi-page. */}
+                {compressionSteps && compressionSteps.length > 0 && (() => {
+                  const exhausted = compressionSteps[compressionSteps.length - 1] === 'exhausted';
+                  const realSteps = exhausted ? compressionSteps.slice(0, -1) : compressionSteps;
+                  return (
+                    <div
+                      className={`text-[11px] rounded-lg px-3 py-2 border ${
+                        exhausted
+                          ? 'bg-amber-50 border-amber-200 text-amber-800'
+                          : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      }`}
+                    >
+                      {exhausted ? (
+                        <>
+                          <strong>Couldn&apos;t fit on 1 page.</strong> Applied max compression ({realSteps.join(', ')}) but the result is still {'>'} 1 page. Best-effort download served — consider deselecting a few keywords or trimming a bullet in your base resume.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Fit applied:</strong> {realSteps.join(', ')}.
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </section>

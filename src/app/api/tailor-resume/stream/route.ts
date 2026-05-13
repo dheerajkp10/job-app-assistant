@@ -124,6 +124,22 @@ export async function POST(req: NextRequest) {
         const disposition = res.headers.get('Content-Disposition') ?? '';
         const fnameMatch = disposition.match(/filename="([^"]+)"/);
         const filename = fnameMatch?.[1] ?? 'tailored_resume';
+        // The downstream tailor route emits `X-Compression-Steps` as
+        // a JSON-encoded string array describing which mandatory-mode
+        // cascade steps fired. Forward it through the SSE `done`
+        // event so the UI can render a "fit applied: …" footer.
+        const compressionHeader = res.headers.get('X-Compression-Steps');
+        let compressionSteps: string[] = [];
+        if (compressionHeader) {
+          try {
+            const parsed = JSON.parse(compressionHeader);
+            if (Array.isArray(parsed)) {
+              compressionSteps = parsed.filter((s): s is string => typeof s === 'string');
+            }
+          } catch {
+            // Malformed header — ignore; UI just won't show the footer.
+          }
+        }
 
         const buffer = Buffer.from(await res.arrayBuffer());
         // For PDF / docx files, base64-encode and ship in the final
@@ -134,6 +150,7 @@ export async function POST(req: NextRequest) {
           contentType,
           filename,
           base64: buffer.toString('base64'),
+          compressionSteps,
         });
       } catch (err) {
         emit({
