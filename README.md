@@ -20,7 +20,19 @@ A local-first web app for tracking and improving job applications. It pulls live
 - TF-weighted Laplace-smoothed scorer with **JD-bigram phrase coverage** (v3) so multi-word matches like "distributed systems" or "incident response" actually count.
 - Per-listing breakdown: technical / management / domain / soft + phrase coverage.
 - Versioned cache — when the scoring algorithm bumps (v2 → v3), older entries are invalidated and silently recomputed.
-- **Salary intelligence** — derives `p25 / median / p75` for the role family + location bucket from your own listings cache (no external API). Detail-fetched salaries persist back to the cache, so the cohort grows as you browse.
+- **Auto-invalidation on resume upload** — uploading a new resume wipes the score cache, since cached scores were computed against the previous resume. The dashboard surfaces a **Rescore listings** banner that batch-rescores every scorable listing against the new resume in chunks of 25 with live progress; the listings page also lazy-rescores on view as a fallback.
+
+### Salary intelligence
+- **JD-only extraction (no third-party scraping)** — no Levels.fyi / Glassdoor calls. We read whatever the company posted; pay-transparency laws in WA / CA / CO / NY / MA / IL mean most US tech listings now carry an explicit range.
+- The extractor detects:
+  - Explicit **Base + Total Comp splits** (`"Base salary: $X – $Y. Total compensation: $A – $B."` → both ranges stored separately)
+  - **OTE** annotations for sales roles → classified as TC
+  - **Hourly rates** (`$X/hr`) → normalized to annual via × 2080
+  - Multiple formats: `$XXXk – $XXXk`, `USD 250,000 – 350,000`, en/em dashes, `to` separators, comma-separated thousands, k/K/M suffixes
+  - **Equity / RSU / stock-option mentions** as free-form hints (no false-precision parsing)
+- Salary chips on listing cards show a rich tooltip with Base / Total Comp / Equity / source layer when the JD provides enough signal.
+- **Backfill endpoint** (`POST /api/salary-intel/reprocess`) re-runs the parser across every cached listing using on-disk JD HTML — one button under **Settings → Salary Data Backfill** triggers it.
+- **Peer-cohort statistics** (`p25 / median / p75`) derived from the user's own listings cache (no external API). Detail-fetched salaries persist back to the cache, so the cohort grows as you browse.
 
 ### Tailoring suggestions
 - Structural fixes beyond just adding missing keywords: mirror the JD's role title, fill skills-line gaps, match years-of-experience claims, fold in distinctive multi-word JD phrases.
@@ -57,8 +69,17 @@ A local-first web app for tracking and improving job applications. It pulls live
 - Per-listing reminders backed by the browser's Notification API + a polling effect. No email service, no cron.
 
 ### Dashboard
-- **Top matching jobs** + **Top companies by ATS match** + **Resume performance** stats at a glance.
+- **Top matching jobs** + **Top companies by ATS match** + **Resume performance** stats at a glance, each in a scrollable card sized to show ~5 entries.
 - **Generate Master Resume** — opens the master-tailor modal. Analyzes every open listing matching your stored preferences (stratified-sampled, capped at 100), auto-selects top 30 missing keywords by frequency, lets you review/de-select, then runs the mandatory-mode compression cascade. Replaces the prior "Tailor for Top N" / "Optimize for general ATS" pair with a single unified flow.
+- **Rescore banner** — surfaces when ≥ 20% of scorable listings are missing fresh ATS scores (typical state right after a resume upload). One click runs the existing batch-score endpoint in 25-listing chunks with live progress.
+
+### Design language (2026-05 refresh)
+- **Warm off-white** page background (`#FAF9F6`); pure white surfaces; **slate-100** card borders.
+- **Indigo → Violet** gradient primary; **emerald / amber / rose** gradients for the ATS score tiers (Strong / Moderate / Weak); softened pipeline palette (indigo / sky / cyan / emerald / rose).
+- **Three-tier button system**: gradient `lg` for the single primary CTA per page (Refresh All / Generate Master Resume / Save), soft `md` indigo / emerald for in-card actions, ghost `xs` for "View all →" navigation.
+- **Card lift on hover** — `shadow-card` resting state, `shadow-card-hover` indigo-tinted glow with `-translate-y-0.5` on hover. Defined as utility classes in `src/app/globals.css` for centralized control.
+- **Glass modal overlays** with `backdrop-blur-sm` and per-tier shadow tokens.
+- **Portaled popovers** for the flag dropdown and the "N you know" badge so they escape card-level overflow clipping.
 
 ## Prerequisites
 
@@ -134,6 +155,20 @@ The first visit to `http://localhost:3000` lands on a 6-step onboarding wizard:
 6. **Fetch Jobs** — kicks off the parallel SSE-driven fetcher. ~30–90s for the full set.
 
 Once that finishes you're on the Job Listings page with live data. The top nav exposes Dashboard, Listings, Pipeline, Compare, Add Job, and Settings.
+
+## Day-to-day workflow
+
+The canonical loop after onboarding:
+
+1. **Refresh listings** (`Listings → Refresh All`) — pulls the latest job postings across every configured source. The streaming progress card shows per-company status; the rest of the UI stays usable.
+2. **Filter** down to roles you'd actually apply to (role family, level, location, salary, work-mode, date-posted). Save the filter set as a named preset for reuse.
+3. **Browse + flag**: open promising listings, hit the per-card **Tailor My Resume** for per-job optimization, or scroll through and just check ATS scores at a glance. Use the flag dropdown (Applied / Phone Screen / Interviewing / Offer / Rejected) to track pipeline state.
+4. **Generate Master Resume** from the Dashboard once you've got 50+ matching listings — produces a single resume tuned for broad ATS coverage across your target market. Auto-picks top 30 keywords by frequency, lets you de-select anything you can't legitimately claim, then bakes them in via the mandatory-mode compression cascade. Download → re-upload as your new base via `Settings → Upload Resume`.
+5. **Rescore** — after uploading a new resume, the Dashboard surfaces a violet **Rescore listings** banner. One click batch-scores everything against the new resume so the averages reflect reality.
+6. **Track pipeline** on the `Pipeline` Kanban page; export a Markdown **Status report** when you want to share progress with a mentor / coach.
+7. **Cover letter + outreach** generated on demand from any listing's detail view, using your resume's strongest signals (years of experience, current employer, top quantified achievement) + the JD's mission sentence.
+
+The whole loop runs locally — your resume, your network, your application history, everything in `./data/`. No external calls except the public career-board APIs.
 
 ## Adding a job manually
 
@@ -216,18 +251,41 @@ The dev server (`npm run dev`) is plenty for personal use and gives you HMR on t
 - `src/lib/pdf-bounds.ts` — hand-rolled PDF parser for the post-render whitespace-balance pass.
 
 ### API routes (selected)
-- `POST /api/tailor-resume` — single-job tailor + budget ladder + balance pass.
-- `POST /api/tailor-resume/multi` — explicit-listing multi-tailor with tier-0 user-selection budget.
-- `POST /api/tailor-resume/general` — master resume: server-side preference filtering + stratified sampling, forwards to `/multi` for aggregation + render.
+
+**Tailoring**
+- `POST /api/tailor-resume` — single-job tailor; mandatory mode (default) injects all user-selected keywords + runs compression cascade. Optional `mode: 'budget-ladder'` for the legacy iterate-9-tiers behavior.
+- `POST /api/tailor-resume/multi` — explicit-listing multi-tailor with tier-0 user-selection budget. Cap raised to 100 listings.
+- `POST /api/tailor-resume/general` — Master Resume: server-side preference filtering + stratified sampling, forwards to `/multi` for aggregation + render.
 - `POST /api/tailor-resume/stream` — SSE-progress variant for long-running per-job tailors.
-- `GET /api/salary-intel?listingId=...` — peer-cohort salary stats.
-- `GET|POST|DELETE /api/network` — LinkedIn connections store; POST accepts multi-file uploads of `.csv` or `.zip`.
+
+**Scoring + salary**
+- `POST /api/ats-score` — score a single listing against the current resume.
+- `POST /api/ats-score/batch` — score N listings at once (used by the dashboard Rescore banner).
+- `GET /api/scores-cache` — read every cached score; filters out entries from older scorer versions client-side.
+- `GET /api/salary-intel?listingId=...` — peer-cohort `p25 / median / p75` for the listing's role family + location bucket.
+- `POST /api/salary-intel/reprocess` — backfill: re-runs the salary parser against every cached listing's on-disk JD HTML, populates Base / TC / equity-hint fields.
+
+**Job data**
+- `GET /api/listings` — read the listings cache.
+- `GET /api/listings/[listingId]` — fetch + persist full JD detail. Side-effect: re-runs salary parser on the fresh body.
+- `POST /api/listings/fetch-stream` — SSE-driven refresh across every configured source.
+- `POST /api/extract-job` — parse a single posting URL into title/company/location/JD.
+
+**Workflow**
+- `GET|POST /api/listing-flags` — per-listing flags (Applied / Phone Screen / Interviewing / Offer / Rejected / Incorrect / Not Applicable).
+- `GET /api/status-report` — Markdown pipeline export.
+- `GET|POST|DELETE /api/reminders` — per-listing reminder store.
+
+**Integrations**
+- `GET|POST|DELETE /api/network` — LinkedIn connections store; POST accepts multi-file uploads of `.csv` or LinkedIn `.zip`.
 - `GET|POST|PUT|DELETE /api/sources` — user-added custom sources.
 - `POST /api/cover-letter` — deterministic generator.
 - `POST /api/interview-prep` — prep packet.
 - `POST /api/outreach` — recruiter note.
-- `GET|POST|DELETE /api/reminders` — per-listing reminder store.
-- `GET /api/status-report` — Markdown pipeline export.
+
+**Settings + meta**
+- `GET|PUT /api/settings` — user preferences.
+- `GET|POST /api/resume` — resume upload (POST clears the score cache on text change).
 - `GET /api/health` — LibreOffice + platform probe.
 
 ## Troubleshooting
@@ -252,7 +310,13 @@ Fixed — the listing-flags route previously allowlisted only triage flags; pipe
 Fixed — a new tier-0 budget in the multi-tailor ladder honors your full selection on the first attempt. Lower tiers only trigger if the page-fit gate fails.
 
 **Salary intel only appears on some listings.**
-Salary cohorts need ≥3 peers in the same role family + location bucket with parsed `salaryMin`/`salaryMax`. Greenhouse list-fetches now use `?content=true` (so most boards extract salary at list time), Ashby falls back to description text when `compensationTierSummary` is empty, and detail fetches persist salary back to cache. Browse more listings and the cohort grows.
+Salary cohorts need ≥3 peers in the same role family + location bucket with parsed `salaryMin`/`salaryMax`. Greenhouse list-fetches use `?content=true` (so most boards extract salary at list time), Ashby falls back to description text when `compensationTierSummary` is empty, and detail fetches persist salary back to cache. To backfill in one shot: **Settings → Salary Data Backfill → Reprocess salary data**. Browse more listings and the cohort grows.
+
+**Dashboard still shows my old ATS score after uploading a new resume.**
+Fixed — the `/api/resume` POST now wipes the score cache when the parsed text changes, since cached scores were computed against the previous resume. The dashboard surfaces a **Rescore listings** banner that batch-rescores everything against the new resume in chunks of 25. The listings page also lazy-rescores on view, so opening `/listings` after the upload achieves the same end state more slowly.
+
+**"At most 25 listings can be tailored at once" when running Generate Master Resume.**
+Fixed — the `/multi` cap is now 100 to match the Master Resume sample size.
 
 **Some companies show 0 jobs.**
 The static source list is verified at commit time but board tokens occasionally rotate. Open `src/lib/sources.ts` and try alternate slugs, or add the company as a Custom Source from Settings.
@@ -265,6 +329,12 @@ Uncheck **"Pack all keywords on 1 page (aggressive)"** in the listings Tailor se
 
 **Hydration mismatch warnings in the console.**
 The known offenders have been fixed (notably the LinkedIn network panel's `webkitdirectory` attribute, now attached imperatively after mount). If you see new ones, check whether a browser extension is injecting attributes (Grammarly, Dark Reader, 1Password, translation extensions) — try in Incognito to confirm.
+
+**The "N you know" popover is hidden behind other listing cards.**
+Fixed — the popover is now portaled to `document.body` with fixed coordinates from `getBoundingClientRect`, so it escapes any ancestor `overflow: hidden` clip. Same pattern as the flag dropdown.
+
+**The design preview page at `/design-preview` is gone.**
+Intentional. It was a one-time sandbox for picking the design direction. The live UI now embodies that direction, and the route was removed in commit `95027f9`. Earlier commits (`436d26e`, `da1d1b1`) hold the sandbox source if you want to inspect it.
 
 **The dev server hot-reloads but state seems stale.**
 Settings + listings cache are server-side; reload the browser tab to re-fetch. The listings and pipeline pages also auto-revalidate on focus/visibility change.
