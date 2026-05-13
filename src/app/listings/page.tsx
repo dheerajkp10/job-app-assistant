@@ -1975,7 +1975,23 @@ function ListingCard({
                 </span>
               )}
               {listing.salary && (
-                <span className="flex items-center gap-1 text-green-600 font-medium">
+                <span
+                  className="flex items-center gap-1 text-emerald-600 font-medium"
+                  title={(() => {
+                    // Rich tooltip: base + TC + equity hint when any
+                    // of those came in from the smarter parser.
+                    const parts: string[] = [];
+                    if (listing.salaryBaseMin != null && listing.salaryBaseMax != null) {
+                      parts.push(`Base: $${Math.round(listing.salaryBaseMin/1000)}k – $${Math.round(listing.salaryBaseMax/1000)}k`);
+                    }
+                    if (listing.salaryTcMin != null && listing.salaryTcMax != null) {
+                      parts.push(`Total comp: $${Math.round(listing.salaryTcMin/1000)}k – $${Math.round(listing.salaryTcMax/1000)}k`);
+                    }
+                    if (listing.salaryEquityHint) parts.push(`Equity: ${listing.salaryEquityHint}`);
+                    if (listing.salarySource) parts.push(`(from JD: ${listing.salarySource})`);
+                    return parts.length > 0 ? parts.join('\n') : listing.salary;
+                  })()}
+                >
                   <DollarSign className="w-3 h-3" />
                   {listing.salary}
                 </span>

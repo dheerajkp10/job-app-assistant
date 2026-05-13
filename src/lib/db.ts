@@ -150,24 +150,49 @@ export async function getListingById(id: string): Promise<JobListing | null> {
  */
 export async function updateListingSalary(
   id: string,
-  patch: { salary?: string | null; salaryMin?: number | null; salaryMax?: number | null },
+  patch: {
+    salary?: string | null;
+    salaryMin?: number | null;
+    salaryMax?: number | null;
+    salaryBaseMin?: number | null;
+    salaryBaseMax?: number | null;
+    salaryTcMin?: number | null;
+    salaryTcMax?: number | null;
+    salaryEquityHint?: string | null;
+    salarySource?: string | null;
+  },
 ): Promise<void> {
   const db = await readDb();
   const idx = db.listingsCache.listings.findIndex((l) => l.id === id);
   if (idx === -1) return;
   const cur = db.listingsCache.listings[idx];
+  // Merge — patch values win when truthy, otherwise the existing
+  // value is preserved. We never overwrite a known value with null
+  // (defensive: a fetcher that returns no salary shouldn't wipe
+  // one we already extracted earlier).
   const next: JobListing = {
     ...cur,
     salary: patch.salary ?? cur.salary,
     salaryMin: patch.salaryMin ?? cur.salaryMin,
     salaryMax: patch.salaryMax ?? cur.salaryMax,
+    salaryBaseMin: patch.salaryBaseMin ?? cur.salaryBaseMin ?? null,
+    salaryBaseMax: patch.salaryBaseMax ?? cur.salaryBaseMax ?? null,
+    salaryTcMin: patch.salaryTcMin ?? cur.salaryTcMin ?? null,
+    salaryTcMax: patch.salaryTcMax ?? cur.salaryTcMax ?? null,
+    salaryEquityHint: patch.salaryEquityHint ?? cur.salaryEquityHint ?? null,
+    salarySource: patch.salarySource ?? cur.salarySource ?? null,
   };
-  // Only write if something actually changed — avoids unnecessary
-  // disk IO when detail-fetch returns the same data we already have.
+  // Bail when nothing changed (avoid disk IO on idempotent calls).
   if (
     next.salary === cur.salary &&
     next.salaryMin === cur.salaryMin &&
-    next.salaryMax === cur.salaryMax
+    next.salaryMax === cur.salaryMax &&
+    next.salaryBaseMin === (cur.salaryBaseMin ?? null) &&
+    next.salaryBaseMax === (cur.salaryBaseMax ?? null) &&
+    next.salaryTcMin === (cur.salaryTcMin ?? null) &&
+    next.salaryTcMax === (cur.salaryTcMax ?? null) &&
+    next.salaryEquityHint === (cur.salaryEquityHint ?? null) &&
+    next.salarySource === (cur.salarySource ?? null)
   ) {
     return;
   }

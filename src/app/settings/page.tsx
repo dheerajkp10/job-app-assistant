@@ -431,6 +431,8 @@ export default function SettingsPage() {
 
       <NetworkImportPanel />
 
+      <SalaryReprocessPanel />
+
       {/* Salary Range (optional) */}
       <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center justify-between mb-4">
@@ -575,5 +577,92 @@ export default function SettingsPage() {
         )}
       </section>
     </div>
+  );
+}
+
+// ─── Salary Reprocess panel ──────────────────────────────────────────
+// Backfill action that re-runs the (now smarter) salary extractor
+// across every cached listing — picks up base/TC splits, OTE,
+// hourly-rate normalization, equity hints that older fetches
+// missed. Listings without on-disk JD HTML are skipped silently.
+
+function SalaryReprocessPanel() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{
+    scanned: number;
+    updated: number;
+    baseTcSplits: number;
+    equityHints: number;
+    hourlyNormalized: number;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await fetch('/api/salary-intel/reprocess', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setResult({
+        scanned: data.scanned ?? 0,
+        updated: data.updated ?? 0,
+        baseTcSplits: data.baseTcSplits ?? 0,
+        equityHints: data.equityHints ?? 0,
+        hourlyNormalized: data.hourlyNormalized ?? 0,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Reprocess failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mb-6 bg-white rounded-2xl border border-slate-100 p-6 shadow-card">
+      <div className="flex items-center gap-3 mb-3">
+        <DollarSign className="w-5 h-5 text-slate-500" />
+        <h2 className="text-lg font-semibold text-slate-800">Salary data backfill</h2>
+      </div>
+      <p className="text-xs text-slate-500 mb-3">
+        Re-runs the salary extractor across every cached listing using the latest parser
+        rules — picks up <strong>Base vs Total Comp</strong> splits, <strong>OTE</strong> for
+        sales roles, <strong>hourly rates</strong> normalized to annual, and equity / RSU
+        mentions. Listings open faster afterwards because the breakdown is already in cache.
+      </p>
+      {result && (
+        <div className="mb-3 px-3 py-2 bg-indigo-50 border border-indigo-100 rounded-xl text-xs text-indigo-800">
+          Scanned <strong>{result.scanned.toLocaleString()}</strong> listings · updated{' '}
+          <strong>{result.updated.toLocaleString()}</strong>
+          {result.baseTcSplits > 0 && (
+            <> · {result.baseTcSplits} new Base/TC splits</>
+          )}
+          {result.equityHints > 0 && (
+            <> · {result.equityHints} equity hints</>
+          )}
+          {result.hourlyNormalized > 0 && (
+            <> · {result.hourlyNormalized} hourly rates normalized</>
+          )}
+        </div>
+      )}
+      {error && (
+        <div className="mb-3 px-3 py-2 bg-rose-50 border border-rose-100 rounded-xl text-xs text-rose-700">
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 text-sm font-semibold rounded-xl shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50"
+      >
+        {busy ? (
+          <><RefreshCw className="w-4 h-4 animate-spin" /> Reprocessing…</>
+        ) : (
+          <><RefreshCw className="w-4 h-4" /> Reprocess salary data</>
+        )}
+      </button>
+    </section>
   );
 }

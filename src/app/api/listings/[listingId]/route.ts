@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getListingById, updateListingSalary } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
+import { extractSalary } from '@/lib/salary-parser';
 
 /**
  * GET /api/listings/[listingId]
@@ -22,12 +23,23 @@ export async function GET(
   try {
     const detail = await fetchJobDetail(listing);
     if (detail) {
-      // Persist any newly-extracted salary back to the cache so the
-      // salary-intel cohort grows as the user opens more listings.
+      // Re-run the (now smarter) salary extractor against the full
+      // JD body. Detail-fetcher results often have richer text than
+      // whatever the list-time extractor saw, so this is our best
+      // chance to pick up Base + TC splits, OTE, hourly rates, etc.
+      // We prefer the parsed signal but keep whatever the fetcher
+      // already populated as a fallback.
+      const parsed = detail.content ? extractSalary(detail.content) : null;
       await updateListingSalary(listingId, {
-        salary: detail.salary,
-        salaryMin: detail.salaryMin,
-        salaryMax: detail.salaryMax,
+        salary: parsed?.display ?? detail.salary,
+        salaryMin: parsed?.min ?? detail.salaryMin,
+        salaryMax: parsed?.max ?? detail.salaryMax,
+        salaryBaseMin: parsed?.baseMin ?? null,
+        salaryBaseMax: parsed?.baseMax ?? null,
+        salaryTcMin: parsed?.tcMin ?? null,
+        salaryTcMax: parsed?.tcMax ?? null,
+        salaryEquityHint: parsed?.equityHint ?? null,
+        salarySource: parsed?.source ?? null,
       });
     }
     if (!detail) {

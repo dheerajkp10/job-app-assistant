@@ -193,9 +193,23 @@ export interface JobListing {
   title: string;
   location: string;
   department: string;
-  salary: string | null; // extracted from description
-  salaryMin: number | null; // parsed number for filtering
+  salary: string | null; // extracted from description (display string)
+  salaryMin: number | null; // parsed number for filtering (base when both base+TC parsed, else best signal)
   salaryMax: number | null;
+  // Optional structured breakdown — populated when the JD makes the
+  // base-vs-TC distinction explicit (e.g. "Base salary: $X – $Y.
+  // Total compensation: $A – $B."). Existing callers ignore these
+  // safely; the salary chip + compare view render them when present.
+  salaryBaseMin?: number | null;
+  salaryBaseMax?: number | null;
+  salaryTcMin?: number | null;
+  salaryTcMax?: number | null;
+  /** Free-form snippet — first equity / stock / RSU mention near the
+   *  detected pay band. Not parsed into a number because postings vary
+   *  too much. */
+  salaryEquityHint?: string | null;
+  /** Which extractor layer fired. Useful for the UI source-badge. */
+  salarySource?: string | null;
   url: string; // direct link to apply
   ats: ATSType;
   postedAt: string | null;
