@@ -4,6 +4,83 @@ A local-first web app that pulls live job listings from 70+ tech-company career 
 
 > No SaaS account, no API key, no remote server. Next.js 16 + a JSON file under `data/` is the whole stack.
 
+![Dashboard at a glance — ATS averages, top companies, top matching jobs](docs/screenshots/01-dashboard.png)
+
+## What it does
+
+### 📊 Dashboard — your job-search at a glance
+- Average ATS match score across every scored listing, category breakdown (technical / management / domain / soft), tiered match counts (Strong / Moderate / Weak), pipeline applied-count.
+- **Top Companies by ATS Match** — ranked list of companies where your resume scores highest.
+- **Top Matching Jobs** — your best-fit individual roles, sorted by score.
+- **Generate Master Resume** — one button that builds a single resume tuned for broad ATS coverage across every listing matching your stored preferences (more below).
+- After uploading a new resume, a violet **Rescore listings** banner surfaces — one click batch-rescores everything against the new resume.
+
+![Job listings — filters, ATS scores, salary, per-card tailor + flag](docs/screenshots/02-listings.png)
+
+### 🔎 Job listings — live aggregation from 70+ sources
+- Pulls openings from **Greenhouse**, **Lever**, **Ashby**, **Workday**, **Eightfold**, **SmartRecruiters** + company-specific APIs (Apple, Amazon, Google, Microsoft, Meta, Uber, …).
+- **Custom sources UI** — add any company's careers board at runtime by pasting the URL; the app auto-detects the ATS.
+- **Streaming refresh** — Server-Sent-Events progress bar fetches per-company in the background while you keep browsing.
+- **Smart filters** — Role family, level (EM1 → VP), location, work mode, salary range, ATS score range, work-auth countries, excluded companies, date-posted.
+- **Synonym-aware location matching** — recognizes `US`/`USA`/`U.S.`/`United States`, airport codes (`SEA`, `SFO`, `NYC`, `LAX`), state code ↔ name conversions. "Seattle, WA" + Remote catches `"US-SEA"`, `"USA - Remote"`, `"Remote - All locations"`.
+- **Saved filter presets** — name and persist your favorite filter combinations.
+
+### 🎯 ATS keyword scoring
+- TF-weighted scorer with **JD-bigram phrase coverage** so multi-word matches like "distributed systems" or "incident response" actually count.
+- Per-listing breakdown: technical / management / domain / soft + phrase coverage.
+- **Auto-invalidates on resume upload** — cached scores wipe when you upload a new resume, then a one-click Rescore banner batch-refreshes everything.
+
+### 💰 Salary intelligence
+- **JD-only extraction** — no Levels.fyi / Glassdoor scraping. Pay-transparency laws (WA / CA / CO / NY / MA / IL) mean most US tech listings carry an explicit range, and the parser detects:
+  - Explicit **Base + Total Comp splits** (`"Base salary: $X – $Y. Total compensation: $A – $B."` → both ranges stored)
+  - **OTE** for sales roles → classified as TC
+  - **Hourly rates** (`$X/hr`) → normalized to annual via × 2080
+  - **Equity / RSU / stock-option mentions** as free-form hints
+- **Peer-cohort statistics** (`p25 / median / p75`) derived from your own listings cache.
+- **Backfill** in one click via Settings → Salary Data Backfill.
+
+### ✍️ Resume tailoring — keep every keyword, fit on one page
+- **Per-job tailor** — Inject every keyword you select against a specific listing. The compression cascade (margins → spacing → line-height → font shrink → drop ADDITIONAL section) keeps the PDF on one page. Floors at 9pt body and 0.4" margins. **Nothing is dropped** from your resume content.
+- **Master Resume** — One Dashboard button. Stratified-samples up to 100 listings matching your preferences across role families, aggregates missing keywords, auto-picks the top 30 by frequency, lets you review/de-select, then runs the same cascade.
+- **Smart text replacement** — when a suggestion proposes "Software Engineering Manager" instead of your existing "Software Development Manager", the app rewrites the phrase across every formatting boundary in your `.docx`.
+
+![Pipeline — Kanban board over Applied / Phone Screen / Interviewing / Offer / Rejected](docs/screenshots/03-pipeline.png)
+
+### 📋 Application pipeline (Kanban)
+- Five-column board: **Applied → Phone Screen → Interviewing → Offer → Rejected**. Move-left / move-right arrows on each card.
+- One-click **Status report** export — Markdown summary of every active application, suitable for sharing with a mentor / coach.
+
+### ✉️ Cover letters, outreach emails, interview prep
+- **Deterministic cover-letter generator** — pulls years-of-experience, current employer, team scale, top quantified achievement from your resume + the JD's mission sentence + matched JD keywords → 3-paragraph draft. Edit inline, download as `.txt`.
+- **Outreach email generator** — short recruiter-style notes leveraging the same signals.
+- **Interview prep packets** — JD-keyed talking points, likely questions, "things to ask" lists.
+
+### 🤝 LinkedIn network awareness
+- Import your `Connections.csv` (or the raw `.zip` LinkedIn emails — we unzip server-side). Multi-file uploads supported.
+- Listing cards show a clickable **"N you know"** badge when your network has contacts at that company. Click to expand a popover with names, positions, and LinkedIn profile links.
+- All data stays local.
+
+![Compare — 2-3 listings side-by-side with work mode, salary, ATS](docs/screenshots/04-compare.png)
+
+### ⚖️ Compare view
+- Side-by-side comparison of 2–3 listings (work mode, salary range, posted date, ATS score with category breakdown).
+- **Same-company callout** when all selected listings share an employer — flags that you're comparing roles, not companies.
+
+![Add Job — paste a posting URL and the app extracts everything](docs/screenshots/05-add-job.png)
+
+### ➕ Add Job — capture postings outside the auto-sync
+- Paste a job posting URL → the extractor uses Readability + per-ATS heuristics to pull title, company, location, JD.
+- Or paste raw JD text directly. Either way it's scored against your resume immediately.
+
+![Settings — resume upload, preferences, custom sources, network import, salary backfill](docs/screenshots/06-settings.png)
+
+### ⚙️ Settings
+- Drag-and-drop resume upload (`.docx` preferred — required for tailoring; `.pdf` works for scoring only).
+- Role / level / location / salary / work-mode / work-auth preferences.
+- Custom Sources panel — add any career board.
+- LinkedIn Network panel — multi-file zip / csv upload.
+- Salary Data Backfill — one-click re-run of the salary parser across every cached listing.
+
 ## Setup
 
 ### 1. Prerequisites
@@ -63,31 +140,16 @@ On first visit you'll be walked through:
 5. **Companies** — preview of the career boards we'll scan
 6. **Fetch Jobs** — kicks off a live SSE-driven fetch across every source (~30–90s)
 
-When that finishes you land on Job Listings with live data. Top-nav exposes Dashboard, Listings, Pipeline, Compare, Add Job, Settings.
+When that finishes you land on Job Listings with live data.
 
 ### Health check
 
-To confirm LibreOffice is wired up:
 ```bash
 curl http://localhost:3000/api/health
 # → {"libreoffice":{"ok":true,"version":"..."},"platform":"darwin"}
 ```
 
 The app also surfaces a banner on every page if `soffice` is missing from your PATH.
-
-## What it does
-
-- **Live job aggregation** — Pulls openings from Greenhouse, Lever, Ashby, Workday, Eightfold, SmartRecruiters + company-specific APIs (Apple, Amazon, Google, Microsoft, Meta, Uber, …). Add custom sources at runtime via Settings.
-- **Smart filters** — Role family, level, location, work mode, salary, ATS score range, work-auth countries, excluded companies, date-posted. Synonym-aware location matching catches `"US-SEA"`, `"USA - Remote"`, `"U.S. Remote"`, etc.
-- **ATS keyword scoring** — TF-weighted scorer with JD-bigram phrase coverage. Per-listing breakdown across technical / management / domain / soft. Cache auto-invalidates when you upload a new resume; dashboard surfaces a Rescore button.
-- **Salary intelligence** — Reads pay ranges directly from JD bodies (pay-transparency laws make this work for most US tech listings). Detects Base + TC splits, OTE, hourly rates, equity hints. No external scraping.
-- **Resume tailoring**
-  - **Per-job tailor** — Inject every keyword you select against a specific listing. Mandatory mode (default) runs a compression cascade (margins → spacing → line-height → font shrink → drop ADDITIONAL section) until the PDF fits on one page. Floors at 9pt body and 0.4" margins. No content is dropped.
-  - **Master Resume** — One button on the Dashboard. Stratified-samples up to 100 listings matching your preferences, aggregates missing keywords, auto-picks the top 30 by frequency, lets you review/de-select, then runs the same cascade.
-- **Application pipeline (Kanban)** — Five columns: Applied → Phone Screen → Interviewing → Offer → Rejected. Markdown status report export.
-- **Cover letters, outreach emails, interview prep** — Deterministic generators using your resume's strongest signals + JD context.
-- **LinkedIn network awareness** — Import your `Connections.csv` (or the raw `.zip` LinkedIn emails). Listing cards show an "N you know" badge with an expandable popover of names + profile links.
-- **Compare view** — 2–3 listings side-by-side with work mode, salary range, posted date, ATS breakdown.
 
 ## Day-to-day workflow
 
@@ -165,6 +227,17 @@ npx puppeteer browsers install chrome
 **Some companies show 0 jobs.** Board tokens occasionally rotate. Open `src/lib/sources.ts` and try alternate slugs, or add the company as a Custom Source from Settings.
 
 **State seems stale after edits.** Settings and listings cache are server-side. Reload the browser tab; the listings + pipeline pages also auto-revalidate on tab focus.
+
+## Refreshing screenshots
+
+The screenshots in this README are captured against your live dev server. To regenerate them after UI changes:
+
+```bash
+npm run dev                              # in one terminal
+node scripts/take-screenshots.mjs        # in another
+```
+
+Output lands in `docs/screenshots/`. Captured at 1440×900 @ 2x scale.
 
 ## Contributing
 
