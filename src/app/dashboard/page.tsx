@@ -450,7 +450,7 @@ export default function DashboardPage() {
             <button
               onClick={() => setMasterModalOpen(true)}
               title="Generate one resume optimized for broad ATS coverage across every open listing matching your preferences."
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Generate Master Resume
@@ -528,7 +528,7 @@ export default function DashboardPage() {
               {settings.preferredRoles.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {settings.preferredRoles.map((r) => (
-                    <span key={r} className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium">{r}</span>
+                    <span key={r} className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-medium">{r}</span>
                   ))}
                 </div>
               ) : (
@@ -543,7 +543,7 @@ export default function DashboardPage() {
               {settings.preferredLocations.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {settings.preferredLocations.map((l) => (
-                    <span key={l} className="px-2.5 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-medium">{l}</span>
+                    <span key={l} className="px-2.5 py-1 bg-violet-50 text-violet-700 rounded-lg text-xs font-medium">{l}</span>
                   ))}
                 </div>
               ) : (
@@ -559,7 +559,7 @@ export default function DashboardPage() {
               {settings.workMode.length > 0 ? (
                 <div className="flex gap-2">
                   {settings.workMode.map((m) => (
-                    <span key={m} className="px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium">
+                    <span key={m} className="px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-medium">
                       {workModeLabels[m]}
                     </span>
                   ))}
@@ -638,8 +638,8 @@ const CATEGORY_LABEL: Record<Category, string> = {
 };
 
 const CATEGORY_COLOR: Record<Category, string> = {
-  technical: 'bg-blue-50 text-blue-700 border-blue-200',
-  management: 'bg-purple-50 text-purple-700 border-purple-200',
+  technical: 'bg-indigo-50 text-indigo-700 border-blue-200',
+  management: 'bg-violet-50 text-violet-700 border-purple-200',
   domain: 'bg-amber-50 text-amber-700 border-amber-200',
   soft: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
@@ -824,7 +824,7 @@ function TailorTopJobsModal({
           {analysis && (
             <>
               {/* Summary strip */}
-              <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+              <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl border border-indigo-100">
                 <div className="flex-1">
                   <div className="text-xs text-slate-500 uppercase tracking-wide">Current avg ATS</div>
                   <div className="text-2xl font-bold text-slate-800">{analysis.avgOriginalScore}%</div>
@@ -1224,7 +1224,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               )}
 
               {/* Summary strip */}
-              <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl border border-indigo-100">
+              <div className="flex items-center gap-4 mb-6 p-4 bg-gradient-to-r from-indigo-50 to-violet-50 rounded-xl border border-indigo-100">
                 <div className="flex-1">
                   <div className="text-xs text-slate-500 uppercase tracking-wide">Current avg ATS</div>
                   <div className="text-2xl font-bold text-slate-800">{analysis.avgOriginalScore}%</div>
