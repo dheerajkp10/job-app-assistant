@@ -310,53 +310,62 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-6 mb-8">
-        {/* Resume ATS Performance */}
-        <div className="col-span-1 bg-white rounded-xl border border-gray-200 p-6">
+        {/* Resume ATS Performance. Content wrapped in a fixed-height
+            scroll pane so this card stays the same vertical size as
+            its row neighbor (Top Companies) and any future addition
+            to the score breakdown / tier-counts area scrolls instead
+            of growing the card. */}
+        <div className="col-span-1 bg-white rounded-xl border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center gap-2 mb-5">
             <Target className="w-5 h-5 text-blue-500" />
             <h2 className="text-base font-semibold text-gray-900">Resume Performance</h2>
           </div>
 
-          <div className="flex justify-center mb-5">
-            <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
-          </div>
+          <div className="flex-1 overflow-y-auto pr-1 max-h-[460px] dashboard-scroll">
+            <div className="flex justify-center mb-5">
+              <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
+            </div>
 
-          <div className="space-y-3">
-            <CategoryBar label="Technical" score={stats.avgTechnical} />
-            <CategoryBar label="Management" score={stats.avgManagement} />
-            <CategoryBar label="Domain" score={stats.avgDomain} />
-            <CategoryBar label="Soft Skills" score={stats.avgSoft} />
-          </div>
+            <div className="space-y-3">
+              <CategoryBar label="Technical" score={stats.avgTechnical} />
+              <CategoryBar label="Management" score={stats.avgManagement} />
+              <CategoryBar label="Domain" score={stats.avgDomain} />
+              <CategoryBar label="Soft Skills" score={stats.avgSoft} />
+            </div>
 
-          <div className="mt-5 pt-4 border-t border-gray-100">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div>
-                <div className="text-lg font-bold text-green-600">{stats.high}</div>
-                <div className="text-xs text-gray-500">Strong</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-yellow-600">{stats.medium}</div>
-                <div className="text-xs text-gray-500">Moderate</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-red-500">{stats.low}</div>
-                <div className="text-xs text-gray-500">Weak</div>
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <div className="text-lg font-bold text-green-600">{stats.high}</div>
+                  <div className="text-xs text-gray-500">Strong</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-yellow-600">{stats.medium}</div>
+                  <div className="text-xs text-gray-500">Moderate</div>
+                </div>
+                <div>
+                  <div className="text-lg font-bold text-red-500">{stats.low}</div>
+                  <div className="text-xs text-gray-500">Weak</div>
+                </div>
               </div>
             </div>
-          </div>
 
-          {settings.baseResumeFileName && (
-            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-              <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-gray-400" />
-                <span className="text-xs text-gray-600 font-medium truncate">{settings.baseResumeFileName}</span>
+            {settings.baseResumeFileName && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-gray-400" />
+                  <span className="text-xs text-gray-600 font-medium truncate">{settings.baseResumeFileName}</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Top Companies */}
-        <div className="col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+        {/* Top Companies. List scrolls within a fixed-height pane so
+            the dashboard layout stays stable as more companies hit
+            the top-10 cutoff and the card height matches its row
+            neighbor (Resume Performance). */}
+        <div className="col-span-2 bg-white rounded-xl border border-gray-200 p-6 flex flex-col">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <Star className="w-5 h-5 text-amber-500" />
@@ -373,7 +382,7 @@ export default function DashboardPage() {
               <p className="text-sm">No scored listings yet. Browse listings to start scoring.</p>
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[460px] dashboard-scroll">
               {topCompanies.map((c, i) => {
                 const barColor = c.avgScore >= 60 ? 'bg-green-500' : c.avgScore >= 40 ? 'bg-yellow-500' : 'bg-red-400';
                 return (
@@ -431,7 +440,11 @@ export default function DashboardPage() {
             <p className="text-sm">No scored listings yet.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          // Scrollable grid — caps at ~540px so the card height
+          // stays stable as the top-20 cutoff grows or shrinks
+          // between fetch refreshes. `View all →` in the header
+          // still takes the user to the full Listings page.
+          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[540px] dashboard-scroll">
             {topListings.map((listing) => {
               const score = scoreCache[listing.id];
               const scoreColor = score.overall >= 60 ? 'text-green-600 bg-green-50 border-green-200' : score.overall >= 40 ? 'text-yellow-600 bg-yellow-50 border-yellow-200' : 'text-red-500 bg-red-50 border-red-200';

@@ -81,3 +81,28 @@ body {
 .animate-pop {
   animation: pop 0.35s cubic-bezier(.34,1.56,.64,1) both;
 }
+
+/* Slim, low-contrast scrollbar for the Dashboard's scrollable
+   cards (Resume Performance / Top Companies / Top Matching Jobs).
+   Native scrollbars feel too heavy when three cards are scrolling
+   in parallel; this collapses them to a 6px thumb that only shows
+   when the pane is hovered or actively scrolling. WebKit pseudo-
+   elements + Firefox `scrollbar-width`/`scrollbar-color` for
+   cross-browser parity. */
+.dashboard-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.45) transparent; /* slate-400/45 */
+}
+.dashboard-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.dashboard-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dashboard-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+.dashboard-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.55); /* slate-500/55 */
+}
