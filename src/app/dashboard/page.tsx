@@ -354,7 +354,7 @@ export default function DashboardPage() {
               <CategoryBar label="Soft Skills" score={stats.avgSoft} />
             </div>
 
-            <div className="mt-5 pt-4 border-t border-gray-100">
+            <div className="mt-5 pt-4 border-t border-slate-100">
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div>
                   <div className="text-lg font-bold text-green-600">{stats.high}</div>
@@ -372,7 +372,7 @@ export default function DashboardPage() {
             </div>
 
             {settings.baseResumeFileName && (
-              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <div className="mt-4 p-3 bg-slate-50 rounded-lg">
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-slate-400" />
                   <span className="text-xs text-gray-600 font-medium truncate">{settings.baseResumeFileName}</span>
@@ -428,7 +428,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-sm font-bold text-gray-700">{c.bestScore}%</div>
+                      <div className="text-sm font-bold text-slate-700">{c.bestScore}%</div>
                       <div className="text-xs text-slate-400">best</div>
                     </div>
                   </div>
@@ -779,15 +779,15 @@ function TailorTopJobsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+        <div className="flex items-start justify-between p-6 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-500" />
@@ -799,7 +799,7 @@ function TailorTopJobsModal({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-700"
+            className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -861,7 +861,7 @@ function TailorTopJobsModal({
                     return (
                       <div key={cat}>
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold text-gray-700">
+                          <h3 className="text-sm font-semibold text-slate-700">
                             {CATEGORY_LABEL[cat]} <span className="text-slate-400 font-normal">({kws.length})</span>
                           </h3>
                           <button
@@ -881,7 +881,7 @@ function TailorTopJobsModal({
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
                                   isSelected
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
-                                    : 'bg-gray-50 text-slate-500 border-gray-200 hover:bg-gray-100'
+                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
                                 title={kw.jobTitles.join(' · ')}
                               >
@@ -906,9 +906,9 @@ function TailorTopJobsModal({
         {/* Mandatory-mode toggle row — sits just above the footer
             CTAs. Default-on so the typical multi-tailor click ships
             every selected keyword and lets the cascade fit it. */}
-        <div className="px-4 pt-3 border-t border-gray-100 bg-gray-50">
+        <div className="px-4 pt-3 border-t border-slate-100 bg-slate-50">
           <label
-            className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer"
+            className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer"
             title="When ON, every selected keyword lands and the server tightens margins/spacing/font to fit one page. When OFF, the legacy budget ladder runs and some keywords may be dropped."
           >
             <input
@@ -952,21 +952,21 @@ function TailorTopJobsModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between p-4 border-t border-slate-100 bg-slate-50">
           <div className="text-xs text-slate-500">
             {error && !loading && analysis && <span className="text-red-600">{error}</span>}
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-xl transition-all duration-200"
             >
               Cancel
             </button>
             <button
               onClick={() => handleDownload('docx')}
               disabled={!!downloadingFormat || loading || selected.size === 0 || !analysis}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl border border-indigo-100 text-indigo-700 bg-indigo-50 shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
               title="Download the editable Word document. You can re-upload this .docx in Settings to make it your new base resume."
             >
               {downloadingFormat === 'docx' ? (
@@ -978,7 +978,7 @@ function TailorTopJobsModal({
             <button
               onClick={() => handleDownload('pdf')}
               disabled={!!downloadingFormat || loading || selected.size === 0 || !analysis}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:from-indigo-600 hover:to-purple-700"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               {downloadingFormat === 'pdf' ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
@@ -1155,15 +1155,15 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        className="bg-white w-full max-w-4xl max-h-[90vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-gray-100">
+        <div className="flex items-start justify-between p-6 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-500" />
@@ -1175,7 +1175,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:bg-gray-100 hover:text-gray-700"
+            className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
           >
             <X className="w-5 h-5" />
           </button>
@@ -1254,9 +1254,9 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
               </div>
 
               {/* Auto-pick slider */}
-              <div className="mb-4 p-3 bg-white border border-gray-200 rounded-lg">
+              <div className="mb-4 p-3 bg-white border border-slate-200 rounded-lg">
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-medium text-gray-700">
+                  <label className="text-xs font-medium text-slate-700">
                     Auto-pick top <strong>{topN}</strong> keywords by frequency
                   </label>
                   <button
@@ -1301,7 +1301,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                     return (
                       <div key={cat}>
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-sm font-semibold text-gray-700">
+                          <h3 className="text-sm font-semibold text-slate-700">
                             {CATEGORY_LABEL[cat]} <span className="text-slate-400 font-normal">({kws.length})</span>
                           </h3>
                           <button
@@ -1321,7 +1321,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
                                   isSelected
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
-                                    : 'bg-gray-50 text-slate-500 border-gray-200 hover:bg-gray-100'
+                                    : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
                                 title={kw.jobTitles.join(' · ')}
                               >
@@ -1344,8 +1344,8 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Mandatory-mode toggle + compression footer */}
-        <div className="px-4 pt-3 border-t border-gray-100 bg-gray-50">
-          <label className="flex items-start gap-2 text-xs text-gray-700 cursor-pointer">
+        <div className="px-4 pt-3 border-t border-slate-100 bg-slate-50">
+          <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer">
             <input
               type="checkbox"
               checked={mandatoryMode}
@@ -1387,7 +1387,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t border-gray-100 bg-gray-50">
+        <div className="flex items-center justify-between p-4 border-t border-slate-100 bg-slate-50">
           <div className="text-xs">
             {error && !loading && analysis && <span className="text-red-600">{error}</span>}
             {!error && selected.size > 0 && selected.size < MIN_KEEP && (
@@ -1399,14 +1399,14 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+              className="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-xl transition-all duration-200"
             >
               Cancel
             </button>
             <button
               onClick={() => handleDownload('docx')}
               disabled={downloadDisabled}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl border border-indigo-100 text-indigo-700 bg-indigo-50 shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
               title="Download the editable Word document. You can re-upload this .docx in Settings to make it your new base resume."
             >
               {downloadingFormat === 'docx' ? (
@@ -1418,7 +1418,7 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => handleDownload('pdf')}
               disabled={downloadDisabled}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 text-white disabled:opacity-50 disabled:cursor-not-allowed hover:from-indigo-600 hover:to-purple-700"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               {downloadingFormat === 'pdf' ? (
                 <><Loader2 className="w-4 h-4 animate-spin" /> Generating...</>
