@@ -132,7 +132,11 @@ export async function POST(req: NextRequest) {
         let compressionSteps: string[] = [];
         if (compressionHeader) {
           try {
-            const parsed = JSON.parse(compressionHeader);
+            // The tailor route URI-encodes the JSON because HTTP
+            // headers are ISO-8859-1 only and labels may contain
+            // multi-byte characters in the future. Decode first,
+            // then parse.
+            const parsed = JSON.parse(decodeURIComponent(compressionHeader));
             if (Array.isArray(parsed)) {
               compressionSteps = parsed.filter((s): s is string => typeof s === 'string');
             }

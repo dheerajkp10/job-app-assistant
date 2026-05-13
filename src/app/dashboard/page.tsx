@@ -725,7 +725,9 @@ function TailorTopJobsModal({
       const stepsHeader = res.headers.get('X-Compression-Steps');
       if (stepsHeader) {
         try {
-          const parsed = JSON.parse(stepsHeader);
+          // Server URI-encodes because HTTP headers are ISO-8859-1
+          // only. Decode then parse.
+          const parsed = JSON.parse(decodeURIComponent(stepsHeader));
           if (Array.isArray(parsed)) {
             const valid = parsed.filter((s): s is string => typeof s === 'string');
             setCompressionSteps(valid.length > 0 ? valid : null);

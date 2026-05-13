@@ -1153,7 +1153,7 @@ export function buildCompressionCascade(): CompressionStep[] {
     },
     // 2. Paragraph spacing pass 1 — 25% cut (cap before/after at 6pt)
     {
-      label: 'paragraph spacing −25%',
+      label: 'paragraph spacing -25%',
       apply: (b) => setParagraphSpacing(b, 6 * PT, 6 * PT),
     },
     // 3. Line height 1.1
@@ -1168,7 +1168,7 @@ export function buildCompressionCascade(): CompressionStep[] {
     },
     // 5. Paragraph spacing pass 2 — 50% cut (cap at 3pt)
     {
-      label: 'paragraph spacing −50%',
+      label: 'paragraph spacing -50%',
       apply: (b) => setParagraphSpacing(b, 3 * PT, 3 * PT),
     },
     // 6. Line height 1.05
@@ -1203,7 +1203,7 @@ export function buildCompressionCascade(): CompressionStep[] {
     },
     // 12. Paragraph spacing pass 3 — minimum (0pt)
     {
-      label: 'paragraph spacing −100%',
+      label: 'paragraph spacing -100%',
       apply: (b) => setParagraphSpacing(b, 0, 0),
     },
     // 13. Body font 9.5pt

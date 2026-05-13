@@ -648,7 +648,12 @@ function tailoringHeaders(
     'Content-Length': String(contentLength),
   };
   if (compressionSteps && compressionSteps.length > 0) {
-    headers['X-Compression-Steps'] = JSON.stringify(compressionSteps);
+    // HTTP headers are ISO-8859-1 only — any code point > 255 throws
+    // "Cannot convert argument to a ByteString" inside NextResponse.
+    // We URI-encode the JSON so any non-ASCII (em-dashes, minus signs,
+    // smart quotes, future translations) survives transport. The
+    // client decodes via decodeURIComponent.
+    headers['X-Compression-Steps'] = encodeURIComponent(JSON.stringify(compressionSteps));
     headers['Access-Control-Expose-Headers'] = 'X-Compression-Steps';
   }
   return headers;
