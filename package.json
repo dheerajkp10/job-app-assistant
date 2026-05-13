@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "lint": "eslint",
+    "setup-domain": "./scripts/setup-local-domain.sh",
     "postinstall": "node scripts/print-dev-url.cjs || true"
   },
   "dependencies": {

@@ -131,18 +131,45 @@ npm run dev
 
 Then open one of:
 
-- **<http://jobassist.localtest.me:3000>** (recommended — branded URL, zero setup)
-- <http://localhost:3000> (always works)
+- <http://localhost:3000> — always works, no setup needed.
+- **<http://jobassist.com:3000>** — fully branded URL, after a one-time setup step below.
 
-`localtest.me` is a public DNS-wildcard zone whose A record always returns `127.0.0.1`, so `jobassist.localtest.me` routes to your local dev server without any `/etc/hosts` edits or other config. Bookmark the branded URL and the tab will read **"JobAssist"** instead of the generic localhost.
+### Enable the branded URL
 
-For users who want a fully-offline alias that doesn't depend on `localtest.me`'s public DNS, add one line to `/etc/hosts` (Linux/macOS) or `C:\Windows\System32\drivers\etc\hosts` (Windows):
+The dev server can't claim `jobassist.com` on its own — your machine needs to know that hostname routes to `127.0.0.1`. One command does it:
 
+```bash
+npm run setup-domain
 ```
-127.0.0.1   jobassist.local
+
+That writes a single line to `/etc/hosts` (asks for sudo, only takes effect on your machine, fully reversible). Afterwards, **<http://jobassist.com:3000>** opens the app and the browser tab reads **"JobAssist"** instead of `localhost`.
+
+#### Choose a different domain
+
+`jobassist.com` is a registered domain — adding the hosts entry shadows the real site on your machine while the entry is active. If you'd rather not, pass any name to the setup script:
+
+```bash
+npm run setup-domain jobassist.test    # IETF-reserved for testing, never registrable — safest
+npm run setup-domain jobassist.local   # legacy mDNS convention
+npm run setup-domain my-job-tracker.com
 ```
 
-Then <http://jobassist.local:3000> works identically. Requires sudo on Unix.
+Then visit `http://<your-name>:3000`.
+
+#### Undo
+
+To remove the mapping later:
+
+```bash
+# macOS
+sudo sed -i '' '/# JobAssist local dev/d' /etc/hosts
+# Linux
+sudo sed -i      '/# JobAssist local dev/d' /etc/hosts
+# Windows: edit C:\Windows\System32\drivers\etc\hosts as Administrator
+#         and delete the line tagged "# JobAssist local dev"
+```
+
+`localhost:3000` keeps working regardless.
 
 The very first `npm install` takes a couple of minutes because Puppeteer downloads its bundled Chromium. Subsequent installs are fast.
 
@@ -151,16 +178,16 @@ The very first `npm install` takes a couple of minutes because Puppeteer downloa
 The app probes for LibreOffice on every page load and shows a banner if `soffice` isn't on the PATH. You can also hit:
 
 ```bash
-curl http://jobassist.localtest.me:3000/api/health
-# or
 curl http://localhost:3000/api/health
+# or (after `npm run setup-domain`):
+curl http://jobassist.com:3000/api/health
 ```
 
 …to see the raw probe result (LibreOffice version + platform).
 
 ## First-time setup
 
-The first visit (to either <http://jobassist.localtest.me:3000> or <http://localhost:3000>) lands on a 6-step onboarding wizard:
+The first visit (to either <http://localhost:3000> or, after `npm run setup-domain`, <http://jobassist.com:3000>) lands on a 6-step onboarding wizard:
 
 1. **Role & Level** — pick the job families and seniority tiers you're searching for.
 2. **Location** — preferred cities, remote / hybrid / onsite, and the country list you're authorized to work in (defaults to US).
@@ -234,7 +261,7 @@ If you've been using the app for a while, your `data/db.json` might be from an e
 
 ```bash
 npm run build
-npm run start      # serves on http://jobassist.localtest.me:3000
+npm run start      # serves on http://localhost:3000 (or http://jobassist.com:3000 if setup-domain has run)
 ```
 
 The dev server (`npm run dev`) is plenty for personal use and gives you HMR on the source.
