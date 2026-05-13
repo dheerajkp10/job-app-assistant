@@ -24,10 +24,6 @@
 .DS_Store
 *.pem
 
-# Locally-trusted TLS certs from `npm run setup-domain` (mkcert).
-# Each developer generates their own; nothing portable about them.
-/certs/
-
 # debug
 npm-debug.log*
 yarn-debug.log*

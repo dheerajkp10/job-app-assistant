@@ -18,15 +18,8 @@ const geistMono = Geist_Mono({
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
-  // Short title — used by the browser tab + bookmark name. Keep the
-  // brand mark in `top-nav.tsx` ("JobAssist") and the page title in
-  // sync so a glance at the tab strip is instantly recognizable.
-  title: "JobAssist · Local-first job application tracker",
-  description:
-    "Aggregate live job listings, score your resume against each, generate one-page tailored resumes, and track your pipeline — all running on your laptop.",
-  // Browser-tab icon. Falls back to /favicon.ico (auto-served by
-  // Next.js from src/app/favicon.ico).
-  applicationName: "JobAssist",
+  title: "Job Application Assistant",
+  description: "Track and manage job applications across portals",
 };
 
 export default async function RootLayout({

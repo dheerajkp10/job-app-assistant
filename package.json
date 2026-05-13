@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "node scripts/dev.cjs",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start -H 0.0.0.0",
-    "lint": "eslint",
-    "setup-domain": "./scripts/setup-local-domain.sh",
-    "postinstall": "node scripts/print-dev-url.cjs || true"
+    "start": "next start",
+    "lint": "eslint"
   },
   "dependencies": {
     "@heroui/react": "^3.0.3",
