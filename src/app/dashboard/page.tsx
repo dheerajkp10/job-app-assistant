@@ -318,6 +318,18 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      {/* Stale-score banner — surfaces when the listings cache has
+          a lot of unscored entries (typical state right after a
+          resume upload, which now wipes the score cache so the
+          dashboard doesn't keep showing pre-upload scores). One
+          click kicks off a batch rescore against the current
+          resume. */}
+      <RescoreBanner
+        listings={listings}
+        scoreCache={scoreCache}
+        onComplete={reload}
+      />
+
       {/* Stats cards */}
       <div className="grid grid-cols-4 gap-4 mb-8">
         <StatCard icon={Target} label="Avg ATS Score" value={`${stats.avgScore}%`} sub={`Across ${stats.scoredCount} scored listings`} color="blue" />
@@ -1425,6 +1437,120 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Rescore banner ──────────────────────────────────────────────────
+//
+// Renders only when the user has scorable listings but most are
+// uncached — typical state right after a resume upload (the
+// /api/resume route now wipes the score cache because the cached
+// scores were computed against the previous resume and no longer
+// reflect reality). One click kicks off a batch ATS-score run
+// against every scorable listing, then reloads the dashboard so the
+// new averages show up.
+
+function RescoreBanner({
+  listings,
+  scoreCache,
+  onComplete,
+}: {
+  listings: JobListing[];
+  scoreCache: Record<string, ScoreCacheEntry>;
+  onComplete: () => void;
+}) {
+  const [scoring, setScoring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+
+  // Scorable = has an ATS we can score (excludes Microsoft / Amazon /
+  // Meta / Workday — see isUnscorableAts). Uncached = not yet in the
+  // score cache for this resume.
+  const scorable = useMemo(
+    () => listings.filter((l) => !isUnscorableAts(l.ats)),
+    [listings],
+  );
+  const uncached = useMemo(
+    () => scorable.filter((l) => !scoreCache[l.id] || scoreCache[l.id].totalCount === 0),
+    [scorable, scoreCache],
+  );
+
+  // Don't render if everything is scored, OR if there's nothing
+  // scorable in the first place (fresh-install onboarding state).
+  if (scorable.length === 0) return null;
+  if (uncached.length === 0) return null;
+  // Suppress when the gap is tiny — a few new listings sneak in
+  // between fetches, not worth nagging.
+  if (uncached.length < 5 && uncached.length / scorable.length < 0.2) return null;
+
+  async function rescore() {
+    setScoring(true);
+    setError(null);
+    setProgress({ done: 0, total: uncached.length });
+    try {
+      // Chunk in batches of 25 — keeps the LLM-free scorer
+      // responsive and lets the UI update progress without
+      // sitting on a single huge request.
+      const CHUNK = 25;
+      let done = 0;
+      for (let i = 0; i < uncached.length; i += CHUNK) {
+        const chunk = uncached.slice(i, i + CHUNK).map((l) => l.id);
+        const res = await fetch('/api/ats-score/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listingIds: chunk }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j.error || `Batch failed (HTTP ${res.status})`);
+        }
+        done += chunk.length;
+        setProgress({ done, total: uncached.length });
+      }
+      onComplete();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Rescore failed');
+    } finally {
+      setScoring(false);
+      setProgress(null);
+    }
+  }
+
+  return (
+    <div className="mb-8 p-4 bg-gradient-to-r from-indigo-50 via-violet-50 to-indigo-50 border border-indigo-100 rounded-2xl shadow-card flex items-center gap-4 flex-wrap">
+      <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center shadow-sm shadow-indigo-500/10 shrink-0">
+        <Target className="w-5 h-5 text-indigo-500" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h3 className="text-sm font-semibold text-slate-800">
+          Rescore listings against your current resume
+        </h3>
+        <p className="text-xs text-slate-600 mt-0.5">
+          <strong>{uncached.length.toLocaleString()}</strong> of{' '}
+          {scorable.length.toLocaleString()} scorable listings are missing fresh ATS scores —
+          common right after uploading a new resume. Dashboard averages reflect cached
+          scores until you rescore.
+          {progress && (
+            <span className="text-indigo-700 font-medium">
+              {' '}· {progress.done.toLocaleString()} / {progress.total.toLocaleString()} done
+            </span>
+          )}
+          {error && <span className="text-rose-700"> · {error}</span>}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={rescore}
+        disabled={scoring}
+        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-60 disabled:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+      >
+        {scoring ? (
+          <><Loader2 className="w-4 h-4 animate-spin" /> Rescoring…</>
+        ) : (
+          <><Sparkles className="w-4 h-4" /> Rescore {uncached.length.toLocaleString()} listings</>
+        )}
+      </button>
     </div>
   );
 }

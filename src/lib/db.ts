@@ -227,6 +227,21 @@ export async function saveScoresBatch(entries: ScoreCacheEntry[]): Promise<void>
   await writeDb(db);
 }
 
+/**
+ * Wipe every cached ATS score. Called on resume upload — the old
+ * scores were computed against the previous resume and no longer
+ * reflect reality. The listings page auto-scorer re-fills the cache
+ * on next visit; the dashboard banner surfaces a "rescore now" CTA
+ * so the user can trigger the full rescore from anywhere.
+ */
+export async function clearScoreCache(): Promise<number> {
+  const db = await readDb();
+  const count = Object.keys(db.scoreCache ?? {}).length;
+  db.scoreCache = {};
+  await writeDb(db);
+  return count;
+}
+
 // Listing Flags
 export async function getListingFlags(): Promise<Record<string, ListingFlagEntry>> {
   const db = await readDb();

@@ -3,7 +3,7 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import mammoth from 'mammoth';
-import { getSettings, updateSettings } from '@/lib/db';
+import { getSettings, updateSettings, clearScoreCache } from '@/lib/db';
 
 const RESUME_DIR = path.join(process.cwd(), 'data', 'resume');
 
@@ -97,12 +97,28 @@ export async function POST(req: NextRequest) {
     const staleFilePath = path.join(RESUME_DIR, `base-resume${otherExt}`);
     await unlink(staleFilePath).catch(() => { /* absent is fine */ });
 
+    // If the resume text actually changed, every cached ATS score is
+    // now computed against a stale baseResumeText and no longer
+    // represents the user's real fit. Wipe the cache so the dashboard
+    // doesn't keep displaying the OLD score (the bug the user hit
+    // after running Generate Master Resume → uploading the result:
+    // dashboard still showed 57% because cached scores were against
+    // the pre-update resume). The listings page auto-scorer re-fills
+    // the cache lazily as the user views listings; the response
+    // returns `clearedScores` so the UI can show a rescore banner.
+    const prevSettings = await getSettings();
+    const changed = (prevSettings.baseResumeText ?? '') !== text;
+    let clearedScores = 0;
+    if (changed) {
+      clearedScores = await clearScoreCache();
+    }
+
     await updateSettings({
       baseResumeFileName: file.name,
       baseResumeText: text,
     });
 
-    return NextResponse.json({ fileName: file.name, text });
+    return NextResponse.json({ fileName: file.name, text, clearedScores });
   } catch (err) {
     console.error('Resume upload unexpected error:', err);
     return NextResponse.json(
