@@ -128,7 +128,7 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
 }
 
 function CategoryBar({ label, score }: { label: string; score: number }) {
-  const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : 'bg-red-400';
+  const color = score >= 75 ? "bg-gradient-to-r from-emerald-500 to-teal-500" : score >= 50 ? "bg-gradient-to-r from-amber-400 to-orange-400" : "bg-gradient-to-r from-rose-400 to-pink-400";
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
@@ -1021,7 +1021,7 @@ export default function ListingsPage() {
           </div>
           <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500 rounded-full transition-all duration-300"
+              className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-300"
               style={{ width: `${Math.round((scoringProgress.scored / scoringProgress.total) * 100)}%` }}
             />
           </div>
@@ -1177,7 +1177,7 @@ export default function ListingsPage() {
                 onClick={() => setLocationPreset('wa-remote')}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   locationPreset === 'wa-remote'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-indigo-500 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                 }`}
               >
@@ -1190,7 +1190,7 @@ export default function ListingsPage() {
                 onClick={() => setLocationPreset('all')}
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   locationPreset === 'all'
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-indigo-500 text-white'
                     : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                 }`}
               >
@@ -1305,7 +1305,7 @@ export default function ListingsPage() {
                       onClick={() => setDatePosted(key)}
                       className={`px-2 py-0.5 rounded text-xs border transition-colors ${
                         datePosted === key
-                          ? 'bg-blue-600 text-white border-blue-600'
+                          ? 'bg-indigo-500 text-white border-indigo-500'
                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
@@ -1422,7 +1422,7 @@ export default function ListingsPage() {
                       title={tier.examples}
                       className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                         selected
-                          ? 'bg-blue-600 text-white'
+                          ? 'bg-indigo-500 text-white'
                           : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                       }`}
                     >
@@ -1514,7 +1514,7 @@ export default function ListingsPage() {
                 </p>
                 <button
                   onClick={() => setLocationPreset('all')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-semibold rounded-xl shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200"
                 >
                   Show all locations
                 </button>
@@ -1530,7 +1530,7 @@ export default function ListingsPage() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
+            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-xl disabled:opacity-40 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
           >
             Previous
           </button>
@@ -1540,7 +1540,7 @@ export default function ListingsPage() {
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
-            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
+            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-xl disabled:opacity-40 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
           >
             Next
           </button>
@@ -1553,7 +1553,7 @@ export default function ListingsPage() {
       {compareIds.length >= 2 && (
         <Link
           href={`/compare?ids=${compareIds.join(',')}`}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-sm font-medium rounded-full shadow-xl hover:shadow-2xl hover:from-indigo-600 hover:to-violet-600 transition-all"
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-sm font-medium rounded-full shadow-btn-primary hover:shadow-btn-primary-hover hover:from-indigo-600 hover:to-violet-600 transition-all"
         >
           Compare {compareIds.length} listings
           <ChevronRight className="w-4 h-4" />
@@ -1566,9 +1566,12 @@ export default function ListingsPage() {
 // ─── Helpers ────────────────────────────────────────────────────────
 
 function scoreColor(score: number): string {
-  if (score >= 75) return 'text-green-600 bg-green-50 border-green-200';
-  if (score >= 50) return 'text-yellow-600 bg-yellow-50 border-yellow-200';
-  return 'text-red-500 bg-red-50 border-red-200';
+  // Tier-coded soft pastels — match the dashboard ScoreRing palette
+  // (emerald/teal, amber/orange, rose/pink) so a score chip on the
+  // listings page reads the same as the dashboard's stat blocks.
+  if (score >= 75) return 'text-emerald-700 bg-emerald-50 border-emerald-100';
+  if (score >= 50) return 'text-amber-700 bg-amber-50 border-amber-100';
+  return 'text-rose-700 bg-rose-50 border-rose-100';
 }
 
 // ─── Expandable Listing Card ────────────────────────────────────────
@@ -2103,7 +2106,7 @@ function ListingCard({
                 N/A
               </span>
             ) : score && score.totalCount > 0 ? (
-              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-sm font-bold border ${scoreColor(score.overall)}`}>
+              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-sm font-bold border ${scoreColor(score.overall)}`}>
                 {score.overall}%
               </span>
             ) : score && score.totalCount === 0 ? (
@@ -2146,7 +2149,7 @@ function ListingCard({
               href={listing.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 text-sm font-semibold rounded-xl shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200"
             >
               <ExternalLink className="w-4 h-4" /> Apply on {listing.company}
             </a>
@@ -2172,7 +2175,7 @@ function ListingCard({
             </button>
             <Link
               href={`/listings/${listing.id}`}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
             >
               <FileText className="w-4 h-4" /> View Full Details
             </Link>
@@ -2473,7 +2476,7 @@ function ListingCard({
                 <button
                   onClick={handleDownload}
                   disabled={downloading}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors w-full justify-center"
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 text-sm font-semibold rounded-xl shadow-sm shadow-emerald-500/10 hover:bg-emerald-100 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-500/15 transition-all duration-200 disabled:opacity-50 w-full justify-center"
                 >
                   {downloading ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF…</>
@@ -2529,7 +2532,7 @@ function ListingCard({
                 type="button"
                 onClick={handleGenerateCoverLetter}
                 disabled={generatingCover}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-semibold rounded-lg shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50"
               >
                 {generatingCover ? (
                   <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
@@ -2572,14 +2575,14 @@ function ListingCard({
                   <button
                     type="button"
                     onClick={handleDownloadCoverLetter}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 border border-emerald-100 text-sm font-semibold rounded-xl shadow-sm shadow-emerald-500/10 hover:bg-emerald-100 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-500/15 transition-all duration-200"
                   >
                     <Download className="w-4 h-4" /> Download as .txt
                   </button>
                   <button
                     type="button"
                     onClick={() => navigator.clipboard.writeText(coverLetter.text).catch(() => {})}
-                    className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
                   >
                     Copy to Clipboard
                   </button>
