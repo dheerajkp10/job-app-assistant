@@ -91,7 +91,7 @@ export default function DesignPreviewPage() {
   return (
     <div
       className="min-h-screen text-slate-700"
-      style={{ backgroundColor: '#F8FAFC' }} /* cool off-white */
+      style={{ backgroundColor: '#FAF9F6' }} /* warm off-white (was cool #F8FAFC) */
     >
       {/* Top nav preview */}
       <PreviewNav />
@@ -262,7 +262,7 @@ function PreviewNav() {
 function AccentSwatch({ name }: { name: AccentName }) {
   const tokens = ACCENT_TOKENS[name];
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 shadow-[0_2px_8px_rgba(15,23,42,0.06)]">
       <div className="text-[11px] uppercase tracking-wide text-slate-400 mb-3">{name}</div>
       <button
         className={`w-full bg-gradient-to-r ${tokens.gradient} text-white font-semibold px-4 py-2 rounded-xl shadow-md ${tokens.shadow} transition-all duration-200 hover:shadow-lg hover:${tokens.shadowHover} hover:-translate-y-0.5 active:translate-y-0`}
@@ -287,7 +287,7 @@ function AccentSwatch({ name }: { name: AccentName }) {
 function PrimaryButton({ children, loading, icon }: { children: React.ReactNode; loading?: boolean; icon?: React.ReactNode }) {
   return (
     <button
-      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-500 to-violet-500 shadow-md shadow-indigo-500/20 transition-all duration-200 hover:shadow-lg hover:shadow-indigo-500/30 hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:opacity-60"
+      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-indigo-500 to-violet-500 shadow-lg shadow-indigo-500/30 transition-all duration-200 hover:shadow-xl hover:shadow-indigo-500/40 hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2 disabled:opacity-60"
       disabled={loading}
     >
       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : icon}
@@ -298,7 +298,7 @@ function PrimaryButton({ children, loading, icon }: { children: React.ReactNode;
 
 function SecondaryButton({ children, icon }: { children: React.ReactNode; icon?: React.ReactNode }) {
   return (
-    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-indigo-700 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2">
+    <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm text-indigo-700 bg-indigo-50 border border-indigo-100 shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2">
       {icon}
       {children}
     </button>
@@ -342,7 +342,7 @@ function StatCardPreview({
 }) {
   const a = STAT_ACCENT[accent];
   return (
-    <div className="group bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] hover:-translate-y-0.5 transition-all duration-200">
+    <div className="group bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_2px_8px_rgba(15,23,42,0.06)] hover:shadow-[0_12px_32px_rgba(99,102,241,0.16)] hover:-translate-y-0.5 transition-all duration-200">
       <div className="flex items-center gap-3 mb-3">
         <div className={`w-9 h-9 rounded-xl ${a.bg} ring-4 ${a.ring} flex items-center justify-center`}>
           <Icon className={`w-4.5 h-4.5 ${a.text}`} />
@@ -420,7 +420,7 @@ function Chip({ children, color, icon }: { children: React.ReactNode; color: key
 
 function ListingCardPreview() {
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] hover:shadow-[0_8px_24px_rgba(99,102,241,0.08)] hover:-translate-y-0.5 transition-all duration-200 max-w-3xl">
+    <div className="bg-white border border-slate-100 rounded-2xl p-5 shadow-[0_2px_8px_rgba(15,23,42,0.06)] hover:shadow-[0_12px_32px_rgba(99,102,241,0.16)] hover:-translate-y-0.5 transition-all duration-200 max-w-3xl">
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
@@ -517,7 +517,7 @@ function FakeModal() {
       <div className="absolute inset-0 backdrop-blur-md bg-white/40" />
       {/* Card */}
       <div className="absolute inset-0 flex items-center justify-center p-6">
-        <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_24px_60px_rgba(15,23,42,0.12)] w-full max-w-md overflow-hidden">
+        <div className="bg-white border border-slate-100 rounded-2xl shadow-[0_32px_80px_rgba(15,23,42,0.18)] w-full max-w-md overflow-hidden">
           <div className="p-5 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-indigo-500" />
@@ -560,7 +560,7 @@ const TIER_LEGEND_COLOR: Record<string, { gradient: string; ring: string; text: 
 function TierLegend({ color, label, range }: { color: keyof typeof TIER_LEGEND_COLOR; label: string; range: string }) {
   const c = TIER_LEGEND_COLOR[color];
   return (
-    <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-3 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+    <div className="bg-white border border-slate-100 rounded-2xl p-4 flex items-center gap-3 shadow-[0_2px_8px_rgba(15,23,42,0.06)]">
       <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${c.gradient} ring-4 ${c.ring}`} />
       <div>
         <div className={`text-sm font-semibold ${c.text}`}>{label}</div>
