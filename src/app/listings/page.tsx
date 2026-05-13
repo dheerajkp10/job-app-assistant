@@ -122,7 +122,7 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
           {score}%
         </span>
       </div>
-      {label && <span className="text-xs text-gray-500 mt-1">{label}</span>}
+      {label && <span className="text-xs text-slate-500 mt-1">{label}</span>}
     </div>
   );
 }
@@ -131,11 +131,11 @@ function CategoryBar({ label, score }: { label: string; score: number }) {
   const color = score >= 75 ? 'bg-green-500' : score >= 50 ? 'bg-yellow-500' : 'bg-red-400';
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-24 text-right">{label}</span>
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+      <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
+      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-gray-700 w-10">{score}%</span>
+      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
     </div>
   );
 }
@@ -851,7 +851,7 @@ export default function ListingsPage() {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
         <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">Loading...</h2>
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">Loading...</h2>
       </div>
     );
   }
@@ -859,16 +859,16 @@ export default function ListingsPage() {
   if (!loading && allListings.length === 0) {
     return (
       <div className="p-8 flex flex-col items-center justify-center min-h-[60vh]">
-        <Globe className="w-14 h-14 text-gray-300 mb-4" />
-        <h2 className="text-lg font-semibold text-gray-900 mb-2">No Job Listings Yet</h2>
-        <p className="text-sm text-gray-500 mb-6 max-w-md text-center">
+        <Globe className="w-14 h-14 text-slate-300 mb-4" />
+        <h2 className="text-lg font-semibold text-slate-800 mb-2">No Job Listings Yet</h2>
+        <p className="text-sm text-slate-500 mb-6 max-w-md text-center">
           Click below to search across 40+ company career pages and populate your listings based on your preferences.
         </p>
         <Button
           onPress={streamingRefresh}
           isDisabled={refreshing}
           size="lg"
-          className="px-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-blue-700 data-[hovered=true]:to-indigo-700"
+          className="px-6 bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600"
         >
           {refreshing ? (
             <><Loader2 className="w-4 h-4 animate-spin" /> Fetching Jobs...</>
@@ -890,20 +890,20 @@ export default function ListingsPage() {
           on its own once `staleScoreCount` drops to zero (after the
           batch finishes and the next page load gets a clean cache). */}
       {staleScoreCount > 0 && (
-        <div className="mb-4 rounded-xl border border-purple-200/70 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-purple-50 p-4 shadow-sm flex items-start gap-3">
-          <Sparkles className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+        <div className="mb-4 rounded-xl border border-indigo-200/70 bg-gradient-to-r from-indigo-50 via-violet-50 to-indigo-50 p-4 shadow-sm flex items-start gap-3">
+          <Sparkles className="w-5 h-5 text-violet-600 shrink-0 mt-0.5" />
           <div className="flex-1 text-sm">
-            <p className="font-semibold text-purple-900">
+            <p className="font-semibold text-violet-900">
               Scoring algorithm upgraded — recomputing {staleScoreCount.toLocaleString()} score{staleScoreCount === 1 ? '' : 's'}
             </p>
-            <p className="text-purple-800/90 text-xs mt-0.5">
+            <p className="text-violet-800/90 text-xs mt-0.5">
               The new algorithm scores against JD-extracted multi-word phrases (e.g. <em>agent foundations, data plane</em>) in addition to taxonomy keywords. Your scores will refresh automatically over the next minute.
             </p>
           </div>
           <button
             type="button"
             onClick={() => setStaleScoreCount(0)}
-            className="text-purple-700 hover:text-purple-900 shrink-0"
+            className="text-violet-700 hover:text-violet-900 shrink-0"
             aria-label="Dismiss banner"
             title="Dismiss"
           >
@@ -950,10 +950,10 @@ export default function ListingsPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-gray-900 via-gray-800 to-blue-700 bg-clip-text text-transparent">
+          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
             Job Listings
           </h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <p className="text-sm text-slate-500 mt-1">
             <span className="text-blue-600 font-semibold">{listings.length} matching roles</span> from {allListings.length.toLocaleString()} total jobs across {new Set(allListings.map(l => l.company)).size} companies
             {lastFetched && (
               <span> &middot; Updated {new Date(lastFetched).toLocaleString()}</span>
@@ -964,7 +964,7 @@ export default function ListingsPage() {
           onPress={streamingRefresh}
           isDisabled={refreshing}
           size="lg"
-          className="group bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-blue-700 data-[hovered=true]:to-indigo-700"
+          className="group bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : 'group-data-[hovered=true]:rotate-180 transition-transform duration-500'}`} />
           {refreshing ? 'Refreshing...' : 'Refresh All'}
@@ -975,7 +975,7 @@ export default function ListingsPage() {
           discovers all companies, then walks each one to pull listings,
           all in the background while the existing data stays usable. */}
       {refreshProgress && (
-        <Card className="mb-6 bg-gradient-to-r from-blue-50 via-indigo-50 to-blue-50 ring-blue-200/70 shadow-sm animate-fade-in-up p-4">
+        <Card className="mb-6 bg-gradient-to-r from-indigo-50 via-violet-50 to-indigo-50 ring-indigo-200/70 shadow-sm animate-fade-in-up p-4">
           <div className="flex items-center gap-3 mb-2">
             <div className="relative">
               <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
@@ -998,7 +998,7 @@ export default function ListingsPage() {
           </div>
           <div className="h-2 bg-white/60 rounded-full overflow-hidden ring-1 ring-blue-100">
             <div
-              className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full transition-all duration-500"
+              className="h-full bg-gradient-to-r from-indigo-500 via-violet-500 to-fuchsia-500 rounded-full transition-all duration-500"
               style={{
                 width: refreshProgress.total > 0
                   ? `${Math.round((refreshProgress.completed / refreshProgress.total) * 100)}%`
@@ -1054,19 +1054,19 @@ export default function ListingsPage() {
       <div className="mb-6 space-y-3">
         <div className="flex gap-3">
           <div className="flex-1 relative">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by title, company, department, or location..."
-              className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full pl-10 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
             />
           </div>
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
-              showFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+              showFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-700 hover:bg-slate-50'
             }`}
           >
             <Filter className="w-4 h-4" />
@@ -1084,7 +1084,7 @@ export default function ListingsPage() {
               className={`ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 showFlagged
                   ? 'bg-gray-800 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
               }`}
               title="Toggle visibility of listings flagged as Applied / Incorrect / Not Applicable"
             >
@@ -1095,19 +1095,19 @@ export default function ListingsPage() {
         )}
 
         {showFilters && (
-          <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+          <div className="p-4 bg-white border border-slate-200 rounded-lg space-y-4">
             {/* Saved presets row — apply / save / delete named filter
                 snapshots. Persists in localStorage so it survives
                 page refreshes. */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-gray-500 mr-1">Presets:</span>
+              <span className="text-xs font-medium text-slate-500 mr-1">Presets:</span>
               {presets.length === 0 && (
-                <span className="text-xs text-gray-400 italic">None saved yet.</span>
+                <span className="text-xs text-slate-400 italic">None saved yet.</span>
               )}
               {presets.map((p) => (
                 <span
                   key={p.name}
-                  className="inline-flex items-center gap-1 bg-gray-100 rounded-full pl-3 pr-1 py-0.5 text-xs"
+                  className="inline-flex items-center gap-1 bg-slate-100 rounded-full pl-3 pr-1 py-0.5 text-xs"
                 >
                   <button
                     onClick={() => {
@@ -1123,13 +1123,13 @@ export default function ListingsPage() {
                       setMinScore(p.minScore);
                       setMaxScore(p.maxScore);
                     }}
-                    className="text-gray-700 hover:text-blue-700"
+                    className="text-slate-700 hover:text-blue-700"
                   >
                     {p.name}
                   </button>
                   <button
                     onClick={() => persistPresets(presets.filter((x) => x.name !== p.name))}
-                    className="text-gray-400 hover:text-red-500 p-0.5"
+                    className="text-slate-400 hover:text-red-500 p-0.5"
                     title={`Delete preset "${p.name}"`}
                   >
                     <XCircle className="w-3 h-3" />
@@ -1170,7 +1170,7 @@ export default function ListingsPage() {
             {/* Location preset (Preferred Locations vs All) — moved
                 inside the filters drawer per UX revision. */}
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-medium text-gray-500 mr-1">
+              <span className="text-xs font-medium text-slate-500 mr-1">
                 <MapPin className="w-3 h-3 inline -mt-0.5" /> Location:
               </span>
               <button
@@ -1178,7 +1178,7 @@ export default function ListingsPage() {
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   locationPreset === 'wa-remote'
                     ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                 }`}
               >
                 {prefs.preferredLocations && prefs.preferredLocations.length > 0
@@ -1191,7 +1191,7 @@ export default function ListingsPage() {
                 className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   locationPreset === 'all'
                     ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                 }`}
               >
                 All Locations ({listings.length})
@@ -1209,11 +1209,11 @@ export default function ListingsPage() {
             />
             <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Company</label>
               <select
                 value={selectedCompany}
                 onChange={(e) => setSelectedCompany(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
               >
                 <option value="all">All Companies ({companies.length})</option>
                 {companies.map((c) => {
@@ -1240,11 +1240,11 @@ export default function ListingsPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Department</label>
               <select
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
               >
                 <option value="all">All Departments</option>
                 {departments.map((d) => (
@@ -1257,11 +1257,11 @@ export default function ListingsPage() {
             {/* Salary range */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-gray-500">
+                <label className="block text-xs font-medium text-slate-500">
                   <DollarSign className="w-3 h-3 inline -mt-0.5" /> Salary Range (annual, USD)
                 </label>
                 <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                  <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={salaryOnly}
@@ -1271,7 +1271,7 @@ export default function ListingsPage() {
                     Only with salary info
                   </label>
                   <label
-                    className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer"
+                    className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer"
                     title="Hides postings older than 30 days (using Posted Date when known, otherwise the date we first fetched it)"
                   >
                     <input
@@ -1289,8 +1289,8 @@ export default function ListingsPage() {
                     "fresh today" / "this week" / "this month" without
                     losing the rest of the filter state. */}
                 <div className="flex items-center gap-2 flex-wrap mt-2">
-                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                  <span className="text-xs text-gray-500">Posted:</span>
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  <span className="text-xs text-slate-500">Posted:</span>
                   {([
                     ['all',   'Any time'],
                     ['today', 'Today'],
@@ -1306,7 +1306,7 @@ export default function ListingsPage() {
                       className={`px-2 py-0.5 rounded text-xs border transition-colors ${
                         datePosted === key
                           ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
                       {label}
@@ -1316,7 +1316,7 @@ export default function ListingsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Min $</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Min $</span>
                   <input
                     type="number"
                     min="0"
@@ -1324,11 +1324,11 @@ export default function ListingsPage() {
                     value={minSalary ?? ''}
                     onChange={(e) => setMinSalary(e.target.value ? Number(e.target.value) : null)}
                     placeholder="e.g. 200000"
-                    className="w-full pl-12 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full pl-12 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
                   />
                 </div>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">Max $</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Max $</span>
                   <input
                     type="number"
                     min="0"
@@ -1336,7 +1336,7 @@ export default function ListingsPage() {
                     value={maxSalary ?? ''}
                     onChange={(e) => setMaxSalary(e.target.value ? Number(e.target.value) : null)}
                     placeholder="e.g. 450000"
-                    className="w-full pl-12 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    className="w-full pl-12 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
                   />
                 </div>
               </div>
@@ -1358,7 +1358,7 @@ export default function ListingsPage() {
                 "filter to good matches" not "drop unscored entirely". */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-gray-500">
+                <label className="block text-xs font-medium text-slate-500">
                   <Target className="w-3 h-3 inline -mt-0.5" /> ATS Score Range
                 </label>
                 {(minScore > 0 || maxScore < 100) && (
@@ -1370,22 +1370,22 @@ export default function ListingsPage() {
                   </button>
                 )}
               </div>
-              <div className="flex items-center gap-2 text-xs text-gray-600">
+              <div className="flex items-center gap-2 text-xs text-slate-600">
                 <input
                   type="number"
                   min={0} max={100}
                   value={minScore}
                   onChange={(e) => setMinScore(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
-                  className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-16 px-2 py-1 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-200 outline-none"
                 />
                 <span>%</span>
-                <span className="text-gray-400">to</span>
+                <span className="text-slate-400">to</span>
                 <input
                   type="number"
                   min={0} max={100}
                   value={maxScore}
                   onChange={(e) => setMaxScore(Math.max(0, Math.min(100, Number(e.target.value) || 100)))}
-                  className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-16 px-2 py-1 border border-slate-200 rounded focus:ring-2 focus:ring-indigo-200 outline-none"
                 />
                 <span>%</span>
               </div>
@@ -1394,7 +1394,7 @@ export default function ListingsPage() {
             {/* Level tier multi-select */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-medium text-gray-500">
+                <label className="block text-xs font-medium text-slate-500">
                   Desired Level
                 </label>
                 {selectedLevels.length > 0 && (
@@ -1423,7 +1423,7 @@ export default function ListingsPage() {
                       className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                         selected
                           ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
                       }`}
                     >
                       {tier.label}
@@ -1432,7 +1432,7 @@ export default function ListingsPage() {
                 })}
               </div>
               {selectedLevels.length > 0 && (
-                <p className="text-xs text-gray-400 mt-1.5">
+                <p className="text-xs text-slate-400 mt-1.5">
                   Showing listings matching any selected level. Titles with no clear level signal are included.
                 </p>
               )}
@@ -1443,7 +1443,7 @@ export default function ListingsPage() {
 
       {/* Results count */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-slate-500">
           {filtered.length > 0 ? (
             <>Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, filtered.length)} of {filtered.length.toLocaleString()} results</>
           ) : (
@@ -1504,11 +1504,11 @@ export default function ListingsPage() {
         const hiddenByLocation = locationPreset === 'wa-remote' && unfilteredByLocation.length > 0;
 
         return (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-            <Search className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-3">No jobs match your filters.</p>
+          <div className="text-center py-12 bg-white rounded-xl border border-slate-200">
+            <Search className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500 mb-3">No jobs match your filters.</p>
             {hiddenByLocation && (
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-slate-600">
                 <p className="mb-2">
                   {unfilteredByLocation.length} matching {unfilteredByLocation.length === 1 ? 'job is' : 'jobs are'} hidden by the <b>Preferred Locations</b> filter.
                 </p>
@@ -1530,17 +1530,17 @@ export default function ListingsPage() {
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page === 1}
-            className="px-3 py-2 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50"
+            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
           >
             Previous
           </button>
-          <span className="text-sm text-gray-500 px-3">
+          <span className="text-sm text-slate-500 px-3">
             Page {page} of {totalPages}
           </span>
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
-            className="px-3 py-2 text-sm font-medium border border-gray-300 rounded-lg disabled:opacity-40 hover:bg-gray-50"
+            className="px-3 py-2 text-sm font-medium border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50"
           >
             Next
           </button>
@@ -1553,7 +1553,7 @@ export default function ListingsPage() {
       {compareIds.length >= 2 && (
         <Link
           href={`/compare?ids=${compareIds.join(',')}`}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-medium rounded-full shadow-xl hover:shadow-2xl hover:from-indigo-700 hover:to-purple-700 transition-all"
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-sm font-medium rounded-full shadow-xl hover:shadow-2xl hover:from-indigo-600 hover:to-violet-600 transition-all"
         >
           Compare {compareIds.length} listings
           <ChevronRight className="w-4 h-4" />
@@ -1903,7 +1903,7 @@ function ListingCard({
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-sm transition-all">
+    <div className="bg-white rounded-2xl border border-slate-100 shadow-card hover:shadow-card-hover hover:border-indigo-200 hover:-translate-y-0.5 transition-all duration-200">
       {/* Collapsed header — always visible.
           Using a div (not a button) because we need nested interactive controls
           (flag menu, chevron button) which aren't allowed inside <button>. */}
@@ -1922,7 +1922,7 @@ function ListingCard({
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="font-semibold text-gray-900 truncate text-base">{listing.title}</h3>
+              <h3 className="font-semibold text-slate-800 truncate text-base">{listing.title}</h3>
               {isNew && (
                 <Chip
                   size="sm"
@@ -1940,13 +1940,13 @@ function ListingCard({
             </div>
             <div className="flex items-center gap-2 mb-2 flex-wrap">
               <CompanyLogo companySlug={listing.companySlug} companyName={listing.company} size={20} />
-              <span className="text-sm font-medium text-gray-700">{listing.company}</span>
+              <span className="text-sm font-medium text-slate-700">{listing.company}</span>
               {listing.department && (
-                <span className="text-xs text-gray-400">&middot; {listing.department}</span>
+                <span className="text-xs text-slate-400">&middot; {listing.department}</span>
               )}
               <NetworkBadge company={listing.company} />
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
               {listing.location && listing.location !== 'Not specified' && (
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3 h-3" />
@@ -1987,7 +1987,7 @@ function ListingCard({
                 cap (3) is hit unless this card is already selected. */}
             <label
               className={`inline-flex items-center gap-1 text-xs select-none ${
-                compareDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer text-gray-600 hover:text-gray-900'
+                compareDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer text-slate-600 hover:text-slate-800'
               }`}
               title={compareDisabled ? 'Compare cap is 3' : 'Tick to add to comparison'}
             >
@@ -2026,7 +2026,7 @@ function ListingCard({
                     e.preventDefault();
                     setFlagMenuOpen((v) => !v);
                   }}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-gray-500 border border-gray-200 hover:bg-gray-50"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium text-slate-500 border border-slate-200 hover:bg-slate-50"
                   title="Flag this listing"
                 >
                   <Tag className="w-3 h-3" />
@@ -2048,7 +2048,7 @@ function ListingCard({
                       }}
                     />
                     <div
-                      className="fixed w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1 text-left"
+                      className="fixed w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-[70] py-1 text-left"
                       style={{ top: flagMenuPos.top, right: flagMenuPos.right }}
                       onClick={(e) => e.stopPropagation()}
                     >
@@ -2061,8 +2061,8 @@ function ListingCard({
                             onFlagChange(f.key);
                             setFlagMenuOpen(false);
                           }}
-                          className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 ${
-                            flag === f.key ? 'bg-gray-50 font-medium' : ''
+                          className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-slate-50 ${
+                            flag === f.key ? 'bg-slate-50 font-medium' : ''
                           }`}
                         >
                           <span
@@ -2074,7 +2074,7 @@ function ListingCard({
                       ))}
                       {flag && (
                         <>
-                          <div className="border-t border-gray-100 my-1" />
+                          <div className="border-t border-slate-100 my-1" />
                           <button
                             type="button"
                             onClick={(e) => {
@@ -2082,7 +2082,7 @@ function ListingCard({
                               onFlagChange(null);
                               setFlagMenuOpen(false);
                             }}
-                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-slate-500 hover:bg-slate-50"
                           >
                             <XCircle className="w-3 h-3" />
                             Clear flag
@@ -2097,7 +2097,7 @@ function ListingCard({
 
             {isUnscorableAts(listing.ats) ? (
               <span
-                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200"
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-50 text-slate-400 border border-slate-200"
                 title="This company's careers API doesn't expose full job descriptions, so we can't score it."
               >
                 N/A
@@ -2108,13 +2108,13 @@ function ListingCard({
               </span>
             ) : score && score.totalCount === 0 ? (
               <span
-                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200"
+                className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-50 text-slate-400 border border-slate-200"
                 title="No public job description available — we couldn't score this listing."
               >
                 N/A
               </span>
             ) : (
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-50 text-gray-400 border border-gray-200">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-50 text-slate-400 border border-slate-200">
                 No score
               </span>
             )}
@@ -2124,13 +2124,13 @@ function ListingCard({
                 e.preventDefault();
                 onToggle();
               }}
-              className="p-1 hover:bg-gray-100 rounded"
+              className="p-1 hover:bg-slate-100 rounded"
               aria-label={isExpanded ? 'Collapse' : 'Expand'}
             >
               {isExpanded ? (
-                <ChevronUp className="w-4 h-4 text-gray-400" />
+                <ChevronUp className="w-4 h-4 text-slate-400" />
               ) : (
-                <ChevronDown className="w-4 h-4 text-gray-400" />
+                <ChevronDown className="w-4 h-4 text-slate-400" />
               )}
             </button>
           </div>
@@ -2139,7 +2139,7 @@ function ListingCard({
 
       {/* Expanded panel */}
       {isExpanded && (
-        <div className="border-t border-gray-100 px-5 pb-5 pt-4 space-y-5">
+        <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-5">
           {/* Action links */}
           <div className="flex gap-3">
             <a
@@ -2160,7 +2160,7 @@ function ListingCard({
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 flag === 'applied'
                   ? 'bg-violet-600 text-white hover:bg-violet-700'
-                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  : 'border border-slate-200 text-slate-700 hover:bg-slate-50'
               }`}
               title={flag === 'applied' ? 'Click to remove the applied flag' : 'Mark this job as applied'}
             >
@@ -2172,7 +2172,7 @@ function ListingCard({
             </button>
             <Link
               href={`/listings/${listing.id}`}
-              className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
             >
               <FileText className="w-4 h-4" /> View Full Details
             </Link>
@@ -2181,16 +2181,16 @@ function ListingCard({
           <SalaryIntelInline listingId={listing.id} listingSalary={listing.salary} />
 
           {/* ATS Score Detail */}
-          <section className="bg-gray-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <Target className="w-4 h-4 text-blue-500" />
-              <h4 className="text-sm font-semibold text-gray-900">ATS Match Score</h4>
+              <h4 className="text-sm font-semibold text-slate-800">ATS Match Score</h4>
             </div>
 
             {loadingScore && (
               <div className="flex items-center gap-3 py-4 justify-center">
                 <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-                <span className="text-sm text-gray-500">Analyzing resume...</span>
+                <span className="text-sm text-slate-500">Analyzing resume...</span>
               </div>
             )}
 
@@ -2235,7 +2235,7 @@ function ListingCard({
                         <span className="font-medium text-red-800 text-xs">Missing ({detailScore.missingKeywords.length})</span>
                       </div>
                       {!tailorResult && (
-                        <span className="text-xs text-gray-400">Click to select/deselect</span>
+                        <span className="text-xs text-slate-400">Click to select/deselect</span>
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1">
@@ -2251,7 +2251,7 @@ function ListingCard({
                                 ? 'bg-red-100 text-red-700 cursor-default'
                                 : isSelected
                                   ? 'bg-red-200 text-red-800 ring-1 ring-red-400 font-medium cursor-pointer hover:bg-red-300'
-                                  : 'bg-gray-100 text-gray-400 line-through cursor-pointer hover:bg-gray-200'
+                                  : 'bg-slate-100 text-slate-400 line-through cursor-pointer hover:bg-gray-200'
                             }`}
                           >
                             {k}
@@ -2260,7 +2260,7 @@ function ListingCard({
                       })}
                     </div>
                     {!tailorResult && selectedKeywords.size < detailScore.missingKeywords.length && (
-                      <p className="text-xs text-gray-400 mt-1.5">
+                      <p className="text-xs text-slate-400 mt-1.5">
                         {selectedKeywords.size} of {detailScore.missingKeywords.length} keywords selected for tailoring
                       </p>
                     )}
@@ -2279,10 +2279,10 @@ function ListingCard({
                     prevents any parent expand/collapse handler from
                     swallowing the click. */}
                 {detailScore.suggestions && detailScore.suggestions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-200">
+                  <div className="mt-3 pt-3 border-t border-slate-200">
                     <div className="flex items-center gap-2 mb-2">
-                      <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                      <span className="font-medium text-gray-800 text-xs">
+                      <Sparkles className="w-3.5 h-3.5 text-violet-500" />
+                      <span className="font-medium text-slate-700 text-xs">
                         Tailoring Suggestions ({selectedSuggestions.size}/{detailScore.suggestions.length} selected)
                       </span>
                     </div>
@@ -2297,10 +2297,10 @@ function ListingCard({
                             onClick={(e) => e.stopPropagation()}
                             className={`flex gap-2 items-start p-2 rounded-lg text-xs transition-all border ${
                               tailorResult
-                                ? 'bg-purple-50 border-purple-200 cursor-default'
+                                ? 'bg-violet-50 border-violet-200 cursor-default'
                                 : isSelected
-                                  ? 'bg-purple-50 border-purple-300 cursor-pointer hover:bg-purple-100'
-                                  : 'bg-white border-gray-200 cursor-pointer hover:bg-gray-50'
+                                  ? 'bg-violet-100 border-violet-300 cursor-pointer hover:bg-violet-100'
+                                  : 'bg-white border-slate-200 cursor-pointer hover:bg-slate-50'
                             }`}
                           >
                             <input
@@ -2313,10 +2313,10 @@ function ListingCard({
                               className="mt-0.5 w-3.5 h-3.5 accent-purple-600 cursor-pointer"
                             />
                             <span className="flex-1 min-w-0">
-                              <span className={`block font-semibold ${isSelected ? 'text-gray-900' : 'text-gray-700'}`}>
+                              <span className={`block font-semibold ${isSelected ? 'text-slate-800' : 'text-slate-700'}`}>
                                 {s.label}
                               </span>
-                              <span className={`block mt-0.5 text-[11px] leading-snug ${isSelected ? 'text-gray-600' : 'text-gray-500'}`}>
+                              <span className={`block mt-0.5 text-[11px] leading-snug ${isSelected ? 'text-slate-600' : 'text-slate-500'}`}>
                                 {s.description}
                               </span>
                             </span>
@@ -2331,18 +2331,18 @@ function ListingCard({
           </section>
 
           {/* Resume Tailor section */}
-          <section className="bg-gray-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
-                <FileText className="w-4 h-4 text-purple-500" />
-                <h4 className="text-sm font-semibold text-gray-900">Resume Tailor</h4>
+                <FileText className="w-4 h-4 text-violet-500" />
+                <h4 className="text-sm font-semibold text-slate-800">Resume Tailor</h4>
               </div>
               {!tailorResult && (
                 <Button
                   onPress={handleTailor}
                   isDisabled={tailoring || !detailScore}
                   size="sm"
-                  className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white shadow-sm data-[hovered=true]:from-purple-700 data-[hovered=true]:to-fuchsia-700 data-[hovered=true]:shadow-md"
+                  className="bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600 data-[hovered=true]:shadow-md"
                 >
                   {tailoring ? (
                     <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Tailoring...</>
@@ -2354,11 +2354,11 @@ function ListingCard({
             </div>
 
             {!detailScore && !loadingScore && !scoreError && (
-              <p className="text-xs text-gray-400">Waiting for score analysis...</p>
+              <p className="text-xs text-slate-400">Waiting for score analysis...</p>
             )}
 
             {detailScore && !tailorResult && !tailoring && !tailorError && (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-slate-500">
                 Click &ldquo;Tailor My Resume&rdquo; to optimize keywords for this role. No false info added.
               </p>
             )}
@@ -2373,12 +2373,12 @@ function ListingCard({
             {tailorResult && (
               <div className="space-y-3">
                 {/* Score improvement */}
-                <div className="flex items-center gap-4 p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-100">
+                <div className="flex items-center gap-4 p-3 bg-gradient-to-r from-indigo-50 to-violet-50 rounded-lg border border-indigo-100">
                   <div className="text-center">
-                    <div className="text-lg font-bold text-gray-400">{tailorResult.originalScore.overall}%</div>
-                    <div className="text-xs text-gray-400">Before</div>
+                    <div className="text-lg font-bold text-slate-400">{tailorResult.originalScore.overall}%</div>
+                    <div className="text-xs text-slate-400">Before</div>
                   </div>
-                  <div className="text-lg text-gray-300">&rarr;</div>
+                  <div className="text-lg text-slate-300">&rarr;</div>
                   <div className="text-center">
                     <div className="text-lg font-bold text-green-600">{tailorResult.tailoredScore.overall}%</div>
                     <div className="text-xs text-green-600">After</div>
@@ -2393,10 +2393,10 @@ function ListingCard({
 
                 {/* Changes summary */}
                 <div>
-                  <h5 className="text-xs font-medium text-gray-700 mb-1.5">Changes Made</h5>
+                  <h5 className="text-xs font-medium text-slate-700 mb-1.5">Changes Made</h5>
                   <ul className="space-y-1">
                     {tailorResult.changesSummary.map((c, i) => (
-                      <li key={i} className="text-xs text-gray-600 flex gap-1.5">
+                      <li key={i} className="text-xs text-slate-600 flex gap-1.5">
                         <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0 mt-0.5" />
                         {c}
                       </li>
@@ -2407,10 +2407,10 @@ function ListingCard({
                 {/* Added keywords */}
                 {tailorResult.addedKeywords.length > 0 && (
                   <div>
-                    <h5 className="text-xs font-medium text-gray-700 mb-1.5">Keywords Added</h5>
+                    <h5 className="text-xs font-medium text-slate-700 mb-1.5">Keywords Added</h5>
                     <div className="flex flex-wrap gap-1">
                       {tailorResult.addedKeywords.map((k) => (
-                        <span key={k} className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">{k}</span>
+                        <span key={k} className="px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">{k}</span>
                       ))}
                     </div>
                   </div>
@@ -2450,7 +2450,7 @@ function ListingCard({
                     tight resumes. Floors enforced server-side: ≥ 9pt
                     body, ≥ 0.4" margins, no content drops. */}
                 <label
-                  className="flex items-start gap-2 px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 cursor-pointer hover:bg-gray-50"
+                  className="flex items-start gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs text-slate-700 cursor-pointer hover:bg-slate-50"
                   title="When ON, the server keeps every keyword you picked and compresses layout to fit. When OFF, keywords may be dropped to preserve formatting."
                 >
                   <input
@@ -2460,10 +2460,10 @@ function ListingCard({
                     className="mt-0.5 rounded"
                   />
                   <div className="flex-1">
-                    <span className="font-medium text-gray-800">
+                    <span className="font-medium text-slate-700">
                       Pack all keywords on 1 page (aggressive)
                     </span>
-                    <p className="text-[11px] text-gray-500 mt-0.5">
+                    <p className="text-[11px] text-slate-500 mt-0.5">
                       Recommended. Injects every selected keyword and tightens margins / line-height / font size as needed (floor: 9pt body, 0.4&quot; margins).
                     </p>
                   </div>
@@ -2519,11 +2519,11 @@ function ListingCard({
               and the top matched JD keywords. Editable before
               download — the textarea is the source of truth for the
               final .txt file. */}
-          <section className="bg-gray-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-500" />
-                <h4 className="text-sm font-semibold text-gray-900">Cover Letter</h4>
+                <h4 className="text-sm font-semibold text-slate-800">Cover Letter</h4>
               </div>
               <button
                 type="button"
@@ -2548,7 +2548,7 @@ function ListingCard({
             )}
 
             {!coverLetter && !coverError && (
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-slate-400">
                 Generates a personalized 3-paragraph cover letter using your resume + the JD.
                 You can edit before downloading.
               </p>
@@ -2560,12 +2560,12 @@ function ListingCard({
                   value={coverLetter.text}
                   onChange={(e) => setCoverLetter({ ...coverLetter, text: e.target.value })}
                   rows={14}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono text-gray-800 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none resize-y"
                   spellCheck
                 />
                 {coverLetter.matchedKeywords.length > 0 && (
-                  <p className="text-[11px] text-gray-500">
-                    Used these matched keywords as proof-of-fit: <span className="font-medium text-gray-700">{coverLetter.matchedKeywords.join(', ')}</span>
+                  <p className="text-[11px] text-slate-500">
+                    Used these matched keywords as proof-of-fit: <span className="font-medium text-slate-700">{coverLetter.matchedKeywords.join(', ')}</span>
                   </p>
                 )}
                 <div className="flex gap-2">
@@ -2579,7 +2579,7 @@ function ListingCard({
                   <button
                     type="button"
                     onClick={() => navigator.clipboard.writeText(coverLetter.text).catch(() => {})}
-                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors"
                   >
                     Copy to Clipboard
                   </button>
@@ -2645,10 +2645,10 @@ function NetworkBadge({ company }: { company: string }) {
             }}
           />
           <div
-            className="absolute left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-2 text-left"
+            className="absolute left-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 p-2 text-left"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[11px] uppercase tracking-wide text-gray-400 px-1 pb-1">
+            <div className="text-[11px] uppercase tracking-wide text-slate-400 px-1 pb-1">
               At {company} ({contacts.length})
             </div>
             <ul className="max-h-72 overflow-y-auto divide-y divide-gray-100">
@@ -2658,11 +2658,11 @@ function NetworkBadge({ company }: { company: string }) {
                   <li key={`${name}-${i}`} className="py-1.5 px-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-gray-900 truncate">
+                        <div className="text-xs font-medium text-slate-800 truncate">
                           {name || 'Unknown'}
                         </div>
                         {c.position && (
-                          <div className="text-[11px] text-gray-500 truncate">
+                          <div className="text-[11px] text-slate-500 truncate">
                             {c.position}
                           </div>
                         )}
@@ -2724,7 +2724,7 @@ function SalaryIntelInline({
   const confidenceStyle: Record<typeof stats.confidence, string> = {
     high: 'text-green-700 bg-green-100',
     medium: 'text-amber-700 bg-amber-100',
-    low: 'text-gray-600 bg-gray-100',
+    low: 'text-slate-600 bg-slate-100',
   };
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-lg text-xs">
@@ -2738,7 +2738,7 @@ function SalaryIntelInline({
         </span>
         <span className="text-emerald-700/70">{stats.scope}</span>
         {listingSalary && (
-          <span className="text-gray-500">· This posting: {listingSalary}</span>
+          <span className="text-slate-500">· This posting: {listingSalary}</span>
         )}
       </div>
       <span
@@ -2797,32 +2797,32 @@ function ExcludedCompaniesBar({
     // keep the section to a single visual row when there's only the
     // auto-detected current employer.
     <div className="flex items-center gap-2 flex-wrap">
-      <EyeOff className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-      <span className="text-xs font-medium text-gray-500 shrink-0">
+      <EyeOff className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+      <span className="text-xs font-medium text-slate-500 shrink-0">
         Excluded companies
         {hiddenCount > 0 && (
-          <span className="text-gray-400 font-normal"> · hiding {hiddenCount}</span>
+          <span className="text-slate-400 font-normal"> · hiding {hiddenCount}</span>
         )}
         :
       </span>
         {excluded.length === 0 && (
-          <span className="text-xs text-gray-400 italic">
+          <span className="text-xs text-slate-400 italic">
             {autoDetected ? `None — detected ${autoDetected}` : 'None'}
           </span>
         )}
         {excluded.map((name) => (
           <span
             key={name}
-            className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-gray-300 rounded-full text-xs text-gray-700"
+            className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-slate-200 rounded-full text-xs text-slate-700"
           >
             {name}
             {autoDetected && name.toLowerCase() === autoDetected.toLowerCase() && (
-              <span className="text-[10px] text-gray-400">(auto)</span>
+              <span className="text-[10px] text-slate-400">(auto)</span>
             )}
             <button
               type="button"
               onClick={() => remove(name)}
-              className="text-gray-400 hover:text-red-500"
+              className="text-slate-400 hover:text-red-500"
               aria-label={`Remove ${name}`}
             >
               <XCircle className="w-3 h-3" />
@@ -2847,10 +2847,10 @@ function ExcludedCompaniesBar({
               }
             }}
             placeholder="Add company to hide…"
-            className="w-full px-2 py-1 text-xs bg-white border border-gray-300 rounded focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
           />
           {showSuggestions && suggestions.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
+            <div className="absolute left-0 top-full mt-1 w-full bg-white border border-slate-200 rounded-md shadow-lg z-20 max-h-48 overflow-y-auto">
               {suggestions.map((s) => (
                 <button
                   key={s}
@@ -2859,7 +2859,7 @@ function ExcludedCompaniesBar({
                     e.preventDefault();
                     add(s);
                   }}
-                  className="block w-full text-left px-2 py-1 text-xs text-gray-700 hover:bg-blue-50"
+                  className="block w-full text-left px-2 py-1 text-xs text-slate-700 hover:bg-blue-50"
                 >
                   {s}
                 </button>
