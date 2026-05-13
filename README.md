@@ -132,44 +132,72 @@ npm run dev
 Then open one of:
 
 - <http://localhost:3000> — always works, no setup needed.
-- **<http://jobassist.com:3000>** — fully branded URL, after a one-time setup step below.
+- **<https://job-assist.dev:3000>** — fully branded URL, after a one-time setup below.
 
 ### Enable the branded URL
 
-The dev server can't claim `jobassist.com` on its own — your machine needs to know that hostname routes to `127.0.0.1`. One command does it:
+`.dev` is a real TLD on the HSTS preload list, so every browser forces HTTPS for any `.dev` domain. That means three things have to be set up locally:
+
+1. A `/etc/hosts` entry mapping `job-assist.dev` → `127.0.0.1`
+2. A **locally-trusted TLS cert** for the domain (since browsers refuse plain HTTP on `.dev`)
+3. The dev server has to serve over HTTPS using that cert
+
+A single `npm run setup-domain` handles all three.
+
+**One-time prerequisite — install [mkcert](https://github.com/FiloSottile/mkcert):**
+
+```bash
+# macOS
+brew install mkcert nss
+
+# Linux (Debian/Ubuntu)
+sudo apt install libnss3-tools mkcert
+
+# Windows — see https://github.com/FiloSottile/mkcert#installation
+```
+
+mkcert is a small tool that creates a Certificate Authority on your machine and signs certs that your browser will trust. It's the standard dev-HTTPS solution and runs entirely offline.
+
+**Then:**
 
 ```bash
 npm run setup-domain
 ```
 
-That writes a single line to `/etc/hosts` (asks for sudo, only takes effect on your machine, fully reversible). Afterwards, **<http://jobassist.com:3000>** opens the app and the browser tab reads **"JobAssist"** instead of `localhost`.
+That:
+- Adds `127.0.0.1   job-assist.dev` to `/etc/hosts` (asks for sudo once)
+- Runs `mkcert -install` to put the local CA in your system trust store (asks for sudo once, idempotent)
+- Generates `./certs/cert.pem` + `./certs/key.pem` for `job-assist.dev`
+
+After that, `npm run dev` auto-detects the certs and boots in HTTPS mode. Visit **<https://job-assist.dev:3000>** and your browser will show a trusted padlock, the tab reads **"JobAssist"**, and the URL is fully branded.
 
 #### Choose a different domain
 
-`jobassist.com` is a registered domain — adding the hosts entry shadows the real site on your machine while the entry is active. If you'd rather not, pass any name to the setup script:
+If you'd rather not shadow the registered `job-assist.dev`, pass any name:
 
 ```bash
-npm run setup-domain jobassist.test    # IETF-reserved for testing, never registrable — safest
-npm run setup-domain jobassist.local   # legacy mDNS convention
-npm run setup-domain my-job-tracker.com
+npm run setup-domain job-assist.test   # IETF-reserved for testing, safest
+npm run setup-domain my-job-tracker.local
+npm run setup-domain anything.you.want
 ```
 
-Then visit `http://<your-name>:3000`.
+Non-`.dev` domains don't require HTTPS, but the script generates a cert anyway so the experience is consistent.
 
 #### Undo
 
-To remove the mapping later:
-
 ```bash
-# macOS
-sudo sed -i '' '/# JobAssist local dev/d' /etc/hosts
-# Linux
-sudo sed -i      '/# JobAssist local dev/d' /etc/hosts
-# Windows: edit C:\Windows\System32\drivers\etc\hosts as Administrator
-#         and delete the line tagged "# JobAssist local dev"
+# Remove /etc/hosts entry
+sudo sed -i '' '/# JobAssist local dev/d' /etc/hosts   # macOS
+sudo sed -i      '/# JobAssist local dev/d' /etc/hosts # Linux
+
+# Remove the local certs (dev server falls back to plain HTTP)
+rm -rf certs/
+
+# Optional: fully remove the local CA from your system trust store
+mkcert -uninstall
 ```
 
-`localhost:3000` keeps working regardless.
+`localhost:3000` keeps working regardless of whether the entry / certs are present.
 
 The very first `npm install` takes a couple of minutes because Puppeteer downloads its bundled Chromium. Subsequent installs are fast.
 
@@ -180,14 +208,14 @@ The app probes for LibreOffice on every page load and shows a banner if `soffice
 ```bash
 curl http://localhost:3000/api/health
 # or (after `npm run setup-domain`):
-curl http://jobassist.com:3000/api/health
+curl https://job-assist.dev:3000/api/health --cacert certs/cert.pem
 ```
 
 …to see the raw probe result (LibreOffice version + platform).
 
 ## First-time setup
 
-The first visit (to either <http://localhost:3000> or, after `npm run setup-domain`, <http://jobassist.com:3000>) lands on a 6-step onboarding wizard:
+The first visit (to either <http://localhost:3000> or, after `npm run setup-domain`, <https://job-assist.dev:3000>) lands on a 6-step onboarding wizard:
 
 1. **Role & Level** — pick the job families and seniority tiers you're searching for.
 2. **Location** — preferred cities, remote / hybrid / onsite, and the country list you're authorized to work in (defaults to US).
@@ -261,7 +289,7 @@ If you've been using the app for a while, your `data/db.json` might be from an e
 
 ```bash
 npm run build
-npm run start      # serves on http://localhost:3000 (or http://jobassist.com:3000 if setup-domain has run)
+npm run start      # serves on http://localhost:3000 (HTTPS in dev requires `npm run dev`)
 ```
 
 The dev server (`npm run dev`) is plenty for personal use and gives you HMR on the source.
