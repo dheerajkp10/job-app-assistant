@@ -321,7 +321,7 @@ export default function DashboardPage() {
             <h2 className="text-base font-semibold text-gray-900">Resume Performance</h2>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-1 max-h-[460px] dashboard-scroll">
+          <div className="flex-1 overflow-y-auto pr-1 max-h-[340px] dashboard-scroll">
             <div className="flex justify-center mb-5">
               <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
             </div>
@@ -382,7 +382,10 @@ export default function DashboardPage() {
               <p className="text-sm">No scored listings yet. Browse listings to start scoring.</p>
             </div>
           ) : (
-            <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[460px] dashboard-scroll">
+            // Height pinned to ~5 visible rows. Each row is ~60-66px
+            // tall (p-3 + 2 lines of content) + 8px space-y gap; 5
+            // rows × ~66px + 4 gaps ≈ 340px.
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1 max-h-[340px] dashboard-scroll">
               {topCompanies.map((c, i) => {
                 const barColor = c.avgScore >= 60 ? 'bg-green-500' : c.avgScore >= 40 ? 'bg-yellow-500' : 'bg-red-400';
                 return (
@@ -440,11 +443,14 @@ export default function DashboardPage() {
             <p className="text-sm">No scored listings yet.</p>
           </div>
         ) : (
-          // Scrollable grid — caps at ~540px so the card height
-          // stays stable as the top-20 cutoff grows or shrinks
-          // between fetch refreshes. `View all →` in the header
-          // still takes the user to the full Listings page.
-          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[540px] dashboard-scroll">
+          // Scrollable grid pinned to ~5 visible roles. The grid is
+          // 2 columns, each card is ~76px tall (p-4 + 2 lines) and
+          // rows are gap-3 (12px). Showing 5 roles → 3 rows
+          // visible (2 + 2 + 1), so max-h ≈ 3 × 76 + 2 × 12 = 252px.
+          // Round up to 280px to give a hint of the next row when
+          // the user scrolls. `View all →` in the header still
+          // links to the full Listings page.
+          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[280px] dashboard-scroll">
             {topListings.map((listing) => {
               const score = scoreCache[listing.id];
               const scoreColor = score.overall >= 60 ? 'text-green-600 bg-green-50 border-green-200' : score.overall >= 40 ? 'text-yellow-600 bg-yellow-50 border-yellow-200' : 'text-red-500 bg-red-50 border-red-200';
