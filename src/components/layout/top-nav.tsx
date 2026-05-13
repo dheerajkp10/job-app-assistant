@@ -29,13 +29,13 @@ export default function TopNav() {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-30 backdrop-blur-md bg-white/75 border-b border-gray-200/60">
+    <header className="sticky top-0 z-30 backdrop-blur-md bg-white/70 border-b border-slate-100">
       <div className="max-w-[1500px] mx-auto px-6 h-14 flex items-center gap-6">
         <Link href="/dashboard" className="flex items-center gap-2 group shrink-0">
-          <div className="relative w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-500 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+          <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-md shadow-indigo-500/25 group-hover:shadow-lg group-hover:shadow-indigo-500/35 group-hover:-translate-y-0.5 transition-all duration-200">
             <Briefcase className="w-4 h-4 text-white" />
           </div>
-          <span className="text-sm font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent tracking-tight">
+          <span className="text-sm font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent tracking-tight">
             JobAssist
           </span>
         </Link>
@@ -47,17 +47,14 @@ export default function TopNav() {
               <Link
                 key={href}
                 href={href}
-                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                className={`relative flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
                   isActive
-                    ? 'text-blue-700 bg-blue-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    ? 'text-indigo-700 bg-indigo-50 shadow-sm shadow-indigo-500/10'
+                    : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
                 }`}
               >
                 <Icon className="w-4 h-4" />
                 {label}
-                {isActive && (
-                  <span className="absolute -bottom-[5px] left-3 right-3 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full" />
-                )}
               </Link>
             );
           })}
