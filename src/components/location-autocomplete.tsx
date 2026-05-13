@@ -13,7 +13,7 @@ interface Props {
 
 /**
  * Typeahead combobox that suggests global tech hubs as the user types.
- * Typing "Bell" shows "Bellevue, WA" etc. Users can pick a suggestion
+ * Typing "San" shows "San Francisco, CA" etc. Users can pick a suggestion
  * or press Enter on an unmatched string to add a free-form location.
  */
 export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: Props) {
@@ -84,7 +84,7 @@ export function LocationAutocomplete({ placeholder, onSelect, existing = [] }: P
             }}
             onFocus={() => query && setOpen(true)}
             onKeyDown={onKeyDown}
-            placeholder={placeholder || 'Start typing a city (e.g., "Bell" → Bellevue, WA)'}
+            placeholder={placeholder || 'Start typing a city (e.g., "San" → San Francisco, CA)'}
             className="w-full pl-9 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
             autoComplete="off"
           />

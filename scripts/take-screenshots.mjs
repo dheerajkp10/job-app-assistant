@@ -126,7 +126,7 @@ function redactInPage(real, fake) {
     const u = real.userName.trim();
     pairs.push([u, fake.fullName]);
     // Also handle a first-name-only fallback (e.g. greeting after a
-    // settings change) so "Welcome back, Dheeraj" gets caught.
+    // settings change) so "Welcome back, <firstName>" gets caught.
     const firstName = u.split(/\s+/)[0];
     if (firstName && firstName !== u) {
       pairs.push([firstName, fake.firstName]);
