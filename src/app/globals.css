@@ -106,3 +106,62 @@ body {
 .dashboard-scroll:hover::-webkit-scrollbar-thumb {
   background-color: rgba(100, 116, 139, 0.55); /* slate-500/55 */
 }
+
+/* ──────────────────────────────────────────────────────────────────
+   Design tokens — light-shade refresh (2026-05)
+   ──────────────────────────────────────────────────────────────────
+   Single source of truth for the new color/shadow language. Approved
+   options: indigo-violet primary, warm off-white page bg, heavier
+   shadows than the previous flat look.
+
+   To revert just this layer: delete this block + the body bg rule.
+   Component-level class changes are kept revertible per commit so
+   the rollout can be undone in pieces without leaving the app in an
+   inconsistent state.
+   ────────────────────────────────────────────────────────────────── */
+
+:root {
+  --app-bg: #FAF9F6;                                       /* warm off-white */
+  --shadow-card: 0 2px 8px rgba(15, 23, 42, 0.06);         /* card resting */
+  --shadow-card-hover: 0 12px 32px rgba(99, 102, 241, 0.16); /* indigo lift */
+  --shadow-btn: 0 8px 16px rgba(99, 102, 241, 0.30);       /* primary button rest */
+  --shadow-btn-hover: 0 12px 24px rgba(99, 102, 241, 0.40);
+  --shadow-modal: 0 32px 80px rgba(15, 23, 42, 0.18);
+}
+
+/* Page-level background. Applied via the body selector so every page
+   inherits it without per-page wrappers needing to set it. */
+body {
+  background-color: var(--app-bg);
+}
+
+/* Utility classes — pure aliases for the CSS vars above. Lets us
+   migrate components one at a time without scattering raw rgba()
+   tuples in JSX.
+
+   Naming:
+     .shadow-card        — card at rest
+     .shadow-card-hover  — card on hover (typically paired with
+                           hover:-translate-y-0.5 in JSX)
+     .shadow-btn-primary — gradient primary button at rest
+     .shadow-btn-primary-hover
+     .shadow-modal       — drop shadow under modal cards */
+.shadow-card        { box-shadow: var(--shadow-card); }
+.shadow-card-hover  { box-shadow: var(--shadow-card-hover); }
+.shadow-btn-primary { box-shadow: var(--shadow-btn); }
+.shadow-btn-primary-hover { box-shadow: var(--shadow-btn-hover); }
+.shadow-modal       { box-shadow: var(--shadow-modal); }
+
+/* Hover-grouped version for the common "lift on hover" pattern.
+   Pair `.card-surface` with `hover:-translate-y-0.5` for the
+   classic dashboard card lift. */
+.card-surface {
+  background-color: #FFFFFF;
+  border: 1px solid #F1F5F9;                /* slate-100 */
+  border-radius: 1rem;                       /* rounded-2xl */
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.card-surface:hover {
+  box-shadow: var(--shadow-card-hover);
+}
