@@ -8,11 +8,13 @@ import {
   Briefcase,
   Globe,
   LayoutDashboard,
+  Kanban,
 } from 'lucide-react';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/listings', label: 'Job Listings', icon: Globe },
+  { href: '/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/jobs/add', label: 'Add Job', icon: PlusCircle },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];

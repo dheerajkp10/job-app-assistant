@@ -38,6 +38,28 @@ export interface Settings {
   salarySkipped: boolean;             // user chose to skip salary step
   onboardingComplete: boolean;        // gate for landing page
 
+  // ─── Auto-refresh ───
+  // When true, listings older than `autoRefreshHours` (default 24)
+  // are refreshed automatically on the next listings-page load. The
+  // streaming refresh runs in the background so the user can keep
+  // browsing the existing dataset while new jobs come in.
+  autoRefreshEnabled?: boolean;
+  autoRefreshHours?: number;
+
+  // ─── User-curated custom company sources ───
+  // Lives alongside the static `COMPANY_SOURCES` in src/lib/sources.ts.
+  // The fetcher unions the two sets at runtime so users can add their
+  // own niche company without editing source code or deploying.
+  customSources?: CustomCompanySource[];
+
+  // ─── Imported network (LinkedIn connections CSV) ───
+  // The user uploads their LinkedIn "Connections.csv" export; we
+  // parse the company column and store a flat name->[contacts] map
+  // so the listings UI can surface "you know N people at this co".
+  // Stored as a name-indexed lookup to keep the per-listing cost O(1).
+  network?: NetworkContact[];
+  networkUpdatedAt?: string;
+
   // ─── Employer filters ───
   // Companies to hide from listings (the user's current/previous employers
   // they don't want to see). Stored as canonical brand names (e.g. "Amazon",
@@ -112,7 +134,13 @@ export type ATSType =
   // Eightfold AI careers platform (Netflix, many others). Exposes a
   // public JSON API that returns full job descriptions, so we can both
   // list AND score these roles.
-  | 'eightfold';
+  | 'eightfold'
+  // SmartRecruiters Public Postings API (ServiceNow, HelloFresh,
+  // Bosch, etc.). Endpoint:
+  //   GET https://api.smartrecruiters.com/v1/companies/{slug}/postings
+  // Returns { content: [{id, name, location, releasedDate, ...}], totalFound }
+  // No auth required; up to 100 items per page via &limit=100&offset=N.
+  | 'smartrecruiters';
 
 export interface CompanySource {
   name: string;
@@ -131,6 +159,30 @@ export interface CompanySource {
   // domain example: "netflix.com"
   eightfoldHost?: string;
   eightfoldDomain?: string;
+}
+
+/** A single LinkedIn connection imported from the user's
+ *  Connections.csv export. We keep it minimal — just the fields
+ *  we need to surface "you know N people at <Company>" on a
+ *  listing card and let the user tap through to the LinkedIn URL. */
+export interface NetworkContact {
+  firstName: string;
+  lastName: string;
+  /** Company at time of export. Lowercased + trimmed for matching. */
+  company: string;
+  position?: string;
+  url?: string;
+  /** ISO date the connection was added (LinkedIn calls it "Connected On"). */
+  connectedOn?: string;
+}
+
+/** A user-added company source. Lives in `Settings.customSources`
+ *  and gets unioned with the static `COMPANY_SOURCES` whenever we
+ *  need to fetch listings. The `addedByUser` flag distinguishes
+ *  these in the Settings UI for delete/edit affordances. */
+export interface CustomCompanySource extends CompanySource {
+  addedByUser: true;
+  addedAt: string;
 }
 
 export interface JobListing {
@@ -170,7 +222,20 @@ export interface ListingsCache {
  * - not-applicable: user reviewed and isn't interested.
  * Flagged listings are hidden from the default view but can be revealed via a toggle.
  */
-export type ListingFlag = 'applied' | 'incorrect' | 'not-applicable';
+export type ListingFlag =
+  // ── Pipeline states ─────────────────────────────────────────────
+  // The user's progress on a job they're actually pursuing. Rendered
+  // as columns on the /pipeline Kanban page.
+  | 'applied'
+  | 'phone-screen'
+  | 'interviewing'
+  | 'offer'
+  | 'rejected'
+  // ── Triage tags ──────────────────────────────────────────────────
+  // Used to filter noise out of the listings page; not pipeline
+  // states. Listings with these tags are hidden by default.
+  | 'incorrect'
+  | 'not-applicable';
 
 export interface ListingFlagEntry {
   listingId: string;
@@ -178,9 +243,38 @@ export interface ListingFlagEntry {
   flaggedAt: string;
 }
 
+/** A user-created reminder for a specific listing. Driven entirely
+ *  client-side via Notification API + a polling effect — no email
+ *  sending, no cron. Persists in `Database.reminders`. */
+export interface Reminder {
+  id: string;
+  listingId: string;
+  /** ISO timestamp the reminder should fire at. */
+  dueAt: string;
+  /** What the user typed when they set it ("Follow up with recruiter"). */
+  note: string;
+  /** Set when the reminder fires (or the user dismisses); reminders
+   *  with `firedAt` set are no longer surfaced. */
+  firedAt?: string;
+  createdAt: string;
+}
+
+/**
+ * Subset of `LISTING_FLAGS` that represent active pipeline progress
+ * (applied → phone-screen → interviewing → offer → rejected). The
+ * Kanban page renders one column per entry here, in order.
+ */
+export const PIPELINE_FLAGS: { key: ListingFlag; label: string; color: string; short: string }[] = [
+  { key: 'applied',       label: 'Applied',       color: '#8B5CF6', short: 'Applied' },
+  { key: 'phone-screen',  label: 'Phone Screen',  color: '#0EA5E9', short: 'Screen' },
+  { key: 'interviewing',  label: 'Interviewing',  color: '#0284C7', short: 'Interview' },
+  { key: 'offer',         label: 'Offer',         color: '#10B981', short: 'Offer' },
+  { key: 'rejected',      label: 'Rejected',      color: '#EF4444', short: 'Rejected' },
+];
+
 export const LISTING_FLAGS: { key: ListingFlag; label: string; color: string; short: string }[] = [
-  { key: 'applied', label: 'Already Applied', color: '#8B5CF6', short: 'Applied' },
-  { key: 'incorrect', label: 'Incorrect Job', color: '#EF4444', short: 'Incorrect' },
+  ...PIPELINE_FLAGS,
+  { key: 'incorrect',      label: 'Incorrect Job', color: '#F97316', short: 'Incorrect' },
   { key: 'not-applicable', label: 'Not Applicable', color: '#6B7280', short: 'N/A' },
 ];
 
@@ -191,6 +285,9 @@ export interface ScoreCacheEntry {
   management: number;
   domain: number;
   soft: number;
+  /** v3: JD-extracted bigram-phrase coverage. Optional for back-compat
+   *  with v2 entries that haven't been recomputed yet. */
+  phrases?: number;
   matchedCount: number;
   totalCount: number;
   scoredAt: string;
@@ -203,12 +300,16 @@ export interface ScoreCacheEntry {
    * History:
    *   1 — original linear `matched/total` per-category, equal weights.
    *   2 — TF-weighted JD keywords + Laplace smoothing + [25,95] clamp.
+   *   3 — adds JD-extracted bigram phrases as a 5th category (15%
+   *       weight) so resumes that mirror the JD's distinctive
+   *       multi-word language ("agent foundations", "data plane")
+   *       score above resumes that share only generic skills.
    */
   scorerVersion?: number;
 }
 
 /** Current ATS scorer version. See `ScoreCacheEntry.scorerVersion`. */
-export const SCORER_VERSION = 2;
+export const SCORER_VERSION = 3;
 
 export interface Database {
   settings: Settings;
@@ -216,6 +317,10 @@ export interface Database {
   listingsCache: ListingsCache;
   scoreCache?: Record<string, ScoreCacheEntry>;
   listingFlags?: Record<string, ListingFlagEntry>;
+  /** Per-listing reminders the user set on the Pipeline / listing
+   *  detail page. Surfaced via the small bell badge on the top nav
+   *  when one is overdue. */
+  reminders?: Reminder[];
 }
 
 // --- Portal search links (for LinkedIn, Indeed, Glassdoor) ---

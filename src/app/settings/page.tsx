@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X } from 'lucide-react';
+import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X, RefreshCw } from 'lucide-react';
+import { CustomSourcesPanel } from '@/components/settings/custom-sources';
+import { NetworkImportPanel } from '@/components/settings/network-import';
 import type { WorkMode } from '@/lib/types';
 import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
@@ -28,6 +30,12 @@ export default function SettingsPage() {
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   const [workAuthCountries, setWorkAuthCountries] = useState<string[]>(['US']);
+  // Auto-refresh — when enabled, the listings page kicks off a
+  // streaming refresh on mount whenever the cache is older than
+  // `autoRefreshHours`. Default disabled so first-time users never
+  // get surprised by network activity.
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  const [autoRefreshHours, setAutoRefreshHours] = useState(24);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
   const [salaryBaseMin, setSalaryBaseMin] = useState('');
@@ -56,6 +64,8 @@ export default function SettingsPage() {
         setWorkAuthCountries(
           s.workAuthCountries && s.workAuthCountries.length > 0 ? s.workAuthCountries : ['US']
         );
+        setAutoRefreshEnabled(!!s.autoRefreshEnabled);
+        setAutoRefreshHours(s.autoRefreshHours && s.autoRefreshHours > 0 ? s.autoRefreshHours : 24);
         setSalaryMin(s.salaryMin ? String(s.salaryMin) : '');
         setSalaryMax(s.salaryMax ? String(s.salaryMax) : '');
         setSalaryBaseMin(s.salaryBaseMin ? String(s.salaryBaseMin) : '');
@@ -163,6 +173,8 @@ export default function SettingsPage() {
           preferredLocations,
           workMode,
           workAuthCountries,
+          autoRefreshEnabled,
+          autoRefreshHours,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
           salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
@@ -378,6 +390,46 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {/* Auto-refresh — kicks off a background streaming refresh on
+          the next listings-page load when the cache is older than
+          the chosen window. Off by default. */}
+      <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <RefreshCw className="w-5 h-5 text-gray-500" />
+          <h2 className="text-lg font-semibold text-gray-900">Auto-refresh listings</h2>
+        </div>
+        <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mb-3">
+          <input
+            type="checkbox"
+            checked={autoRefreshEnabled}
+            onChange={(e) => setAutoRefreshEnabled(e.target.checked)}
+            className="rounded"
+          />
+          Refresh listings automatically when stale
+        </label>
+        {autoRefreshEnabled && (
+          <div className="flex items-center gap-2 text-sm text-gray-600">
+            <span>Consider listings stale after</span>
+            <input
+              type="number"
+              min={1}
+              max={168}
+              value={autoRefreshHours}
+              onChange={(e) => setAutoRefreshHours(Math.max(1, Number(e.target.value) || 24))}
+              className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+            <span>hours</span>
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-2">
+          When enabled, opening the Listings page after the configured window automatically streams a fresh fetch from all 70+ careers boards. You can keep browsing the existing data while it runs.
+        </p>
+      </section>
+
+      <CustomSourcesPanel />
+
+      <NetworkImportPanel />
 
       {/* Salary Range (optional) */}
       <section className="mb-6 bg-white rounded-xl border border-gray-200 p-6">

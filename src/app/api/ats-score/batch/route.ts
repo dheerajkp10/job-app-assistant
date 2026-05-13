@@ -107,7 +107,12 @@ export async function POST(req: NextRequest) {
         return sentinel;
       }
 
-      const score = scoreResumeFromKeywords(resumeKeywords, detail.content);
+      // v3 scoring also wants the resume's full text for phrase
+      // matching (the binary keyword Map can't tell us whether the
+      // resume contains an out-of-vocabulary bigram). Since the batch
+      // route already has `resumeText` in scope from the settings
+      // load, pass it through.
+      const score = scoreResumeFromKeywords(resumeKeywords, detail.content, resumeText);
 
       const entry: ScoreCacheEntry = {
         listingId: id,
@@ -116,6 +121,7 @@ export async function POST(req: NextRequest) {
         management: score.management,
         domain: score.domain,
         soft: score.soft,
+        phrases: score.phrases,
         matchedCount: score.totalMatched,
         totalCount: score.totalJdKeywords,
         scoredAt: new Date().toISOString(),

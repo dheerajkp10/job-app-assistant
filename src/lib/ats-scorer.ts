@@ -222,6 +222,9 @@ export interface ATSScore {
   management: number;
   domain: number;
   soft: number;
+  /** v3: JD-extracted bigram-phrase coverage (e.g. "agent foundations",
+   *  "data plane"). Optional for back-compat with cached v2 entries. */
+  phrases?: number;
   matchedKeywords: string[];
   missingKeywords: string[];
   keywordDetails: KeywordMatch[];
@@ -232,10 +235,15 @@ export interface ATSScore {
 // ─── Scoring Weights ─────────────────────────────────────────────────
 
 const WEIGHTS = {
-  technical: 0.45,
-  management: 0.22,
-  domain: 0.18,
-  soft: 0.15,
+  technical: 0.40,
+  management: 0.20,
+  domain: 0.15,
+  soft: 0.10,
+  // v3: JD-extracted bigrams (the JD's distinctive language). Carries
+  // 15% weight — enough to move scores meaningfully when a resume
+  // mirrors the JD's verbatim phrases, and to penalize resumes that
+  // share generic skills but miss the role-specific signature.
+  phrases: 0.15,
 };
 
 /**
@@ -402,6 +410,65 @@ function extractKeywordsWithCounts(text: string): Map<string, WeightedJdKeyword>
   return found;
 }
 
+// ─── JD-extracted bigram phrases (v3) ────────────────────────────────
+// The taxonomy in this file caps the scorer's vocabulary at ~335 known
+// terms — but every JD has its own distinctive multi-word phrases the
+// taxonomy will never see ("agent foundations", "data plane", "model
+// serving"). Without scoring those, a resume rich in JD-specific
+// language can match the same percentage as a resume that mostly
+// shares generic skills, which is exactly the "scores barely move"
+// complaint we wanted to fix.
+//
+// `extractJdBigrams` walks the JD, builds a count of 2-word phrases
+// that occur ≥3× and aren't in the stopword list, and returns the top
+// few. The scorer uses these as an additional category alongside
+// the four taxonomy buckets.
+
+const BIGRAM_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'this', 'that', 'are', 'will', 'our',
+  'you', 'your', 'into', 'over', 'about', 'their', 'they', 'them',
+  'has', 'have', 'had', 'was', 'were', 'been', 'being', 'all', 'any',
+  'such', 'one', 'two', 'new', 'use', 'used', 'using', 'team', 'work',
+  'role', 'job', 'we', 'us', 'in', 'on', 'of', 'to', 'a', 'an', 'is',
+  'be', 'or', 'as', 'at', 'by', 'it', 'if', 'so', 'do', 'company',
+  'requirements', 'qualifications', 'experience', 'must', 'should',
+  'these', 'those', 'including', 'across', 'while', 'because',
+  'looking', 'years', 'year', 'plus', 'who', 'how', 'what', 'when',
+  'where', 'why', 'than', 'most', 'more', 'each', 'every', 'some',
+]);
+
+interface BigramHit {
+  phrase: string;
+  count: number;
+  weight: number;
+}
+
+function extractJdBigrams(jd: string, maxPhrases = 8): BigramHit[] {
+  const cleaned = jd
+    .toLowerCase()
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .replace(/[^a-z0-9\s'-]/g, ' ');
+  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const counts = new Map<string, number>();
+  for (let i = 0; i < tokens.length - 1; i++) {
+    const a = tokens[i];
+    const b = tokens[i + 1];
+    if (a.length < 4 || b.length < 4) continue;
+    if (BIGRAM_STOP_WORDS.has(a) || BIGRAM_STOP_WORDS.has(b)) continue;
+    if (/^\d/.test(a) || /^\d/.test(b)) continue;
+    const phrase = `${a} ${b}`;
+    counts.set(phrase, (counts.get(phrase) ?? 0) + 1);
+  }
+  // Same TF weighting we use for taxonomy hits — sub-linear so a
+  // phrase mentioned 9× counts ~3× a singleton.
+  return Array.from(counts.entries())
+    .filter(([, c]) => c >= 3)
+    .map(([phrase, count]) => ({ phrase, count, weight: Math.sqrt(count) }))
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, maxPhrases);
+}
+
 /**
  * Per-category Laplace-smoothed coverage ratio expressed as 0-100.
  * Treats each JD keyword as carrying its TF-derived weight, then adds
@@ -427,7 +494,10 @@ export function scoreResume(resumeText: string, jobDescription: string): ATSScor
   // Thin wrapper — factored so batch callers can extract the resume's
   // keyword map once and reuse it across many JDs. Output is identical to
   // calling `scoreResumeFromKeywords(extractKeywords(resumeText), jd)`.
-  return scoreResumeFromKeywords(extractKeywords(resumeText), jobDescription);
+  // We pass `resumeText` along so the v3 phrase scorer can substring-
+  // match against the full resume body (the keyword map only covers
+  // taxonomy terms, not arbitrary JD bigrams).
+  return scoreResumeFromKeywords(extractKeywords(resumeText), jobDescription, resumeText);
 }
 
 /**
@@ -439,7 +509,11 @@ export function scoreResume(resumeText: string, jobDescription: string): ATSScor
  */
 export function scoreResumeFromKeywords(
   resumeKeywords: Map<string, Category>,
-  jobDescription: string
+  jobDescription: string,
+  /** Pre-tokenized resume text (lowercased) — let callers reuse one
+   *  copy across many JDs. Optional; falls back to deriving from the
+   *  resume keyword map's keys (binary, lowercased) when omitted. */
+  resumeFullText?: string,
 ): ATSScore {
   // v2: use TF-weighted JD keywords. Resume side stays binary — that's
   // appropriate (we just want to know whether the resume mentions a term,
@@ -457,6 +531,9 @@ export function scoreResumeFromKeywords(
     management: { matchedW: 0, totalW: 0 },
     domain: { matchedW: 0, totalW: 0 },
     soft: { matchedW: 0, totalW: 0 },
+    // v3: JD-extracted bigram phrases (e.g. "agent foundations", "data
+    // plane"). Counted alongside the four taxonomy categories.
+    phrases: { matchedW: 0, totalW: 0 },
   };
 
   for (const [canonical, info] of jdKeywords) {
@@ -471,10 +548,29 @@ export function scoreResumeFromKeywords(
     }
   }
 
+  // v3 phrase scoring. We compute against the resume's full lowercase
+  // text rather than the binary keyword map (the map is for taxonomy
+  // hits only; phrases are out-of-vocabulary by definition).
+  const resumeLower = resumeFullText
+    ? resumeFullText.toLowerCase()
+    : Array.from(resumeKeywords.keys()).join(' ').toLowerCase();
+  const jdBigrams = extractJdBigrams(jobDescription);
+  for (const { phrase, weight } of jdBigrams) {
+    stats.phrases.totalW += weight;
+    const isFound = resumeLower.includes(phrase);
+    if (isFound) {
+      stats.phrases.matchedW += weight;
+      matched.push(phrase);
+    } else {
+      missing.push(phrase);
+    }
+  }
+
   const technical = smoothedPercent(stats.technical.matchedW, stats.technical.totalW);
   const management = smoothedPercent(stats.management.matchedW, stats.management.totalW);
   const domain = smoothedPercent(stats.domain.matchedW, stats.domain.totalW);
   const soft = smoothedPercent(stats.soft.matchedW, stats.soft.totalW);
+  const phrases = smoothedPercent(stats.phrases.matchedW, stats.phrases.totalW);
 
   // Weighted overall — only categories with at least one JD keyword
   // contribute to the average (so a JD that never mentions soft skills
@@ -497,6 +593,10 @@ export function scoreResumeFromKeywords(
     overallNumer += soft * WEIGHTS.soft;
     overallDenom += WEIGHTS.soft;
   }
+  if (stats.phrases.totalW > 0) {
+    overallNumer += phrases * WEIGHTS.phrases;
+    overallDenom += WEIGHTS.phrases;
+  }
   const rawOverall = overallDenom > 0 ? overallNumer / overallDenom : SMOOTH_BASELINE * 100;
 
   // Final clamp into a believable display window.
@@ -508,10 +608,14 @@ export function scoreResumeFromKeywords(
     management,
     domain,
     soft,
+    phrases,
     matchedKeywords: matched.sort(),
     missingKeywords: missing.sort(),
     keywordDetails: details,
-    totalJdKeywords: jdKeywords.size,
+    // Total counts include the JD-extracted bigrams as additional
+    // signals so the UI's "Matched (N) / Missing (N)" chips reflect
+    // the full set the score was computed against.
+    totalJdKeywords: jdKeywords.size + jdBigrams.length,
     totalMatched: matched.length,
   };
 }

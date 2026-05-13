@@ -61,7 +61,7 @@ export async function readDb(): Promise<Database> {
   return db;
 }
 
-async function writeDb(db: Database): Promise<void> {
+export async function writeDb(db: Database): Promise<void> {
   await ensureDataDir();
   // Serialize writes to prevent concurrent corruption
   const prev = writeLock;
@@ -139,6 +139,40 @@ export async function saveListingsCache(cache: ListingsCache): Promise<void> {
 export async function getListingById(id: string): Promise<JobListing | null> {
   const db = await readDb();
   return db.listingsCache.listings.find((l) => l.id === id) ?? null;
+}
+
+/**
+ * Patch a single listing in the cache with new salary fields. Used
+ * by detail-fetch routes so that subsequent salary-intel cohort
+ * computations have a larger sample. No-op if any field is null AND
+ * the listing already has a value (we never overwrite known salary
+ * with null).
+ */
+export async function updateListingSalary(
+  id: string,
+  patch: { salary?: string | null; salaryMin?: number | null; salaryMax?: number | null },
+): Promise<void> {
+  const db = await readDb();
+  const idx = db.listingsCache.listings.findIndex((l) => l.id === id);
+  if (idx === -1) return;
+  const cur = db.listingsCache.listings[idx];
+  const next: JobListing = {
+    ...cur,
+    salary: patch.salary ?? cur.salary,
+    salaryMin: patch.salaryMin ?? cur.salaryMin,
+    salaryMax: patch.salaryMax ?? cur.salaryMax,
+  };
+  // Only write if something actually changed — avoids unnecessary
+  // disk IO when detail-fetch returns the same data we already have.
+  if (
+    next.salary === cur.salary &&
+    next.salaryMin === cur.salaryMin &&
+    next.salaryMax === cur.salaryMax
+  ) {
+    return;
+  }
+  db.listingsCache.listings[idx] = next;
+  await writeDb(db);
 }
 
 // Score Cache

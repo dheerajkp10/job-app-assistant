@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getListingById } from '@/lib/db';
+import { getListingById, updateListingSalary } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 
 /**
@@ -21,6 +21,15 @@ export async function GET(
   // Fetch full details from the API
   try {
     const detail = await fetchJobDetail(listing);
+    if (detail) {
+      // Persist any newly-extracted salary back to the cache so the
+      // salary-intel cohort grows as the user opens more listings.
+      await updateListingSalary(listingId, {
+        salary: detail.salary,
+        salaryMin: detail.salaryMin,
+        salaryMax: detail.salaryMax,
+      });
+    }
     if (!detail) {
       return NextResponse.json({
         ...listing,

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getListingsCache, saveListingsCache } from '@/lib/db';
 import { fetchAllJobs } from '@/lib/job-fetcher';
-import { COMPANY_SOURCES } from '@/lib/sources';
+import { getAllSources } from '@/lib/sources';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -19,7 +19,8 @@ export async function GET(req: NextRequest) {
 
   if (forceRefresh) {
     // Synchronous fetch — forced refresh only
-    const result = await fetchAllJobs(COMPANY_SOURCES);
+    const sources = await getAllSources();
+    const result = await fetchAllJobs(sources);
     const newCache = {
       listings: result.listings,
       lastFetchedAt: new Date().toISOString(),
@@ -29,7 +30,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ...newCache,
       total: result.listings.length,
-      companiesFetched: COMPANY_SOURCES.length - result.errors.length,
+      companiesFetched: sources.length - result.errors.length,
       companiesFailed: result.errors.length,
     });
   }
@@ -46,7 +47,8 @@ export async function GET(req: NextRequest) {
  * Triggers a full refresh from all sources.
  */
 export async function POST() {
-  const result = await fetchAllJobs(COMPANY_SOURCES);
+  const sources = await getAllSources();
+  const result = await fetchAllJobs(sources);
   const newCache = {
     listings: result.listings,
     lastFetchedAt: new Date().toISOString(),
@@ -56,7 +58,7 @@ export async function POST() {
   return NextResponse.json({
     ...newCache,
     total: result.listings.length,
-    companiesFetched: COMPANY_SOURCES.length - result.errors.length,
+    companiesFetched: sources.length - result.errors.length,
     companiesFailed: result.errors.length,
   });
 }

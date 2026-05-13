@@ -1,19 +1,48 @@
 import { NextResponse } from 'next/server';
 import { saveListingsCache } from '@/lib/db';
 import { fetchAllJobs } from '@/lib/job-fetcher';
-import { COMPANY_SOURCES } from '@/lib/sources';
+import { getAllSources } from '@/lib/sources';
 import type { JobListing } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Module-scoped mutex. The Refresh All button is debounced on the
+ * client (the streamingRefresh callback gates on its own `refreshing`
+ * state), but multiple browser tabs / a quick page reload can still
+ * fire two concurrent GETs against this endpoint. Both would race-write
+ * to db.json via saveListingsCache(), risking a corrupt JSON file. The
+ * mutex returns a 409 to any request that arrives while a fetch is
+ * already running, so only the first stream wins.
+ *
+ * Module-scope is fine here because Next.js runs all route handlers
+ * inside one Node process for this single-user local-first app.
+ */
+let refreshInFlight = false;
+
 export async function GET() {
+  if (refreshInFlight) {
+    return NextResponse.json(
+      {
+        error:
+          'A refresh is already in progress. Wait for it to complete before starting another one.',
+      },
+      { status: 409 },
+    );
+  }
+  refreshInFlight = true;
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
     async start(controller) {
+      try {
       const allListings: JobListing[] = [];
       const errors: { company: string; error: string }[] = [];
-      const total = COMPANY_SOURCES.length;
+      // Pull the union of static + user-added custom sources at the
+      // start of the stream so per-batch slicing below stays correct
+      // even if `Settings.customSources` is mutated mid-fetch.
+      const sources = await getAllSources();
+      const total = sources.length;
       let completed = 0;
 
       // Send initial event
@@ -30,8 +59,8 @@ export async function GET() {
       // Fetch in batches of 5 for controlled parallelism with per-company progress
       const BATCH_SIZE = 5;
 
-      for (let i = 0; i < COMPANY_SOURCES.length; i += BATCH_SIZE) {
-        const batch = COMPANY_SOURCES.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < sources.length; i += BATCH_SIZE) {
+        const batch = sources.slice(i, i + BATCH_SIZE);
 
         const results = await Promise.allSettled(
           batch.map(async (source) => {
@@ -107,6 +136,12 @@ export async function GET() {
       );
 
       controller.close();
+      } finally {
+        // Always release the mutex, even if any of the per-batch
+        // fetches threw. Without this, a single error would leave
+        // the app stuck in "refresh in progress" forever.
+        refreshInFlight = false;
+      }
     },
   });
 

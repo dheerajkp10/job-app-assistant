@@ -4,11 +4,14 @@ import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractKeywords, scoreResume } from '@/lib/ats-scorer';
 import { buildSummaryPhrase } from '@/lib/resume-tailor';
 import { editDocxTemplate, adjustDocxForLibreOffice, resolveDocxTemplate } from '@/lib/docx-editor';
+import { detectSuggestions } from '@/lib/resume-suggestions';
+import { measurePdfTextBounds } from '@/lib/pdf-bounds';
 import { execFile } from 'child_process';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
+import { SCORER_VERSION } from '@/lib/types';
 import type { JobListing } from '@/lib/types';
 
 type Category = 'technical' | 'management' | 'domain' | 'soft';
@@ -46,7 +49,7 @@ interface AggregatedKeyword {
  *     user's selected keywords are always preserved.
  */
 export async function POST(req: NextRequest) {
-  const { listingIds, selectedKeywords, format } = await req.json();
+  const { listingIds, selectedKeywords, selectedSuggestions, format } = await req.json();
 
   if (!Array.isArray(listingIds) || listingIds.length === 0) {
     return NextResponse.json({ error: 'listingIds array is required' }, { status: 400 });
@@ -109,6 +112,9 @@ export async function POST(req: NextRequest) {
     perJobScores.push(score.overall);
 
     // Persist each job's score so the dashboard cache stays warm.
+    // Include the v3 phrases field + scorerVersion stamp so the
+    // listings page's stale-version filter doesn't drop these
+    // entries on the next read.
     await saveScore({
       listingId: listing.id,
       overall: score.overall,
@@ -116,9 +122,11 @@ export async function POST(req: NextRequest) {
       management: score.management,
       domain: score.domain,
       soft: score.soft,
+      phrases: score.phrases,
       matchedCount: score.totalMatched,
       totalCount: score.totalJdKeywords,
       scoredAt: new Date().toISOString(),
+      scorerVersion: SCORER_VERSION,
     }).catch(() => {});
 
     const jdKeywords = extractKeywords(content);
@@ -206,6 +214,52 @@ export async function POST(req: NextRequest) {
       byCategory[kw.category].push(kw.keyword);
     }
 
+    // Aggregate user-accepted suggestions across the selected jobs.
+    // We re-run detection per listing (server-trusted source — clients
+    // only round-trip suggestion IDs, never raw prose) and dedupe by
+    // suggestion ID so a phrase the user accepted once isn't applied
+    // multiple times if it surfaced from multiple JDs.
+    //
+    // Same four-channel split as the single-job route:
+    //   - summaryDomainItem → folds into buildSummaryPhrase domain pool
+    //   - insertion         → standalone summary append
+    //   - replace-text      → docx XML find/replace pre-pass
+    //   - append-skills     → skills line extension
+    const acceptedSuggestionIds: Set<string> =
+      Array.isArray(selectedSuggestions) && selectedSuggestions.length > 0
+        ? new Set(selectedSuggestions as string[])
+        : new Set();
+    const suggestionDomainItems: string[] = [];
+    const suggestionInsertions: string[] = [];
+    const suggestionReplaces: { oldText: string; newText: string }[] = [];
+    const suggestionExtraSkills: {
+      cloudStack: string[]; systems: string[]; management: string[]; domain: string[];
+    } = { cloudStack: [], systems: [], management: [], domain: [] };
+    if (acceptedSuggestionIds.size > 0) {
+      const seenSuggestionIds = new Set<string>();
+      for (const { listing, content } of details) {
+        const all = detectSuggestions({
+          resumeText,
+          jdContent: content,
+          jdTitle: listing.title,
+        });
+        for (const s of all) {
+          if (!acceptedSuggestionIds.has(s.id)) continue;
+          if (seenSuggestionIds.has(s.id)) continue;
+          seenSuggestionIds.add(s.id);
+          if (s.kind === 'replace-text' && s.oldText && s.newText) {
+            suggestionReplaces.push({ oldText: s.oldText, newText: s.newText });
+          } else if (s.kind === 'append-skills' && s.skillsCategory && s.skillsItems) {
+            suggestionExtraSkills[s.skillsCategory].push(...s.skillsItems);
+          } else if (s.kind === 'append-summary') {
+            if (s.summaryDomainItem) suggestionDomainItems.push(s.summaryDomainItem);
+            else if (s.insertion) suggestionInsertions.push(s.insertion);
+          }
+        }
+      }
+    }
+    const suggestionInsertion = suggestionInsertions.join('');
+
     // Budget ladder for one-page fit. Each tier specifies both Skills
     // caps and work-experience injector caps (wePositions, weKwPerBullet).
     //
@@ -227,7 +281,24 @@ export async function POST(req: NextRequest) {
        *  whitespace. Costs 0 lines, so we enable it on every tier. */
       weInlineAppends: number;
     };
+    // Tier 0 — honors the user's full selection at face value. We
+    // always try the "include every keyword the user picked" budget
+    // FIRST so that an explicit selection is never silently truncated
+    // by a smaller cap. Subsequent tiers are the page-fit fallback
+    // ladder. This is the fix for the multi-tailor keyword-drop bug:
+    // previously tier 1's `technical: 6` cap silently dropped user
+    // selections #7+ even when the user explicitly enabled them.
+    const userSelectionBudget: Budget = {
+      technical: Math.max(byCategory.technical.length, 1),
+      management: Math.max(byCategory.management.length, 1),
+      domain: Math.max(byCategory.domain.length, 1),
+      soft: Math.max(byCategory.soft.length, 1),
+      wePositions: 3,
+      weKwPerBullet: 2,
+      weInlineAppends: 4,
+    };
     const attempts: Budget[] = [
+      userSelectionBudget,
       // ── WE-enabled tiers ──────────────────────────────────
       // Tier 1 — up to 3 new bullets (2 kw each), moderate Skills
       { technical: 6, management: 4, domain: 3, soft: 2, wePositions: 3, weKwPerBullet: 2, weInlineAppends: 4 },
@@ -265,7 +336,15 @@ export async function POST(req: NextRequest) {
     try {
       for (let i = 0; i < attempts.length; i++) {
         const budget = attempts[i];
-        const result = await tryGenerate({ byCategory, budget, jdCorpus });
+        const result = await tryGenerate({
+          byCategory,
+          budget,
+          jdCorpus,
+          suggestionDomainItems,
+          suggestionInsertion,
+          suggestionReplaces,
+          suggestionExtraSkills,
+        });
 
         // Track the best-so-far: prefer a version that fits on 1 page, and
         // among those (or among overflow candidates), the one with the
@@ -286,7 +365,17 @@ export async function POST(req: NextRequest) {
             `Added: ${result.addedWeBullets} new work-experience bullet(s). ` +
             `Score: ${result.modifiedScore}% (baseline ${originalScore.overall}%)`
           );
-          return serveTailored(result, format, userName, details.length);
+          // Balance pass — measures the PDF's actual top/bottom text
+          // bounds and shifts the docx top margin to make visible
+          // whitespace symmetric. Same algorithm the single-job
+          // route uses; verifies still-1-page after re-render and
+          // reverts to the unbalanced version if the shift somehow
+          // overflows.
+          const balanced = await balanceWhitespace(result.docx, result.pdf);
+          return serveTailored(
+            { ...result, docx: balanced.docx, pdf: balanced.pdf },
+            format, userName, details.length,
+          );
         }
       }
 
@@ -355,8 +444,32 @@ async function tryGenerate(args: {
   byCategory: Record<Category, string[]>;
   budget: BudgetWithWE;
   jdCorpus: string;
+  /** From accepted suggestions — folded into the domain pool of
+   *  buildSummaryPhrase so they land in the templated sentence
+   *  rather than tacking on "Currently focused on X." stubs. */
+  suggestionDomainItems: string[];
+  /** From accepted suggestions — standalone-prose appends for the
+   *  Summary (years claim, mirror-title fallback). Pre-formatted
+   *  with leading space + trailing punctuation. */
+  suggestionInsertion: string;
+  /** From accepted replace-text suggestions — applied as a docx
+   *  XML find/replace pre-pass before keyword injection. */
+  suggestionReplaces: { oldText: string; newText: string }[];
+  /** From accepted append-skills suggestions — appended to the
+   *  matching Skills category line. */
+  suggestionExtraSkills: {
+    cloudStack: string[]; systems: string[]; management: string[]; domain: string[];
+  };
 }): Promise<GenerationResult> {
-  const { byCategory, budget, jdCorpus } = args;
+  const {
+    byCategory,
+    budget,
+    jdCorpus,
+    suggestionDomainItems,
+    suggestionInsertion,
+    suggestionReplaces,
+    suggestionExtraSkills,
+  } = args;
 
   // Apply budget — keep the top N by frequency (list is already frequency-ordered).
   const missing: Record<Category, string[]> = {
@@ -366,13 +479,25 @@ async function tryGenerate(args: {
     soft: byCategory.soft.slice(0, budget.soft),
   };
 
-  // Build a natural summary phrase from a tight set of domain + soft keywords.
-  // Max 3 domains + 2 softs keeps the phrase to one sentence — prevents the
-  // summary paragraph from wrapping and pushing the resume to 2 pages.
-  const summaryPhrase = buildSummaryPhrase(
-    missing.domain.slice(0, 3),
-    missing.soft.slice(0, 2)
-  );
+  // Pool ALL domain-flavored items (missing-keyword domain + accepted
+  // suggestion domain phrases) into a single bucket so they land in
+  // ONE coherent buildSummaryPhrase template instead of stacking
+  // "Currently focused on X" stubs. Same dedup rule as single-job
+  // route. Cap at 3 domains + 2 softs to keep the sentence one line.
+  const dedupKey = new Set<string>();
+  const pooledDomain: string[] = [];
+  const pushUnique = (s: string) => {
+    const k = s.toLowerCase().trim();
+    if (!k || dedupKey.has(k)) return;
+    dedupKey.add(k);
+    pooledDomain.push(s);
+  };
+  for (const d of missing.domain.slice(0, 3)) pushUnique(d);
+  for (const d of suggestionDomainItems) pushUnique(d);
+
+  const summaryPhrase =
+    buildSummaryPhrase(pooledDomain.slice(0, 5), missing.soft.slice(0, 2)) +
+    suggestionInsertion;
 
   const docxResult = await editDocxTemplate(missing, summaryPhrase, {
     jdContent: jdCorpus,
@@ -381,6 +506,8 @@ async function tryGenerate(args: {
       maxKeywordsPerBullet: budget.weKwPerBullet,
       maxInlineAppends: budget.weInlineAppends,
     },
+    replaceTexts: suggestionReplaces,
+    extraSkills: suggestionExtraSkills,
   });
 
   // Count WE bullets we actually inserted at this tier — the editor
@@ -526,4 +653,89 @@ async function convertDocxToPdf(docxBuffer: Buffer): Promise<Buffer> {
     const { rmdir } = await import('fs/promises');
     await rmdir(tmpDir).catch(() => {});
   }
+}
+
+/**
+ * Balance the rendered page's top vs bottom whitespace.
+ *
+ * Same algorithm the single-job /api/tailor-resume route uses:
+ * LibreOffice ignores `<w:vAlign w:val="center"/>` on `<w:sectPr>`
+ * (Word respects it; LO has had patchy support for years), so a
+ * 1-page-fit resume typically lands top-aligned with a fat strip of
+ * empty space at the bottom. We measure where text actually rendered
+ * in the PDF and shift the docx's TOP page margin so visible
+ * whitespace is symmetric.
+ *
+ * Shift formula (derived in the single-job route's comments):
+ *   ΔX = ((bottomGap − topGap) + ASC_DESC) / 2
+ * Where ASC_DESC ≈ 7pt accounts for the body font's
+ * ascender-vs-descender asymmetry that makes baseline-balanced
+ * output look top-heavy. After applying we re-render and verify
+ * still 1 page; revert otherwise.
+ */
+async function balanceWhitespace(
+  docx: Buffer,
+  pdf: Buffer,
+): Promise<{ docx: Buffer; pdf: Buffer }> {
+  const bounds = measurePdfTextBounds(pdf);
+  if (!bounds) return { docx, pdf };
+  const contentHeight = bounds.maxY - bounds.minY;
+  if (contentHeight <= 0 || contentHeight >= bounds.pageHeight) {
+    return { docx, pdf };
+  }
+
+  const ASC_DESC_PT = 7;
+  const shiftPt = (bounds.bottomGap - bounds.topGap + ASC_DESC_PT) / 2;
+  const shiftTwips = Math.round(shiftPt * 20);
+  if (Math.abs(shiftTwips) < 30) return { docx, pdf };
+
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docx);
+  const docXmlFile = zip.file('word/document.xml');
+  if (!docXmlFile) return { docx, pdf };
+  const xml = await docXmlFile.async('string');
+  const pgMarMatch = xml.match(/<w:pgMar\s[^/]*\/>/);
+  if (!pgMarMatch) return { docx, pdf };
+  const topRead = pgMarMatch[0].match(/w:top="(\d+)"/);
+  const bottomRead = pgMarMatch[0].match(/w:bottom="(\d+)"/);
+  const curTop = topRead ? parseInt(topRead[1], 10) : 300;
+  const curBottom = bottomRead ? parseInt(bottomRead[1], 10) : 300;
+
+  const FLOOR = 40;
+  const newTop = Math.max(FLOOR, curTop + shiftTwips);
+
+  // Page is 15840 twips (US Letter). Leave a 200-twip buffer beyond
+  // contentHeight so cross-render variance doesn't push to page 2.
+  const pageHeightTwips = Math.round(bounds.pageHeight * 20);
+  const contentTwips = Math.round(contentHeight * 20);
+  const SAFETY_TWIPS = 200;
+  let newBottom = curBottom;
+  const total = newTop + newBottom + contentTwips + SAFETY_TWIPS;
+  if (total > pageHeightTwips) {
+    newBottom = Math.max(FLOOR, pageHeightTwips - newTop - contentTwips - SAFETY_TWIPS);
+  }
+
+  const newPgMar = pgMarMatch[0]
+    .replace(/w:top="\d+"/, `w:top="${newTop}"`)
+    .replace(/w:bottom="\d+"/, `w:bottom="${newBottom}"`);
+  const newXml = xml.replace(pgMarMatch[0], newPgMar);
+  zip.file('word/document.xml', newXml);
+  const newDocx: Buffer = Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+  const newPdf = await convertDocxToPdf(newDocx);
+
+  if (countPdfPages(newPdf) > 1) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `Multi-tailor: balance pass overflowed to ${countPdfPages(newPdf)} pages — reverting.`,
+    );
+    return { docx, pdf };
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `Multi-tailor: balanced whitespace — margins ${curTop}/${curBottom} → ${newTop}/${newBottom} twips ` +
+    `(was top ${bounds.topGap.toFixed(1)}pt vs bottom ${bounds.bottomGap.toFixed(1)}pt).`,
+  );
+  return { docx: newDocx, pdf: newPdf };
 }

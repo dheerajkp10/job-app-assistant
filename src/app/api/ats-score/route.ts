@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
     management: score.management,
     domain: score.domain,
     soft: score.soft,
+    phrases: score.phrases,
     matchedCount: score.totalMatched,
     totalCount: score.totalJdKeywords,
     scoredAt: new Date().toISOString(),

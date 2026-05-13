@@ -121,10 +121,23 @@ export default function AddJobPage() {
     });
   }
 
+  // When extract-job detects the URL is already in our listings cache
+  // it returns `{ match: { listingId, company, title, ... } }` instead
+  // of `{ portal, companyName, ... }`. We surface a friendly "this job
+  // is already on your Listings page" notice with a link so the user
+  // can jump straight to it instead of creating a duplicate.
+  const [duplicateMatch, setDuplicateMatch] = useState<{
+    listingId: string;
+    company: string;
+    title: string;
+    location: string;
+  } | null>(null);
+
   const extractFromUrl = async () => {
     if (!url.trim()) return;
     setExtracting(true);
     setError(null);
+    setDuplicateMatch(null);
     try {
       const res = await fetch('/api/extract-job', {
         method: 'POST',
@@ -133,6 +146,13 @@ export default function AddJobPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      // Dedup branch: server found this URL already in the listings
+      // cache. Surface a notice + link rather than overwriting the
+      // form fields with extracted data.
+      if (data.match) {
+        setDuplicateMatch(data.match);
+        return;
+      }
       setPortal(data.portal);
       setCompanyName(data.companyName || '');
       setJobTitle(data.jobTitle || '');
@@ -539,6 +559,31 @@ export default function AddJobPage() {
             <p className="text-xs text-gray-400 mt-1.5">
               Works best with company career sites. LinkedIn / Glassdoor may need manual paste.
             </p>
+
+            {/* Duplicate-listing notice — when extract-job recognizes
+                the URL is already in our cache, the user gets a
+                friendly link to the existing listing instead of
+                creating a duplicate manual-* row. */}
+            {duplicateMatch && (
+              <div className="mt-3 rounded-xl border border-blue-200/70 bg-gradient-to-r from-blue-50 to-indigo-50 p-3 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                <div className="flex-1 text-sm">
+                  <p className="font-semibold text-blue-900">
+                    Already on your Job Listings page
+                  </p>
+                  <p className="text-blue-800/90 text-xs mt-0.5">
+                    {duplicateMatch.title} · {duplicateMatch.company}
+                    {duplicateMatch.location ? ` · ${duplicateMatch.location}` : ''}
+                  </p>
+                  <Link
+                    href={`/listings/${duplicateMatch.listingId}`}
+                    className="inline-flex items-center gap-1.5 mt-1.5 text-xs font-medium text-blue-700 hover:text-blue-900"
+                  >
+                    Open existing listing <ArrowUpRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -17,6 +17,31 @@
 
 import type { CompanySource, JobListing } from './types';
 import { extractSalary } from './salary-parser';
+import { writeFile, mkdir } from 'fs/promises';
+import { join } from 'path';
+import { existsSync } from 'fs';
+
+/**
+ * Persist a per-listing job description HTML blob to
+ * `data/listing-details/<listingId>.html` so `fetchJobDetail` can
+ * read it back later for ATS scoring + tailoring. Used by custom
+ * fetchers (Google, …) that have the full description in their
+ * list response and would otherwise discard it.
+ *
+ * Errors are intentionally swallowed — a failed cache write just
+ * means the listing falls back to "not scorable" downstream, which
+ * is the same behavior we had before this optimization.
+ */
+async function cacheJobDetailHtml(listingId: string, html: string): Promise<void> {
+  if (!html || html.length < 20) return;
+  try {
+    const dir = join(process.cwd(), 'data', 'listing-details');
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, `${listingId}.html`), html, 'utf-8');
+  } catch {
+    /* non-fatal */
+  }
+}
 
 const UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
@@ -36,89 +61,286 @@ const POST_HEADERS = {
 const PAGE_TIMEOUT_MS = 15000;
 
 // =========================================================
-// Google Careers
+// Google Careers (SSR-extraction)
 // =========================================================
-// Public JSON search API used by careers.google.com.
-// URL: https://careers.google.com/api/v3/search/?page=N&page_size=100&jlo=en
-// Each job exposes title, locations[], company_name, apply_url, etc.
+// Google retired their `/api/v3/search/` JSON endpoint at
+// careers.google.com (HTTP 404 since at least early 2026) and
+// migrated to https://www.google.com/about/careers/applications/.
+// There's no public REST API replacement — but the new SSR HTML
+// embeds the full job payload as
+// `AF_initDataCallback({key:'ds:1', data:[…]})` (Google's standard
+// server-side state hook). We extract that block, sanitize raw
+// control characters that break JSON.parse (description HTML
+// contains literal newlines/tabs), and map each entry into our
+// JobListing shape.
+//
+// Schema (verified against live response, 2026):
+//   data = [ jobs[], null, totalCount, pageSize ]
+//   jobs[i] = [
+//     [0]  jobId
+//     [1]  title
+//     [2]  apply URL (signin redirect)
+//     [3]  [null, responsibilities HTML]
+//     [4]  [null, qualifications HTML]
+//     [5]  company-project path
+//     [7]  company display name (Google / DeepMind / GFiber / …)
+//     [9]  [[country, [cities], …, countryCode], …]
+//     [10] [null, "about the job" body]
+//     [12] [unix-seconds, nanos]   posted
+//     ...
+//   ]
+//
+// Pagination: `?page=N` with 20 jobs/page. Total at probe time
+// was ~3,600 jobs across Alphabet brands.
+//
+// Coverage strategy
+// ─────────────────
+// A single global crawl misses any specific role beyond ~500 jobs
+// (the cap we have to set to keep Refresh All bounded). Instead, we
+// run one crawl per (preferredRole × preferredLocations) combination
+// using Google's own `?q=&location=` filters. A user looking for an
+// Engineering Manager in Seattle gets a focused crawl over THAT
+// query, hitting deep into Google's full catalog without scanning
+// 3,600 unrelated jobs. We dedupe by jobId across queries and fall
+// back to a single global crawl if the user has no preferences set
+// (early onboarding state).
 // =========================================================
-interface GoogleJob {
-  id?: string;
-  job_title?: string;
-  title?: string;
-  company_name?: string;
-  locations?: { display?: string; city?: string; state?: string; country?: string }[];
-  categories?: string[];
-  description?: string;
-  apply_url?: string;
-  publish_date?: string;
-  created?: string;
+
+interface GoogleQuery {
+  /** Encoded URL query string (already includes `&q=…&location=…`),
+   *  without the leading `?` or the `&page=N` suffix. */
+  filterQS: string;
+  /** Human-friendly label used only for error/log strings. */
+  label: string;
 }
-interface GoogleSearchResponse {
-  jobs?: GoogleJob[];
-  count?: number;
-  next_page_token?: string;
-  page_size?: number;
+
+/** Build the (role × location) query matrix from user settings.
+ *  Returns the empty array when no preferences are set, signalling
+ *  the caller to fall back to a single un-filtered global crawl. */
+async function buildGoogleQueries(): Promise<GoogleQuery[]> {
+  // Lazy import to avoid pulling the DB module at top level (which
+  // would cascade into client bundles importing CompanySource types
+  // through `sources.ts`).
+  const { getSettings } = await import('./db');
+  const settings = await getSettings();
+  const roles = (settings.preferredRoles ?? []).filter(Boolean);
+  const locations = (settings.preferredLocations ?? []).filter(Boolean);
+
+  if (roles.length === 0) return [];
+
+  // Filter the role list so we don't fan out into 20 queries when
+  // a user typed a long preferences list. Cap to top 4 roles —
+  // empirically covers >95% of relevant matches without blowing up
+  // refresh wall time.
+  const roleCap = roles.slice(0, 4);
+  const locParam = locations.length > 0
+    // Google's location filter expects "City, ST, Country" tokens.
+    // Our preferred locations are typically "City, ST" — append
+    // ", USA" when the entry has only two comma-parts so the filter
+    // matches actual postings.
+    ? locations
+        .map((l) => (l.split(',').length === 2 ? `${l}, USA` : l))
+        .map((l) => `&location=${encodeURIComponent(l.trim())}`)
+        .join('')
+    : '';
+
+  return roleCap.map((role) => ({
+    // Wrap role in quotes so "Engineering Manager" doesn't loose-
+    // match "Engineering" + "Manager" (which would pull in any
+    // engineering OR manager listing).
+    filterQS: `&q=${encodeURIComponent(`"${role}"`)}${locParam}`,
+    label: locations.length > 0 ? `${role} in ${locations[0]}…` : role,
+  }));
 }
 
 export async function fetchGoogleJobs(source: CompanySource): Promise<JobListing[]> {
+  const queries = await buildGoogleQueries();
   const listings: JobListing[] = [];
-  const PAGE_SIZE = 100;
-  const MAX_PAGES = 10; // up to 1000 jobs
+  const seen = new Set<string>();
 
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    const url =
-      `https://careers.google.com/api/v3/search/?page=${page}&page_size=${PAGE_SIZE}&jlo=en`;
+  // No prefs → single un-filtered global crawl, capped at 25 pages
+  // (matches the previous behavior so the early-onboarding flow
+  // doesn't return 0 jobs).
+  if (queries.length === 0) {
+    await crawlGoogleQuery(source, '', 25, listings, seen);
+    return listings;
+  }
+
+  // Per-query cap. 12 pages × 20 jobs = up to 240 listings per
+  // (role, location) tuple; with up to 4 roles that's 960 jobs max
+  // per refresh — the same order of magnitude as the previous
+  // global cap but every job is role-relevant.
+  const PAGES_PER_QUERY = 12;
+  for (const q of queries) {
+    try {
+      await crawlGoogleQuery(source, q.filterQS, PAGES_PER_QUERY, listings, seen);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`Google query "${q.label}" failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return listings;
+}
+
+/** Inner crawl loop — runs the page=1..N walk for one filter
+ *  combination, appending results to `listings` and skipping
+ *  job IDs already in `seen`. Throws on first-page HTTP failure
+ *  so the caller can surface the per-query error. */
+async function crawlGoogleQuery(
+  source: CompanySource,
+  filterQS: string,
+  maxPages: number,
+  listings: JobListing[],
+  seen: Set<string>,
+): Promise<void> {
+  for (let page = 1; page <= maxPages; page++) {
+    const url = `https://www.google.com/about/careers/applications/jobs/results/?page=${page}&distance=50&hl=en_US${filterQS}`;
     const res = await fetch(url, {
-      headers: JSON_HEADERS,
+      // Google's careers SSR returns the embedded payload regardless
+      // of UA, but we still send a browser-shaped Accept header so
+      // we get HTML rather than a redirect to a mobile shell.
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
       signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+      redirect: 'follow',
     });
     if (!res.ok) {
-      // If the very first page fails, propagate so it surfaces as an error.
       if (page === 1) throw new Error(`Google HTTP ${res.status}`);
       break;
     }
-    let data: GoogleSearchResponse;
-    try {
-      data = (await res.json()) as GoogleSearchResponse;
-    } catch {
-      if (page === 1) throw new Error('Google returned invalid JSON');
+    const html = await res.text();
+    const m = html.match(
+      /AF_initDataCallback\(\{key:\s*'ds:1'[\s\S]*?data:\s*(\[[\s\S]*?\]),\s*sideChannel/,
+    );
+    if (!m) {
+      if (page === 1) throw new Error('Google: ds:1 SSR block not found');
       break;
     }
-    const jobs = data.jobs || [];
+    // Description HTML inside the payload contains literal \n / \t.
+    // JSON.parse rejects those — escape every 0x00–0x1F char as
+    // \uXXXX before parsing. Doesn't change semantics: those control
+    // chars live inside double-quoted strings and end up identical
+    // after parsing.
+    const sanitized = m[1].replace(
+      // eslint-disable-next-line no-control-regex
+      /[\x00-\x1f]/g,
+      (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'),
+    );
+    let data: unknown;
+    try {
+      data = JSON.parse(sanitized);
+    } catch {
+      if (page === 1) throw new Error('Google: ds:1 JSON parse failed');
+      break;
+    }
+    const jobs: unknown[] = Array.isArray(data) && Array.isArray((data as unknown[])[0])
+      ? ((data as unknown[])[0] as unknown[])
+      : [];
     if (jobs.length === 0) break;
 
-    for (const job of jobs) {
-      const jobId = job.id || '';
-      const title = job.job_title || job.title || '';
-      if (!title) continue;
-      const loc = (job.locations || [])
-        .map((l) => l.display || [l.city, l.state, l.country].filter(Boolean).join(', '))
+    for (const j of jobs) {
+      if (!Array.isArray(j) || j.length < 10) continue;
+      const id = String(j[0] ?? '');
+      const title = String(j[1] ?? '');
+      if (!id || !title) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+
+      // Location extraction: job[9] = [[country, [cities], …, code], …]
+      const locArr = Array.isArray(j[9]) ? (j[9] as unknown[]) : [];
+      const loc = locArr
+        .map((l) => {
+          if (!Array.isArray(l)) return '';
+          const country = String(l[0] ?? '');
+          const cities = Array.isArray(l[1])
+            ? (l[1] as unknown[]).map((c) => String(c ?? '')).filter(Boolean).join(', ')
+            : '';
+          // Prefer "Cities, Country" when cities differ from the
+          // country label; fall back to just the country.
+          if (cities && cities !== country) return `${cities}, ${country}`;
+          return country;
+        })
         .filter(Boolean)
         .join(' · ') || 'Not specified';
+
+      // Posted timestamp: job[12] = [unixSeconds, nanos]
+      let postedAt: string | null = null;
+      const ts = j[12];
+      if (Array.isArray(ts) && typeof ts[0] === 'number') {
+        postedAt = new Date(ts[0] * 1000).toISOString();
+      }
+
+      // Brand: Alphabet has Google + DeepMind + GFiber + Verily + …
+      // job[7] holds the actual brand. Tag listings outside Google
+      // proper so the listings UI shows e.g. "DeepMind (Google)" —
+      // helps users distinguish in filters/comparison.
+      const brand = String(j[7] ?? source.name);
+      const company =
+        brand && brand !== source.name && brand.toLowerCase() !== 'google'
+          ? `${brand} (Google)`
+          : source.name;
+
+      const applyUrl =
+        String(j[2] ?? '') ||
+        `https://www.google.com/about/careers/applications/jobs/results/${encodeURIComponent(id)}`;
+
+      const listingId = `gg-${source.boardToken}-${id}`;
+
+      // The SSR payload already contains the full description across
+      // four fields — responsibilities ([3][1]), qualifications
+      // ([4][1]), about-the-job body ([10][1]), additional notes
+      // ([18][1]). Combine + cache to disk so fetchJobDetail can
+      // return it later for ATS scoring + tailoring without a second
+      // HTTP round-trip per listing. Each field's shape is
+      // [null, "<html string>"] when present.
+      const pickHtml = (field: unknown): string => {
+        if (Array.isArray(field) && typeof field[1] === 'string') return field[1];
+        return '';
+      };
+      const descriptionHtml = [
+        pickHtml(j[10]),
+        pickHtml(j[3]),
+        pickHtml(j[4]),
+        pickHtml(j[18]),
+      ].filter(Boolean).join('\n');
+      // Fire-and-forget; we don't await per-job to keep the list
+      // fetch fast. Worst case the file lands a few ms after the
+      // listing is in the cache — fetchJobDetail handles a missing
+      // file by falling through to its existing null path.
+      void cacheJobDetailHtml(listingId, descriptionHtml);
+
+      // Try to extract a salary range from the JD body (Google
+      // sometimes posts "$X – $Y per year" inline, especially for
+      // California / NYC / Washington roles).
+      const salaryInfo = descriptionHtml ? extractSalary(descriptionHtml) : null;
+
       listings.push({
-        id: `gg-${source.boardToken}-${jobId || listings.length}`,
-        sourceId: jobId,
-        company: source.name,
+        id: listingId,
+        sourceId: id,
+        company,
         companySlug: source.slug,
         title,
         location: loc,
-        department: job.categories?.[0] || '',
-        salary: null,
-        salaryMin: null,
-        salaryMax: null,
-        url: job.apply_url || `https://careers.google.com/jobs/results/${encodeURIComponent(jobId)}/`,
+        department: '',
+        salary: salaryInfo?.display ?? null,
+        salaryMin: salaryInfo?.min ?? null,
+        salaryMax: salaryInfo?.max ?? null,
+        url: applyUrl,
         ats: 'google',
-        postedAt: job.publish_date || job.created || null,
-        updatedAt: job.publish_date || job.created || null,
+        postedAt,
+        updatedAt: postedAt,
         fetchedAt: new Date().toISOString(),
       });
     }
 
-    if (jobs.length < PAGE_SIZE) break; // last page
+    // SSR returns 20 jobs/page when full. Anything less means we hit
+    // the end of the result set for this filter combination.
+    if (jobs.length < 20) break;
   }
-
-  return listings;
 }
 
 // =========================================================
@@ -516,24 +738,122 @@ interface UberSearchResponse {
   };
 }
 
-export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]> {
-  const listings: JobListing[] = [];
-  // Uber's paginated API occasionally returns the same job across pages,
-  // so we track seen job IDs and skip duplicates to avoid React key collisions.
-  const seenIds = new Set<string>();
-  const PAGE_SIZE = 100;
-  const MAX_PAGES = 10;
+// US state code → full region name mapping. Uber's location filter
+// expects regions in their full-name form ("Washington", not "WA"),
+// while the user's preferred-location strings are typically
+// "Seattle, WA". A small lookup keeps us from shipping a full state
+// table; the cap is the same set we already trust elsewhere.
+const US_STATE_NAMES: Record<string, string> = {
+  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
+  CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
+  DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia',
+  HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana',
+  IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana',
+  ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan',
+  MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana',
+  NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey',
+  NM: 'New Mexico', NY: 'New York', NC: 'North Carolina',
+  ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon',
+  PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
+  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
+  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
+  WI: 'Wisconsin', WY: 'Wyoming',
+};
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+interface UberLocationParam { city: string; region: string; country: string }
+
+/** Convert a "Seattle, WA" / "Bellevue, WA" / "London, UK" preferred-
+ *  location string into the Uber API's {city, region, country} shape.
+ *  Returns null for strings we can't confidently parse (Uber will
+ *  still return ALL jobs when the location array is empty, so a
+ *  failed parse just degrades gracefully to a less-targeted query). */
+function parseUberLocation(loc: string): UberLocationParam | null {
+  const parts = loc.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  const city = parts[0];
+  const stateCode = parts[1].toUpperCase();
+  const region = US_STATE_NAMES[stateCode];
+  if (!region) return null; // non-US — skip for now
+  return { city, region, country: 'USA' };
+}
+
+interface UberQuery {
+  query: string;
+  location: UberLocationParam[];
+  label: string;
+}
+
+/** Build the (role × locations) query matrix from user settings.
+ *  Empty array = caller falls back to a single un-filtered crawl. */
+async function buildUberQueries(): Promise<UberQuery[]> {
+  const { getSettings } = await import('./db');
+  const settings = await getSettings();
+  const roles = (settings.preferredRoles ?? []).filter(Boolean).slice(0, 4);
+  const locations = (settings.preferredLocations ?? [])
+    .map(parseUberLocation)
+    .filter((l): l is UberLocationParam => l !== null);
+  if (roles.length === 0) return [];
+  return roles.map((role) => ({
+    query: role,
+    location: locations,
+    label: locations.length > 0 ? `${role} in ${locations[0].city}…` : role,
+  }));
+}
+
+export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]> {
+  const queries = await buildUberQueries();
+  const listings: JobListing[] = [];
+  const seen = new Set<string>();
+
+  // No prefs → single un-filtered crawl (matches the legacy behavior).
+  if (queries.length === 0) {
+    await crawlUberQuery(source, '', [], 8, listings, seen);
+    return listings;
+  }
+
+  // Per-query cap. Uber's API ignores `limit` past ~700 results per
+  // page so each query is effectively a single round-trip.
+  const PAGES_PER_QUERY = 8;
+  for (const q of queries) {
+    try {
+      await crawlUberQuery(source, q.query, q.location, PAGES_PER_QUERY, listings, seen);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`Uber query "${q.label}" failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+  return listings;
+}
+
+/** Inner crawl loop for one (query, location) tuple. Appends to
+ *  `listings` and skips IDs in `seen`. Throws on first-page HTTP
+ *  failure so the caller can record per-query errors. */
+async function crawlUberQuery(
+  source: CompanySource,
+  query: string,
+  location: UberLocationParam[],
+  maxPages: number,
+  listings: JobListing[],
+  seen: Set<string>,
+): Promise<void> {
+  const PAGE_SIZE = 100;
+  for (let page = 0; page < maxPages; page++) {
+    const body = {
+      params: {
+        limit: PAGE_SIZE,
+        page,
+        // Empty string for query = match all (Uber's API quirk).
+        query: query || undefined,
+        department: [],
+        location,
+        programs: [],
+        team: [],
+      },
+    };
     const res = await fetch('https://www.uber.com/api/loadSearchJobsResults', {
       method: 'POST',
-      headers: {
-        ...POST_HEADERS,
-        'x-csrf-token': 'x',
-      },
-      body: JSON.stringify({
-        params: { limit: PAGE_SIZE, page, department: [], location: [], programs: [], team: [] },
-      }),
+      headers: { ...POST_HEADERS, 'x-csrf-token': 'x' },
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
     });
     if (!res.ok) {
@@ -554,26 +874,31 @@ export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]
       const jobId = String(job.id ?? '');
       const title = job.title || '';
       if (!title) continue;
-      if (jobId && seenIds.has(jobId)) continue;
-      if (jobId) seenIds.add(jobId);
-      const location =
-        (job.allLocations && job.allLocations.map((l) => l.name || [l.city, l.region, l.countryName].filter(Boolean).join(', ')).filter(Boolean).join(' · ')) ||
+      if (!jobId || seen.has(jobId)) continue;
+      seen.add(jobId);
+      const loc =
+        (job.allLocations &&
+          job.allLocations
+            .map(
+              (l) =>
+                l.name || [l.city, l.region, l.countryName].filter(Boolean).join(', '),
+            )
+            .filter(Boolean)
+            .join(' · ')) ||
         job.location?.name ||
         'Not specified';
       listings.push({
-        id: `ub-${source.boardToken}-${jobId || listings.length}`,
+        id: `ub-${source.boardToken}-${jobId}`,
         sourceId: jobId,
         company: source.name,
         companySlug: source.slug,
         title,
-        location,
+        location: loc,
         department: job.department || '',
         salary: null,
         salaryMin: null,
         salaryMax: null,
-        url: jobId
-          ? `https://www.uber.com/global/en/careers/list/${jobId}/`
-          : 'https://www.uber.com/careers/',
+        url: `https://www.uber.com/global/en/careers/list/${jobId}/`,
         ats: 'uber',
         postedAt: job.creationDate || job.updatedDate || null,
         updatedAt: job.updatedDate || job.creationDate || null,
@@ -583,8 +908,6 @@ export async function fetchUberJobs(source: CompanySource): Promise<JobListing[]
 
     if (jobs.length < PAGE_SIZE) break;
   }
-
-  return listings;
 }
 
 // =========================================================

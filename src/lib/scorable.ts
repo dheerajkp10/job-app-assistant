@@ -8,11 +8,13 @@ import type { ATSType } from './types';
  * components can import it without pulling in Node-only fetchers.
  */
 export function isUnscorableAts(ats: ATSType): boolean {
-  // Apple and Uber are scorable: fetchJobDetail() pulls the full JD
-  // for each (Apple via Puppeteer, Uber via embedded JSON on the
-  // single-job page), so ATS scoring + tailoring work for both.
+  // Scorable: greenhouse, lever, ashby, eightfold, apple (via
+  // Puppeteer), uber (via single-job-page scrape), AND google (the
+  // SSR-embedded payload from the new careers site contains the
+  // full description; fetchGoogleJobs caches it to disk during the
+  // list pass, so fetchJobDetail can read it back without a second
+  // HTTP call).
   return (
-    ats === 'google' ||
     ats === 'microsoft' ||
     ats === 'amazon' ||
     ats === 'meta' ||

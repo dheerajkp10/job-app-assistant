@@ -1,15 +1,17 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import {
   Search, RefreshCw, MapPin, Calendar, Building2, ExternalLink,
-  DollarSign, Filter, ChevronDown, ChevronUp, Loader2, AlertCircle,
+  DollarSign, Filter, ChevronDown, ChevronUp, ChevronRight, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
-  Tag, EyeOff, Eye, Globe, Sparkles, Check,
+  Tag, EyeOff, Eye, Globe, Sparkles, Check, Users,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
+import { CompanyLogo } from '@/components/company-logo';
 import { Button, Card, Chip } from '@heroui/react';
 import { filterByUserPreferences } from '@/lib/role-filter';
 import { isWorkAuthorized } from '@/lib/work-auth-filter';
@@ -20,6 +22,7 @@ import {
   isExcludedCompany,
 } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
+import { buildLocationMatcher } from '@/lib/location-match';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
@@ -54,135 +57,24 @@ function formatPostedDate(iso: string | null | undefined): string | null {
 
 /**
  * Returns true if the listing was posted (or, when the posting date is
- * unknown, fetched into the system) within the last 48 hours.
- * Used to render the "New" badge.
+ * unknown, fetched into the system) within the last 72 hours (3 days).
+ * Used to render the "New" badge. Bumped from 48h because most job
+ * boards don't update postedAt for ~24h after publication, so the
+ * old 48h window was effectively a 24h "freshly-fetched" window.
  */
 function isRecentlyPosted(listing: { postedAt: string | null; fetchedAt: string }): boolean {
   const ref = listing.postedAt || listing.fetchedAt;
   const ms = Date.parse(ref);
   if (isNaN(ms)) return false;
-  return Date.now() - ms < 48 * 60 * 60 * 1000;
+  return Date.now() - ms < 72 * 60 * 60 * 1000;
 }
 
 // ─── Location matching (preference-driven) ──────────────────────────
-// Falls back to Washington/Remote when user has no preferences set.
-
-const WA_PATTERNS = [
-  'seattle', 'bellevue', 'kirkland', 'redmond', 'tacoma', 'spokane',
-  'olympia', 'everett', 'renton', 'kent', 'bothell', 'woodinville',
-  'issaquah', 'sammamish', 'mercer island', 'tukwila', 'lynnwood',
-  'washington', ', wa',
-];
-const REMOTE_PATTERNS = ['remote'];
-
-function isWashingtonOrRemote(location: string): boolean {
-  const loc = location.toLowerCase();
-  return (
-    WA_PATTERNS.some((p) => loc.includes(p)) ||
-    REMOTE_PATTERNS.some((p) => loc.includes(p))
-  );
-}
-
-/**
- * US state abbreviation → full name. Used so a preferred location like
- * "Seattle, WA" also matches other listings in Washington (Bellevue,
- * Kirkland, Redmond, Tacoma, etc.) via the state code / state name.
- * Includes DC for completeness.
- */
-const US_STATES: Record<string, string> = {
-  AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas',
-  CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware',
-  FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho',
-  IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas',
-  KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland',
-  MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi',
-  MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada',
-  NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York',
-  NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma',
-  OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina',
-  SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah',
-  VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia',
-  WI: 'Wisconsin', WY: 'Wyoming', DC: 'District of Columbia',
-};
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-/**
- * Build location matcher from the user's preferred locations.
- *
- * For each preferred "City, ST" we match (OR) on:
- *   1. the city name    — e.g. "Seattle" matches "Seattle, WA"
- *   2. the state code   — e.g. "WA" matches any job whose location contains ", WA"
- *                         so picking Seattle/Bellevue/Kirkland also pulls in
- *                         Redmond, Tacoma, Everett, etc.
- *   3. "Remote"         — when the user explicitly listed Remote as a preference
- *
- * All matches use word boundaries. This fixes a bug where a naive
- * substring check on "wa" made Warsaw (Poland) show up as a match for
- * WA-state preferences because "warsaw" literally contains "wa".
- *
- * We deliberately do NOT match the full state name ("Washington") to
- * avoid the well-known "Washington, DC" false positive. State codes are
- * the standard job-board format anyway.
- */
-function buildLocationMatcher(preferredLocations: string[]): (location: string) => boolean {
-  if (!preferredLocations || preferredLocations.length === 0) {
-    return isWashingtonOrRemote;
-  }
-
-  const cityPatterns: RegExp[] = [];
-  const statePatterns: RegExp[] = [];
-  const seenCities = new Set<string>();
-  const seenStates = new Set<string>();
-  let matchRemote = false;
-
-  for (const loc of preferredLocations) {
-    const trimmed = (loc || '').trim();
-    if (!trimmed) continue;
-    const lower = trimmed.toLowerCase();
-
-    // Treat anything labeled as Remote as a remote preference. Covers
-    // bare "Remote" as well as "Remote - US" style strings.
-    if (lower === 'remote' || lower.includes('remote')) {
-      matchRemote = true;
-      if (lower === 'remote') continue;
-    }
-
-    // Parse "City, ST" (or "City, State, Country" — we take first & last parts).
-    const parts = trimmed.split(',').map((p) => p.trim()).filter(Boolean);
-    if (parts.length === 0) continue;
-
-    const cityRaw = parts[0];
-    const stateRaw = parts.length > 1 ? parts[parts.length - 1] : '';
-
-    // City: word-boundary match on the full city name (handles "New York",
-    // "San Francisco", "Mercer Island", etc.). Skips tokens shorter than
-    // 2 chars, which aren't meaningful.
-    const cityKey = cityRaw.toLowerCase();
-    if (cityRaw.length >= 2 && !seenCities.has(cityKey)) {
-      seenCities.add(cityKey);
-      cityPatterns.push(new RegExp(`\\b${escapeRegex(cityKey)}\\b`, 'i'));
-    }
-
-    // State code: `\b${code}\b` matches "Seattle, WA" / "Hybrid - WA" /
-    // "WA (Remote)" but NOT "Warsaw" (no word boundary after the "wa").
-    const stateCode = stateRaw.toUpperCase();
-    if (US_STATES[stateCode] && !seenStates.has(stateCode)) {
-      seenStates.add(stateCode);
-      statePatterns.push(new RegExp(`\\b${stateCode}\\b`, 'i'));
-    }
-  }
-
-  return (location: string) => {
-    if (!location) return false;
-    if (matchRemote && /\bremote\b/i.test(location)) return true;
-    for (const p of cityPatterns) if (p.test(location)) return true;
-    for (const p of statePatterns) if (p.test(location)) return true;
-    return false;
-  };
-}
+// Replaced the old substring-pattern matcher with the synonym-aware
+// one in `src/lib/location-match.ts`. That module handles US country
+// aliases (US / USA / U.S. / United States), airport codes (SEA /
+// SFO / NYC), state-code↔name normalization, and the
+// remote-friendly fallback that combines workMode + workAuthCountries.
 
 /**
  * Check if a listing's location matches the user's preferred work mode.
@@ -280,6 +172,32 @@ export default function ListingsPage() {
   const [allListings, setAllListings] = useState<JobListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // System-dependency health (most importantly LibreOffice — without
+  // soffice on PATH the tailor route fails late with a confusing
+  // ENOENT). We probe `/api/health` on mount and surface an actionable
+  // banner BEFORE the user clicks Tailor and hits a wall.
+  const [health, setHealth] = useState<{
+    libreoffice: { ok: boolean; version?: string; error?: string };
+    platform: string;
+  } | null>(null);
+  const [healthDismissed, setHealthDismissed] = useState(false);
+  // Score-version migration. When the scorer algorithm bumps (we did
+  // v2 → v3 to add JD-bigram scoring), the /api/scores-cache route
+  // hides v2 entries from the client; the auto-scorer effect then
+  // recomputes them. We surface a one-time banner explaining what's
+  // happening so users don't think their scores got reset randomly.
+  const [staleScoreCount, setStaleScoreCount] = useState(0);
+  // Compare selection — up to 3 listings can be ticked at once. The
+  // floating Compare button at the bottom-right opens /compare with
+  // the selected ids in the query string.
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const toggleCompare = useCallback((listingId: string) => {
+    setCompareIds((prev) => {
+      if (prev.includes(listingId)) return prev.filter((x) => x !== listingId);
+      if (prev.length >= 3) return prev; // cap; UI should disable add at 3
+      return [...prev, listingId];
+    });
+  }, []);
   // Streaming refresh progress (SSE-driven). Mirrors the onboarding
   // wizard's fetch flow — discovers ALL companies, then pulls listings
   // from each one in parallel batches, all in the background while the
@@ -301,8 +219,12 @@ export default function ListingsPage() {
   // User preferences
   const [prefs, setPrefs] = useState<Partial<Settings>>({});
   const locationMatcher = useMemo(
-    () => buildLocationMatcher(prefs.preferredLocations ?? []),
-    [prefs.preferredLocations],
+    () => buildLocationMatcher({
+      preferredLocations: prefs.preferredLocations ?? [],
+      workModes: prefs.workMode ?? [],
+      workAuthCountries: prefs.workAuthCountries ?? ['US'],
+    }),
+    [prefs.preferredLocations, prefs.workMode, prefs.workAuthCountries],
   );
 
   // User-set flags (applied / incorrect / not-applicable) on listings.
@@ -343,6 +265,58 @@ export default function ListingsPage() {
   const [minSalary, setMinSalary] = useState<number | null>(null);
   const [maxSalary, setMaxSalary] = useState<number | null>(null);
   const [salaryOnly, setSalaryOnly] = useState(false); // when true, hide listings without salary data
+  // Hide listings older than ~30 days. Many career boards leave dead
+  // postings up for months — those are noise once a user has skimmed
+  // through them. Default off so first-time users see everything;
+  // power users typically toggle on after their first refresh cycle.
+  const [hideStale, setHideStale] = useState(false);
+  // Date-posted filter — keeps listings whose `postedAt` falls within
+  // the selected window. 'all' is a no-op (default). Listings without
+  // a postedAt fall back to fetchedAt so manually-added entries still
+  // appear under "today"/"this week". The window thresholds are in
+  // milliseconds and resolved against `Date.now()` at filter time.
+  type DatePreset = 'all' | 'today' | '1d' | '2d' | 'week' | 'month';
+  const [datePosted, setDatePosted] = useState<DatePreset>('all');
+  // Score-range filter — drops listings whose ATS score isn't within
+  // the picked window. Default 0-100 (no-op). Only listings WITH a
+  // valid score are gated by the upper bound.
+  const [minScore, setMinScore] = useState(0);
+  const [maxScore, setMaxScore] = useState(100);
+  // Saved filter presets — localStorage-backed, user-named snapshots
+  // of every meaningful filter on this page. Useful for the user
+  // who wants to switch between "EM Seattle ≥70%" and "Staff IC
+  // remote ≥80%" without re-typing the same set every time.
+  interface FilterPreset {
+    name: string;
+    search: string;
+    selectedCompany: string;
+    selectedDepartment: string;
+    locationPreset: 'wa-remote' | 'all';
+    minSalary: number | null;
+    maxSalary: number | null;
+    salaryOnly: boolean;
+    selectedLevels: string[];
+    hideStale: boolean;
+    minScore: number;
+    maxScore: number;
+  }
+  const [presets, setPresets] = useState<FilterPreset[]>([]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('listings-filter-presets');
+      if (raw) setPresets(JSON.parse(raw));
+    } catch {
+      // bad JSON — ignore, treat as empty
+    }
+  }, []);
+  const persistPresets = useCallback((next: FilterPreset[]) => {
+    setPresets(next);
+    try {
+      localStorage.setItem('listings-filter-presets', JSON.stringify(next));
+    } catch {
+      // localStorage may be disabled — silent fallback to in-memory.
+    }
+  }, []);
   // Selected level tier keys (e.g. "em1", "staff")
   const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
 
@@ -459,8 +433,23 @@ export default function ListingsPage() {
 
   useEffect(() => {
     loadListings();
-    fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
+    // First scores-cache load reads the X-Scores-Stale-Version-Count
+    // header so we can show a one-time "scoring upgraded" banner if
+    // the algorithm version bumped since the last load.
+    fetch('/api/scores-cache')
+      .then(async (r) => {
+        const stale = parseInt(r.headers.get('X-Scores-Stale-Version-Count') ?? '0', 10);
+        if (stale > 0) setStaleScoreCount(stale);
+        return r.json();
+      })
+      .then(setScoreCache)
+      .catch(() => {});
     fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
+    // One-shot dependency probe — only runs on first mount; the
+    // banner stays cached for the rest of the session via the React
+    // state. Dismissal also persists for the session via
+    // healthDismissed.
+    fetch('/api/health').then((r) => r.json()).then(setHealth).catch(() => {});
     fetch('/api/settings').then(r => r.json()).then((d: { settings: Settings }) => {
       if (!d.settings.onboardingComplete) {
         window.location.href = '/';
@@ -497,6 +486,24 @@ export default function ListingsPage() {
       }
     }).catch(() => {});
   }, [loadListings, levelsInitialized, excludeInitialized]);
+
+  // Auto-refresh: if the user has it enabled in Settings AND the
+  // listings cache is older than `autoRefreshHours` (default 24),
+  // kick off a streaming refresh in the background. Fires at most
+  // once per page mount via the ref guard so opening the page
+  // doesn't race-spam the SSE endpoint.
+  const autoRefreshFiredRef = useRef(false);
+  useEffect(() => {
+    if (autoRefreshFiredRef.current) return;
+    if (!prefs.autoRefreshEnabled) return;
+    if (!lastFetched) return;
+    if (refreshing) return;
+    const hours = prefs.autoRefreshHours ?? 24;
+    const ageMs = Date.now() - new Date(lastFetched).getTime();
+    if (ageMs < hours * 60 * 60 * 1000) return;
+    autoRefreshFiredRef.current = true;
+    streamingRefresh();
+  }, [prefs.autoRefreshEnabled, prefs.autoRefreshHours, lastFetched, refreshing, streamingRefresh]);
 
   // Reload listings + scores when the user returns to this tab/page.
   // This makes the page feel "live" — when a job is added on /jobs/add
@@ -687,14 +694,66 @@ export default function ListingsPage() {
       result = result.filter((l) => !flags[l.id]);
     }
     if (search) {
-      const q = search.toLowerCase();
-      result = result.filter(
-        (l) =>
-          l.title.toLowerCase().includes(q) ||
-          l.company.toLowerCase().includes(q) ||
-          l.department.toLowerCase().includes(q) ||
-          l.location.toLowerCase().includes(q)
+      // Boolean search — supports AND / OR / NOT (uppercase only) and
+      // quoted phrases. Whitespace defaults to AND. Examples:
+      //   engineering manager kubernetes        → AND of all three
+      //   "engineering manager" OR director      → phrase OR token
+      //   manager AND (kafka OR kinesis)         → AND/OR group  (parens not yet — flat OR groups only)
+      //   manager NOT director                   → AND with negation
+      //
+      // We don't implement parens; in practice "AND" is the dominant
+      // operator and OR runs are short. The parser walks the input
+      // splitting on AND/OR boundaries and respects quoted phrases.
+      const matchesField = (l: typeof result[number], term: string): boolean => {
+        const t = term.toLowerCase();
+        return (
+          l.title.toLowerCase().includes(t) ||
+          l.company.toLowerCase().includes(t) ||
+          l.department.toLowerCase().includes(t) ||
+          l.location.toLowerCase().includes(t)
+        );
+      };
+      // Tokenize: respect double-quoted phrases as single tokens.
+      const tokens: string[] = [];
+      const re = /"([^"]+)"|(\S+)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(search)) !== null) tokens.push(m[1] ?? m[2]);
+      // Build AND-groups separated by OR. Each AND-group is an array
+      // of terms, each prefixed with optional NOT. The whole search
+      // matches if ANY AND-group matches.
+      type Term = { term: string; negate: boolean };
+      const orGroups: Term[][] = [[]];
+      for (let i = 0; i < tokens.length; i++) {
+        const tok = tokens[i];
+        if (tok === 'AND') continue; // implicit
+        if (tok === 'OR') { orGroups.push([]); continue; }
+        if (tok === 'NOT') {
+          const next = tokens[i + 1];
+          if (next) {
+            orGroups[orGroups.length - 1].push({ term: next, negate: true });
+            i++;
+          }
+          continue;
+        }
+        orGroups[orGroups.length - 1].push({ term: tok, negate: false });
+      }
+      result = result.filter((l) =>
+        orGroups.some((group) =>
+          group.length === 0 ||
+          group.every((t) => (t.negate ? !matchesField(l, t.term) : matchesField(l, t.term)))
+        )
       );
+    }
+    // Score-range filter (only kicks in when bounds are non-default).
+    if (minScore > 0 || maxScore < 100) {
+      result = result.filter((l) => {
+        const s = scoreCache[l.id];
+        // Listings without a usable score are kept at the bottom of
+        // the range — drop them only when the user explicitly raises
+        // the floor above 0.
+        if (!s || s.totalCount === 0) return minScore === 0;
+        return s.overall >= minScore && s.overall <= maxScore;
+      });
     }
     if (selectedCompany !== 'all') {
       result = result.filter((l) => l.company === selectedCompany);
@@ -731,6 +790,41 @@ export default function ListingsPage() {
     if (selectedLevels.length > 0) {
       result = result.filter((l) => matchesLevelPreference(l.title, selectedLevels));
     }
+    // Hide-stale filter — drops listings whose postedAt (or fetchedAt
+    // as a fallback) is older than 30 days. Listings with no posted
+    // date at all are kept, since not knowing their age isn't grounds
+    // to assume they're stale.
+    if (hideStale) {
+      const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+      result = result.filter((l) => {
+        const stamp = l.postedAt || l.fetchedAt;
+        if (!stamp) return true;
+        const t = Date.parse(stamp);
+        if (isNaN(t)) return true;
+        return t >= cutoff;
+      });
+    }
+    // Date-posted preset. Same semantics as hideStale — unknown date
+    // means "don't drop", so we never penalize manual entries that
+    // lack a postedAt.
+    if (datePosted !== 'all') {
+      const DAY = 24 * 60 * 60 * 1000;
+      const windowMs: Record<Exclude<DatePreset, 'all'>, number> = {
+        today: DAY,
+        '1d':  DAY,
+        '2d':  2 * DAY,
+        week:  7 * DAY,
+        month: 30 * DAY,
+      };
+      const cutoff = Date.now() - windowMs[datePosted];
+      result = result.filter((l) => {
+        const stamp = l.postedAt || l.fetchedAt;
+        if (!stamp) return true;
+        const t = Date.parse(stamp);
+        if (isNaN(t)) return true;
+        return t >= cutoff;
+      });
+    }
     // Sort by score (highest first), then by date
     result = [...result].sort((a, b) => {
       const sa = scoreCache[a.id]?.overall ?? -1;
@@ -739,7 +833,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels]);
+  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -788,6 +882,71 @@ export default function ListingsPage() {
 
   return (
     <div className="p-8 max-w-[1500px] mx-auto animate-fade-in">
+      {/* Score-version migration banner. Shown once after a scorer
+          upgrade (e.g. v2 → v3). The auto-batch-scorer effect kicks
+          off automatically since the cache GET hides stale entries;
+          this banner just explains what's happening so the user
+          doesn't think their scores got randomly reset. Disappears
+          on its own once `staleScoreCount` drops to zero (after the
+          batch finishes and the next page load gets a clean cache). */}
+      {staleScoreCount > 0 && (
+        <div className="mb-4 rounded-xl border border-purple-200/70 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-purple-50 p-4 shadow-sm flex items-start gap-3">
+          <Sparkles className="w-5 h-5 text-purple-600 shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm">
+            <p className="font-semibold text-purple-900">
+              Scoring algorithm upgraded — recomputing {staleScoreCount.toLocaleString()} score{staleScoreCount === 1 ? '' : 's'}
+            </p>
+            <p className="text-purple-800/90 text-xs mt-0.5">
+              The new algorithm scores against JD-extracted multi-word phrases (e.g. <em>agent foundations, data plane</em>) in addition to taxonomy keywords. Your scores will refresh automatically over the next minute.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setStaleScoreCount(0)}
+            className="text-purple-700 hover:text-purple-900 shrink-0"
+            aria-label="Dismiss banner"
+            title="Dismiss"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* System-dependency banner — surfaces missing LibreOffice (or
+          other runtime requirements added later) BEFORE the user
+          clicks Tailor and gets an opaque ENOENT. Dismissible for the
+          session; persists across page reloads only if the dep is
+          still missing. */}
+      {health && !health.libreoffice.ok && !healthDismissed && (
+        <div className="mb-4 rounded-xl border border-amber-300/70 bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 p-4 shadow-sm flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0 text-sm">
+            <p className="font-semibold text-amber-900">
+              LibreOffice isn&apos;t installed — resume tailoring will fail
+            </p>
+            <p className="text-amber-800/90 text-xs mt-1">
+              Resume → PDF conversion shells out to <code className="px-1 py-0.5 bg-white/60 rounded text-[11px]">soffice --headless</code>. Install LibreOffice and restart the dev server:
+            </p>
+            <pre className="mt-2 px-3 py-2 bg-white/70 rounded text-[11px] font-mono text-amber-900 overflow-x-auto">
+{health.platform === 'darwin'
+  ? 'brew install --cask libreoffice'
+  : health.platform === 'linux'
+    ? 'sudo apt-get install -y libreoffice'
+    : 'Download from https://www.libreoffice.org/download/download/'}
+            </pre>
+          </div>
+          <button
+            type="button"
+            onClick={() => setHealthDismissed(true)}
+            className="text-amber-700 hover:text-amber-900 shrink-0"
+            aria-label="Dismiss banner"
+            title="Dismiss for this session"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -937,6 +1096,77 @@ export default function ListingsPage() {
 
         {showFilters && (
           <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+            {/* Saved presets row — apply / save / delete named filter
+                snapshots. Persists in localStorage so it survives
+                page refreshes. */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-medium text-gray-500 mr-1">Presets:</span>
+              {presets.length === 0 && (
+                <span className="text-xs text-gray-400 italic">None saved yet.</span>
+              )}
+              {presets.map((p) => (
+                <span
+                  key={p.name}
+                  className="inline-flex items-center gap-1 bg-gray-100 rounded-full pl-3 pr-1 py-0.5 text-xs"
+                >
+                  <button
+                    onClick={() => {
+                      setSearch(p.search);
+                      setSelectedCompany(p.selectedCompany);
+                      setSelectedDepartment(p.selectedDepartment);
+                      setLocationPreset(p.locationPreset);
+                      setMinSalary(p.minSalary);
+                      setMaxSalary(p.maxSalary);
+                      setSalaryOnly(p.salaryOnly);
+                      setSelectedLevels(p.selectedLevels);
+                      setHideStale(p.hideStale);
+                      setMinScore(p.minScore);
+                      setMaxScore(p.maxScore);
+                    }}
+                    className="text-gray-700 hover:text-blue-700"
+                  >
+                    {p.name}
+                  </button>
+                  <button
+                    onClick={() => persistPresets(presets.filter((x) => x.name !== p.name))}
+                    className="text-gray-400 hover:text-red-500 p-0.5"
+                    title={`Delete preset "${p.name}"`}
+                  >
+                    <XCircle className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() => {
+                  const name = window.prompt('Name this preset (e.g. "EM Seattle 70%+"):')?.trim();
+                  if (!name) return;
+                  const next: FilterPreset = {
+                    name,
+                    search,
+                    selectedCompany,
+                    selectedDepartment,
+                    locationPreset,
+                    minSalary,
+                    maxSalary,
+                    salaryOnly,
+                    selectedLevels,
+                    hideStale,
+                    minScore,
+                    maxScore,
+                  };
+                  // Replace if name collides; otherwise append.
+                  const existing = presets.findIndex((p) => p.name === name);
+                  const updated = existing >= 0
+                    ? presets.map((p, i) => (i === existing ? next : p))
+                    : [...presets, next];
+                  persistPresets(updated);
+                }}
+                className="ml-auto text-xs text-blue-600 hover:text-blue-700"
+              >
+                + Save current as preset
+              </button>
+            </div>
+
             {/* Location preset (Preferred Locations vs All) — moved
                 inside the filters drawer per UX revision. */}
             <div className="flex items-center gap-2 flex-wrap">
@@ -1030,15 +1260,59 @@ export default function ListingsPage() {
                 <label className="block text-xs font-medium text-gray-500">
                   <DollarSign className="w-3 h-3 inline -mt-0.5" /> Salary Range (annual, USD)
                 </label>
-                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={salaryOnly}
-                    onChange={(e) => setSalaryOnly(e.target.checked)}
-                    className="rounded"
-                  />
-                  Only show jobs with salary info
-                </label>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={salaryOnly}
+                      onChange={(e) => setSalaryOnly(e.target.checked)}
+                      className="rounded"
+                    />
+                    Only with salary info
+                  </label>
+                  <label
+                    className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer"
+                    title="Hides postings older than 30 days (using Posted Date when known, otherwise the date we first fetched it)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={hideStale}
+                      onChange={(e) => setHideStale(e.target.checked)}
+                      className="rounded"
+                    />
+                    Hide listings &gt; 30 days old
+                  </label>
+                </div>
+                {/* Date-posted preset — keeps only listings within the
+                    selected window. Distinct from hideStale (which is a
+                    boolean 30-day cutoff); this lets the user narrow to
+                    "fresh today" / "this week" / "this month" without
+                    losing the rest of the filter state. */}
+                <div className="flex items-center gap-2 flex-wrap mt-2">
+                  <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                  <span className="text-xs text-gray-500">Posted:</span>
+                  {([
+                    ['all',   'Any time'],
+                    ['today', 'Today'],
+                    ['1d',    'Last 24h'],
+                    ['2d',    'Last 2 days'],
+                    ['week',  'Last week'],
+                    ['month', 'Last month'],
+                  ] as [DatePreset, string][]).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setDatePosted(key)}
+                      className={`px-2 py-0.5 rounded text-xs border transition-colors ${
+                        datePosted === key
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="relative">
@@ -1074,6 +1348,47 @@ export default function ListingsPage() {
                   Clear salary filter
                 </button>
               )}
+            </div>
+
+            {/* ATS score range — keeps listings whose overall score
+                falls within [minScore, maxScore]. Default 0-100 is a
+                no-op. Listings with no score (unscorable ATSes like
+                Google/Microsoft) are kept unless the floor is raised
+                above 0, on the theory that the user only wants to
+                "filter to good matches" not "drop unscored entirely". */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-gray-500">
+                  <Target className="w-3 h-3 inline -mt-0.5" /> ATS Score Range
+                </label>
+                {(minScore > 0 || maxScore < 100) && (
+                  <button
+                    onClick={() => { setMinScore(0); setMaxScore(100); }}
+                    className="text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs text-gray-600">
+                <input
+                  type="number"
+                  min={0} max={100}
+                  value={minScore}
+                  onChange={(e) => setMinScore(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                  className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <span>%</span>
+                <span className="text-gray-400">to</span>
+                <input
+                  type="number"
+                  min={0} max={100}
+                  value={maxScore}
+                  onChange={(e) => setMaxScore(Math.max(0, Math.min(100, Number(e.target.value) || 100)))}
+                  className="w-16 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <span>%</span>
+              </div>
             </div>
 
             {/* Level tier multi-select */}
@@ -1161,6 +1476,9 @@ export default function ListingsPage() {
               onFlagChange={(f) => setFlagFor(listing.id, f)}
               isExpanded={expandedId === listing.id}
               onToggle={() => setExpandedId(expandedId === listing.id ? null : listing.id)}
+              isCompareSelected={compareIds.includes(listing.id)}
+              compareDisabled={!compareIds.includes(listing.id) && compareIds.length >= 3}
+              onCompareToggle={() => toggleCompare(listing.id)}
             />
           </div>
         ))}
@@ -1228,6 +1546,19 @@ export default function ListingsPage() {
           </button>
         </div>
       )}
+
+      {/* Floating Compare CTA — visible only when ≥ 2 cards are
+          ticked. Goes away as soon as the user opens /compare or
+          deselects back to 1. */}
+      {compareIds.length >= 2 && (
+        <Link
+          href={`/compare?ids=${compareIds.join(',')}`}
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-medium rounded-full shadow-xl hover:shadow-2xl hover:from-indigo-700 hover:to-purple-700 transition-all"
+        >
+          Compare {compareIds.length} listings
+          <ChevronRight className="w-4 h-4" />
+        </Link>
+      )}
     </div>
   );
 }
@@ -1249,6 +1580,9 @@ function ListingCard({
   onFlagChange,
   isExpanded,
   onToggle,
+  isCompareSelected,
+  compareDisabled,
+  onCompareToggle,
 }: {
   listing: JobListing;
   score?: ScoreCacheEntry;
@@ -1256,8 +1590,38 @@ function ListingCard({
   onFlagChange: (flag: ListingFlag | null) => void;
   isExpanded: boolean;
   onToggle: () => void;
+  isCompareSelected: boolean;
+  compareDisabled: boolean;
+  onCompareToggle: () => void;
 }) {
   const [flagMenuOpen, setFlagMenuOpen] = useState(false);
+  const flagButtonRef = useRef<HTMLButtonElement | null>(null);
+  // Portal-anchor position for the flag dropdown. We compute it from
+  // the trigger button's bounding rect at open-time (and recompute
+  // on scroll/resize while open) so the menu renders into a portal
+  // attached to <body>, completely escaping the card's overflow /
+  // stacking context that was previously clipping it.
+  const [flagMenuPos, setFlagMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const recomputeFlagMenuPos = useCallback(() => {
+    const btn = flagButtonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setFlagMenuPos({
+      top: rect.bottom + 4,                    // 4px gap below button
+      right: window.innerWidth - rect.right,   // right-align with button
+    });
+  }, []);
+  useEffect(() => {
+    if (!flagMenuOpen) return;
+    recomputeFlagMenuPos();
+    const onChange = () => recomputeFlagMenuPos();
+    window.addEventListener('scroll', onChange, true);
+    window.addEventListener('resize', onChange);
+    return () => {
+      window.removeEventListener('scroll', onChange, true);
+      window.removeEventListener('resize', onChange);
+    };
+  }, [flagMenuOpen, recomputeFlagMenuPos]);
   const flagMeta = flag ? LISTING_FLAGS.find((f) => f.key === flag) : null;
   // Show the actual posted date the company published the role (postedAt).
   // We deliberately do NOT fall back to fetchedAt here — that would mislead
@@ -1276,6 +1640,25 @@ function ListingCard({
   const [tailoring, setTailoring] = useState(false);
   const [tailorError, setTailorError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  // Cover-letter state — paired with the resume tailor flow but
+  // independent (you can generate either without the other). The
+  // text round-trips through a textarea so the user can edit before
+  // downloading; we only push the FRESH server-generated text into
+  // the textarea, never overwriting unsaved edits without prompt.
+  const [coverLetter, setCoverLetter] = useState<{
+    text: string;
+    matchedKeywords: string[];
+  } | null>(null);
+  const [generatingCover, setGeneratingCover] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
+  // Live progress for the SSE-driven download. Null when no download
+  // is in flight; the inline progress card renders only while this is
+  // populated.
+  const [downloadProgress, setDownloadProgress] = useState<{
+    stage: string;
+    message: string;
+    elapsedSec: number;
+  } | null>(null);
 
   // Keyword selection state — all selected by default
   const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
@@ -1360,10 +1743,65 @@ function ListingCard({
     }
   }
 
+  /**
+   * Generate the cover letter for this listing. Same auth/env model
+   * as the tailor flow — uses the locally-stored resume + the
+   * fetched JD to produce a 3-paragraph deterministic letter.
+   * Idempotent: re-clicking re-renders the same text (modulo any
+   * date change), discarding unsaved textarea edits with a prompt.
+   */
+  async function handleGenerateCoverLetter() {
+    setGeneratingCover(true);
+    setCoverError(null);
+    try {
+      const res = await fetch('/api/cover-letter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listingId: listing.id }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setCoverError(data.error);
+      } else {
+        setCoverLetter({ text: data.text, matchedKeywords: data.matchedKeywords ?? [] });
+      }
+    } catch {
+      setCoverError('Failed to generate cover letter');
+    } finally {
+      setGeneratingCover(false);
+    }
+  }
+
+  function handleDownloadCoverLetter() {
+    if (!coverLetter) return;
+    // Build the same filename shape the server uses, but driven by
+    // the (possibly-edited) textarea contents so the user gets a
+    // .txt of exactly what they see on screen.
+    const safeName = `CoverLetter_${listing.company}_${listing.title}`
+      .replace(/[^a-zA-Z0-9_\- ]/g, '')
+      .replace(/\s+/g, '_')
+      .slice(0, 80);
+    const blob = new Blob([coverLetter.text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleDownload() {
     setDownloading(true);
+    setTailorError(null);
+    setDownloadProgress({ stage: 'start', message: 'Starting tailoring pipeline', elapsedSec: 0 });
     try {
-      const res = await fetch('/api/tailor-resume', {
+      // Stream the tailor pipeline so the user sees stage-by-stage
+      // progress instead of a generic spinner. The server emits
+      // text/event-stream frames; we read them with the fetch + reader
+      // API (EventSource doesn't support POST). The terminal 'done'
+      // event carries a base64-encoded PDF that we decode and
+      // download via a Blob URL.
+      const res = await fetch('/api/tailor-resume/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1373,21 +1811,69 @@ function ListingCard({
           selectedSuggestions: Array.from(selectedSuggestions),
         }),
       });
-      const blob = await res.blob();
-      const disposition = res.headers.get('Content-Disposition') || '';
-      const match = disposition.match(/filename="(.+?)"/);
-      const filename = match?.[1] || 'tailored_resume.pdf';
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      a.click();
-      URL.revokeObjectURL(url);
+      if (!res.body) throw new Error('No response body');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      let done = false;
+      let errored = false;
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) break;
+        buf += decoder.decode(value, { stream: true });
+        // SSE frames are separated by a blank line. Process each
+        // complete frame and leave any partial frame in `buf`.
+        let nl: number;
+        while ((nl = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, nl);
+          buf = buf.slice(nl + 2);
+          const dataLine = frame.split('\n').find((l) => l.startsWith('data:'));
+          if (!dataLine) continue;
+          let event: { type?: string; [k: string]: unknown };
+          try {
+            event = JSON.parse(dataLine.slice(5).trim());
+          } catch {
+            continue;
+          }
+          if (event.type === 'progress') {
+            setDownloadProgress({
+              stage: String(event.stage ?? ''),
+              message: String(event.message ?? ''),
+              elapsedSec: Number(event.elapsedSec ?? 0),
+            });
+          } else if (event.type === 'error') {
+            errored = true;
+            setTailorError(String(event.message ?? 'Tailoring failed'));
+            done = true;
+            break;
+          } else if (event.type === 'done') {
+            // Decode base64 payload → Blob → trigger browser download.
+            const base64 = String(event.base64 ?? '');
+            const contentType = String(event.contentType ?? 'application/pdf');
+            const filename = String(event.filename ?? 'tailored_resume.pdf');
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            const blob = new Blob([bytes], { type: contentType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+            done = true;
+            break;
+          }
+        }
+      }
+      if (errored) {
+        // Error path already set via setTailorError; nothing more to do.
+      }
     } catch {
       setTailorError('Failed to download resume');
     } finally {
       setDownloading(false);
+      setDownloadProgress(null);
     }
   }
 
@@ -1427,12 +1913,13 @@ function ListingCard({
                 </Chip>
               )}
             </div>
-            <div className="flex items-center gap-2 mb-2">
-              <Building2 className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <CompanyLogo companySlug={listing.companySlug} companyName={listing.company} size={20} />
               <span className="text-sm font-medium text-gray-700">{listing.company}</span>
               {listing.department && (
                 <span className="text-xs text-gray-400">&middot; {listing.department}</span>
               )}
+              <NetworkBadge company={listing.company} />
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400">
               {listing.location && listing.location !== 'Not specified' && (
@@ -1470,10 +1957,30 @@ function ListingCard({
             className="shrink-0 flex items-center gap-3"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Compare checkbox — ticking 2-3 surfaces the floating
+                Compare button at the page level. Disabled when the
+                cap (3) is hit unless this card is already selected. */}
+            <label
+              className={`inline-flex items-center gap-1 text-xs select-none ${
+                compareDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer text-gray-600 hover:text-gray-900'
+              }`}
+              title={compareDisabled ? 'Compare cap is 3' : 'Tick to add to comparison'}
+            >
+              <input
+                type="checkbox"
+                checked={isCompareSelected}
+                disabled={compareDisabled}
+                onChange={onCompareToggle}
+                className="rounded"
+              />
+              Compare
+            </label>
+
             {/* Flag menu */}
             <div className="relative">
               {flagMeta ? (
                 <button
+                  ref={flagButtonRef}
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
@@ -1488,6 +1995,7 @@ function ListingCard({
                 </button>
               ) : (
                 <button
+                  ref={flagButtonRef}
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
@@ -1501,57 +2009,65 @@ function ListingCard({
                 </button>
               )}
 
-              {flagMenuOpen && (
-                <>
-                  {/* click-away overlay */}
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      setFlagMenuOpen(false);
-                    }}
-                  />
-                  <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-left">
-                    {LISTING_FLAGS.map((f) => (
-                      <button
-                        key={f.key}
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onFlagChange(f.key);
-                          setFlagMenuOpen(false);
-                        }}
-                        className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 ${
-                          flag === f.key ? 'bg-gray-50 font-medium' : ''
-                        }`}
-                      >
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: f.color }}
-                        />
-                        {f.label}
-                      </button>
-                    ))}
-                    {flag && (
-                      <>
-                        <div className="border-t border-gray-100 my-1" />
+              {flagMenuOpen && flagMenuPos && typeof document !== 'undefined' &&
+                createPortal(
+                  <>
+                    {/* click-away overlay — also portaled so it covers
+                        the full viewport regardless of any parent
+                        overflow/transform ancestry. */}
+                    <div
+                      className="fixed inset-0 z-[60]"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setFlagMenuOpen(false);
+                      }}
+                    />
+                    <div
+                      className="fixed w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-[70] py-1 text-left"
+                      style={{ top: flagMenuPos.top, right: flagMenuPos.right }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {LISTING_FLAGS.map((f) => (
                         <button
+                          key={f.key}
                           type="button"
                           onClick={(e) => {
                             e.preventDefault();
-                            onFlagChange(null);
+                            onFlagChange(f.key);
                             setFlagMenuOpen(false);
                           }}
-                          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
+                          className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-gray-50 ${
+                            flag === f.key ? 'bg-gray-50 font-medium' : ''
+                          }`}
                         >
-                          <XCircle className="w-3 h-3" />
-                          Clear flag
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: f.color }}
+                          />
+                          {f.label}
                         </button>
-                      </>
-                    )}
-                  </div>
-                </>
-              )}
+                      ))}
+                      {flag && (
+                        <>
+                          <div className="border-t border-gray-100 my-1" />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              onFlagChange(null);
+                              setFlagMenuOpen(false);
+                            }}
+                            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50"
+                          >
+                            <XCircle className="w-3 h-3" />
+                            Clear flag
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </>,
+                  document.body,
+                )}
             </div>
 
             {isUnscorableAts(listing.ats) ? (
@@ -1609,6 +2125,26 @@ function ListingCard({
             >
               <ExternalLink className="w-4 h-4" /> Apply on {listing.company}
             </a>
+            {/* One-click applied/unmark toggle. Surfaced inline next
+                to the apply link so users don't have to dig into the
+                Tag menu after they apply on the company site.
+                Re-uses the existing onFlagChange plumbing. */}
+            <button
+              type="button"
+              onClick={() => onFlagChange(flag === 'applied' ? null : 'applied')}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                flag === 'applied'
+                  ? 'bg-violet-600 text-white hover:bg-violet-700'
+                  : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+              }`}
+              title={flag === 'applied' ? 'Click to remove the applied flag' : 'Mark this job as applied'}
+            >
+              {flag === 'applied' ? (
+                <><CheckCircle2 className="w-4 h-4" /> Applied</>
+              ) : (
+                <><Tag className="w-4 h-4" /> I applied</>
+              )}
+            </button>
             <Link
               href={`/listings/${listing.id}`}
               className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
@@ -1616,6 +2152,8 @@ function ListingCard({
               <FileText className="w-4 h-4" /> View Full Details
             </Link>
           </div>
+
+          <SalaryIntelInline listingId={listing.id} listingSalary={listing.salary} />
 
           {/* ATS Score Detail */}
           <section className="bg-gray-50 rounded-lg p-4">
@@ -1853,6 +2391,31 @@ function ListingCard({
                   </div>
                 )}
 
+                {/* Live progress card — visible only while the SSE
+                    stream from /api/tailor-resume/stream is in flight.
+                    Replaces the previous "is it frozen?" spinner with
+                    a stage label, elapsed-time counter, and a thin
+                    indeterminate bar so the user can see real activity
+                    during the 8–25s pipeline. */}
+                {downloading && downloadProgress && (
+                  <div className="rounded-xl border border-green-200/70 bg-gradient-to-r from-green-50 via-emerald-50 to-green-50 p-3 shadow-sm animate-fade-in-up">
+                    <div className="flex items-center gap-2.5">
+                      <Loader2 className="w-4 h-4 text-green-600 animate-spin shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-green-900 truncate">
+                          {downloadProgress.message || 'Tailoring resume…'}
+                        </p>
+                        <p className="text-[11px] text-green-700/80">
+                          {downloadProgress.elapsedSec}s elapsed
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-2 h-1 bg-white/60 rounded-full overflow-hidden ring-1 ring-green-100">
+                      <div className="h-full bg-gradient-to-r from-green-500 via-emerald-500 to-teal-500 rounded-full animate-shimmer" />
+                    </div>
+                  </div>
+                )}
+
                 {/* Download button */}
                 <button
                   onClick={handleDownload}
@@ -1860,7 +2423,7 @@ function ListingCard({
                   className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors w-full justify-center"
                 >
                   {downloading ? (
-                    <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF...</>
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF…</>
                   ) : (
                     <><Download className="w-4 h-4" /> Download Tailored Resume (PDF)</>
                   )}
@@ -1868,8 +2431,241 @@ function ListingCard({
               </div>
             )}
           </section>
+
+          {/* Cover Letter section. Deterministic 3-paragraph generator
+              using the resume's most-recent role title, a quantified
+              achievement (when present), the JD's mission sentence,
+              and the top matched JD keywords. Editable before
+              download — the textarea is the source of truth for the
+              final .txt file. */}
+          <section className="bg-gray-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-500" />
+                <h4 className="text-sm font-semibold text-gray-900">Cover Letter</h4>
+              </div>
+              <button
+                type="button"
+                onClick={handleGenerateCoverLetter}
+                disabled={generatingCover}
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {generatingCover ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+                ) : coverLetter ? (
+                  <><FileText className="w-3.5 h-3.5" /> Regenerate</>
+                ) : (
+                  <><FileText className="w-3.5 h-3.5" /> Generate Cover Letter</>
+                )}
+              </button>
+            </div>
+
+            {coverError && (
+              <div className="text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mb-2">
+                {coverError}
+              </div>
+            )}
+
+            {!coverLetter && !coverError && (
+              <p className="text-xs text-gray-400">
+                Generates a personalized 3-paragraph cover letter using your resume + the JD.
+                You can edit before downloading.
+              </p>
+            )}
+
+            {coverLetter && (
+              <div className="space-y-2">
+                <textarea
+                  value={coverLetter.text}
+                  onChange={(e) => setCoverLetter({ ...coverLetter, text: e.target.value })}
+                  rows={14}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono text-gray-800 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
+                  spellCheck
+                />
+                {coverLetter.matchedKeywords.length > 0 && (
+                  <p className="text-[11px] text-gray-500">
+                    Used these matched keywords as proof-of-fit: <span className="font-medium text-gray-700">{coverLetter.matchedKeywords.join(', ')}</span>
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleDownloadCoverLetter}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" /> Download as .txt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(coverLetter.text).catch(() => {})}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Copy to Clipboard
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── LinkedIn Network badge ─────────────────────────────────────────
+// Shows "N at <Company>" when the user's imported network has any
+// contacts there. Lazy-fetches on mount; renders nothing on miss.
+
+interface BadgeContact {
+  firstName: string;
+  lastName: string;
+  position?: string;
+  url?: string;
+}
+
+function NetworkBadge({ company }: { company: string }) {
+  const [contacts, setContacts] = useState<BadgeContact[]>([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/network?company=${encodeURIComponent(company)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (Array.isArray(d.contacts)) setContacts(d.contacts);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [company]);
+  if (contacts.length === 0) return null;
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition-colors"
+        title={`${contacts.length} of your LinkedIn connections currently at ${company} — click to expand`}
+      >
+        <Users className="w-3 h-3" />
+        {contacts.length} you know
+      </button>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+            }}
+          />
+          <div
+            className="absolute left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-2 text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[11px] uppercase tracking-wide text-gray-400 px-1 pb-1">
+              At {company} ({contacts.length})
+            </div>
+            <ul className="max-h-72 overflow-y-auto divide-y divide-gray-100">
+              {contacts.map((c, i) => {
+                const name = `${c.firstName} ${c.lastName}`.trim();
+                return (
+                  <li key={`${name}-${i}`} className="py-1.5 px-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium text-gray-900 truncate">
+                          {name || 'Unknown'}
+                        </div>
+                        {c.position && (
+                          <div className="text-[11px] text-gray-500 truncate">
+                            {c.position}
+                          </div>
+                        )}
+                      </div>
+                      {c.url && (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 inline-flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          LinkedIn
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+// ─── Salary Intelligence (inline strip) ─────────────────────────────
+// Pulls a peer cohort from the user's own listings cache and shows
+// median + p25/p75 alongside the listing's posted salary. Lazy fetch
+// on expand; gracefully hides when the peer cohort is too small.
+
+function SalaryIntelInline({
+  listingId,
+  listingSalary,
+}: {
+  listingId: string;
+  listingSalary: string | null;
+}) {
+  const [stats, setStats] = useState<{
+    n: number;
+    median: number;
+    p25: number;
+    p75: number;
+    confidence: 'low' | 'medium' | 'high';
+    scope: string;
+  } | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    fetch(`/api/salary-intel?listingId=${encodeURIComponent(listingId)}`)
+      .then((r) => r.json())
+      .then((d) => setStats(d.stats))
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [listingId]);
+  if (!loaded || !stats) return null;
+  const fmt = (v: number) => `$${Math.round(v / 1000)}k`;
+  const confidenceStyle: Record<typeof stats.confidence, string> = {
+    high: 'text-green-700 bg-green-100',
+    medium: 'text-amber-700 bg-amber-100',
+    low: 'text-gray-600 bg-gray-100',
+  };
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-lg text-xs">
+      <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
+      <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="font-semibold text-emerald-900">
+          Market: {fmt(stats.p25)}–{fmt(stats.p75)}
+        </span>
+        <span className="text-emerald-800/80">
+          median {fmt(stats.median)}
+        </span>
+        <span className="text-emerald-700/70">{stats.scope}</span>
+        {listingSalary && (
+          <span className="text-gray-500">· This posting: {listingSalary}</span>
+        )}
+      </div>
+      <span
+        className={`px-2 py-0.5 rounded-full font-medium ${confidenceStyle[stats.confidence]}`}
+        title={`${stats.n} comparable postings in your listings cache`}
+      >
+        n={stats.n}
+      </span>
     </div>
   );
 }

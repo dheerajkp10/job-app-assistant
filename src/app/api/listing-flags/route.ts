@@ -2,7 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getListingFlags, setListingFlag, clearListingFlag } from '@/lib/db';
 import type { ListingFlag } from '@/lib/types';
 
-const VALID_FLAGS: ListingFlag[] = ['applied', 'incorrect', 'not-applicable'];
+// The full set of accepted flag values. Was previously
+// ['applied', 'incorrect', 'not-applicable'] which silently 400'd
+// pipeline-only flags (phone-screen / interviewing / offer / rejected)
+// — that's why marking a listing as "Rejected" on the Listings page
+// never showed up on the Kanban board. Keep this in sync with the
+// `ListingFlag` union in `src/lib/types.ts`.
+const VALID_FLAGS: ListingFlag[] = [
+  'applied',
+  'phone-screen',
+  'interviewing',
+  'offer',
+  'rejected',
+  'incorrect',
+  'not-applicable',
+];
 
 /**
  * GET  /api/listing-flags              → { [listingId]: ListingFlagEntry }

@@ -263,6 +263,25 @@ export default function DashboardPage() {
   const topListingsForTailor = topListings;
 
   const [tailorModalOpen, setTailorModalOpen] = useState(false);
+  // "Optimize for general ATS" — a second tailor flow that pulls the
+  // listings the user has actively pursued (any pipeline flag) and
+  // surfaces best-overlap keywords across THOSE jobs specifically.
+  // The hypothesis is that the user already knows what they're going
+  // after, so a tailored "general ATS" pass against their applied set
+  // is more useful than against an algorithm-picked top-20.
+  const [optimizeModalOpen, setOptimizeModalOpen] = useState(false);
+  const PIPELINE_FLAG_SET = new Set([
+    'applied', 'phone-screen', 'interviewing', 'offer', 'rejected',
+  ]);
+  const flaggedListings = useMemo(() => {
+    const ids = new Set(
+      Object.values(flags)
+        .filter((f) => PIPELINE_FLAG_SET.has(f.flag))
+        .map((f) => f.listingId),
+    );
+    return listings.filter((l) => ids.has(l.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flags, listings]);
 
   if (loading) {
     return (
@@ -455,6 +474,16 @@ export default function DashboardPage() {
                 Tailor for Top {topListingsForTailor.length} Jobs
               </button>
             )}
+            {flaggedListings.length >= 3 && (
+              <button
+                onClick={() => setOptimizeModalOpen(true)}
+                title="Find best-overlap keywords across the jobs you've already flagged (applied / interviewing / etc.) and bake them into your resume for a general-ATS-score lift."
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-500 to-teal-600 text-white hover:from-emerald-600 hover:to-teal-700 shadow-sm transition-all"
+              >
+                <Target className="w-3.5 h-3.5" />
+                Optimize for general ATS ({flaggedListings.length} jobs)
+              </button>
+            )}
             <Link href="/listings" className="text-xs text-blue-600 hover:text-blue-700 font-medium">
               View all &rarr;
             </Link>
@@ -596,6 +625,12 @@ export default function DashboardPage() {
         <TailorTopJobsModal
           listings={topListingsForTailor}
           onClose={() => setTailorModalOpen(false)}
+        />
+      )}
+      {optimizeModalOpen && (
+        <TailorTopJobsModal
+          listings={flaggedListings}
+          onClose={() => setOptimizeModalOpen(false)}
         />
       )}
     </div>

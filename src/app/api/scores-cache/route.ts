@@ -50,14 +50,27 @@ export async function GET() {
 
   // Hide entries scored with an older algorithm version from the client.
   // The listings page treats absent scoreCache[id] entries as "needs
-  // scoring" — so dropping v1 entries here makes them get rescored
+  // scoring" — so dropping older entries here makes them get rescored
   // automatically by the batch scorer the next time the page mounts.
   // The DB rows themselves stay (no destructive write); the batch
   // endpoint re-checks the version and overwrites them on rescore.
+  //
+  // We also count how many entries were filtered (and what versions
+  // they were on) so the UI can surface a banner like "We've upgraded
+  // the scoring algorithm — recomputing N scores now." Two stale-
+  // category buckets are tracked: stale-version (older scorer) and
+  // stale-other (everything else, e.g. for unscorable-ATS sentinels).
   const fresh: Record<string, ScoreCacheEntry> = {};
+  let staleVersionCount = 0;
   for (const [id, entry] of Object.entries(cache)) {
     if (entry.scorerVersion === SCORER_VERSION) fresh[id] = entry;
+    else if ((entry.scorerVersion ?? 1) < SCORER_VERSION) staleVersionCount++;
   }
 
-  return NextResponse.json(fresh);
+  return NextResponse.json(fresh, {
+    headers: {
+      'X-Scorer-Version': String(SCORER_VERSION),
+      'X-Scores-Stale-Version-Count': String(staleVersionCount),
+    },
+  });
 }

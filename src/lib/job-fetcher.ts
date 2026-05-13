@@ -43,29 +43,39 @@ interface GreenhouseJobDetail extends GreenhouseJob {
 }
 
 async function fetchGreenhouseJobs(source: CompanySource): Promise<JobListing[]> {
-  const url = `https://boards-api.greenhouse.io/v1/boards/${source.boardToken}/jobs`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  // `?content=true` enriches every listing with the JD body in one call.
+  // We rely on it for salary extraction — without it the Greenhouse
+  // list endpoint returns no description text and salaryMin/Max stay
+  // null, which kills the salary-intel cohort for most listings. The
+  // payload is bigger (~2-5× without content) but still completes in
+  // a single HTTP roundtrip per company.
+  const url = `https://boards-api.greenhouse.io/v1/boards/${source.boardToken}/jobs?content=true`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
-  const jobs: GreenhouseJob[] = data.jobs || [];
+  const jobs: (GreenhouseJob & { content?: string })[] = data.jobs || [];
 
-  return jobs.map((job) => ({
-    id: `gh-${source.boardToken}-${job.id}`,
-    sourceId: String(job.id),
-    company: source.name,
-    companySlug: source.slug,
-    title: job.title,
-    location: job.location?.name || 'Not specified',
-    department: job.departments?.[0]?.name || '',
-    salary: null,
-    salaryMin: null,
-    salaryMax: null,
-    url: job.absolute_url,
-    ats: 'greenhouse' as const,
-    postedAt: job.updated_at,
-    updatedAt: job.updated_at,
-    fetchedAt: new Date().toISOString(),
-  }));
+  return jobs.map((job) => {
+    const content = job.content ? unescapeHtml(job.content) : '';
+    const salaryInfo = content ? extractSalary(content) : null;
+    return {
+      id: `gh-${source.boardToken}-${job.id}`,
+      sourceId: String(job.id),
+      company: source.name,
+      companySlug: source.slug,
+      title: job.title,
+      location: job.location?.name || 'Not specified',
+      department: job.departments?.[0]?.name || '',
+      salary: salaryInfo?.display || null,
+      salaryMin: salaryInfo?.min || null,
+      salaryMax: salaryInfo?.max || null,
+      url: job.absolute_url,
+      ats: 'greenhouse' as const,
+      postedAt: job.updated_at,
+      updatedAt: job.updated_at,
+      fetchedAt: new Date().toISOString(),
+    };
+  });
 }
 
 export async function fetchGreenhouseJobDetail(
@@ -170,7 +180,14 @@ async function fetchAshbyJobs(source: CompanySource): Promise<JobListing[]> {
 
   return jobs.map((job) => {
     const salaryStr = job.compensation?.compensationTierSummary || null;
-    const salaryInfo = salaryStr ? extractSalary(salaryStr) : null;
+    // Many Ashby boards don't fill in `compensationTierSummary` even
+    // when the JD body contains a "Compensation: $X – $Y" block. Fall
+    // back to scraping the descriptionPlain/Html so we still populate
+    // the salary cohort.
+    const descText = job.descriptionPlain || job.descriptionHtml || '';
+    const salaryInfo =
+      (salaryStr ? extractSalary(salaryStr) : null) ||
+      (descText ? extractSalary(descText) : null);
     return {
       id: `ab-${source.boardToken}-${job.id}`,
       sourceId: job.id,
@@ -229,7 +246,120 @@ function pickFetcher(source: CompanySource): (s: CompanySource) => Promise<JobLi
     case 'uber':       return fetchUberJobs;
     case 'workday':    return fetchWorkdayJobs;
     case 'eightfold': return fetchEightfoldJobs;
+    case 'smartrecruiters': return fetchSmartRecruitersJobs;
   }
+}
+
+// =========================================================
+// SmartRecruiters Public Postings API
+// =========================================================
+// Powers ServiceNow, HelloFresh, Bosch, and ~hundreds of mid-market
+// employers. Public + unauthenticated:
+//   GET https://api.smartrecruiters.com/v1/companies/{slug}/postings
+//      ?limit=100&offset=N
+// Response: { totalFound, content: [{ id, name, location: { city, region,
+//   country }, releasedDate, ... }], nextOffset? }
+//
+// Posting body (description) lives at a separate endpoint:
+//   GET https://api.smartrecruiters.com/v1/companies/{slug}/postings/{id}
+// — fetched per-listing in fetchJobDetail when scoring kicks in.
+// =========================================================
+
+interface SmartRecruitersPosting {
+  id: string;
+  name: string;
+  location?: {
+    city?: string;
+    region?: string;
+    country?: string;
+    fullLocation?: string;
+    remote?: boolean;
+  };
+  releasedDate?: string;
+  refNumber?: string;
+  department?: { id?: string; label?: string };
+  function?: { id?: string; label?: string };
+}
+
+interface SmartRecruitersListResponse {
+  totalFound?: number;
+  content?: SmartRecruitersPosting[];
+  nextOffset?: number;
+}
+
+async function fetchSmartRecruitersJobs(source: CompanySource): Promise<JobListing[]> {
+  const out: JobListing[] = [];
+  const PAGE_SIZE = 100;
+  const MAX_PAGES = 10; // up to 1000 jobs per source
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const offset = page * PAGE_SIZE;
+    const url = `https://api.smartrecruiters.com/v1/companies/${source.boardToken}/postings?limit=${PAGE_SIZE}&offset=${offset}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      if (page === 0) throw new Error(`SmartRecruiters HTTP ${res.status}`);
+      break;
+    }
+    let data: SmartRecruitersListResponse;
+    try {
+      data = await res.json();
+    } catch {
+      if (page === 0) throw new Error('SmartRecruiters returned invalid JSON');
+      break;
+    }
+    const items = data.content ?? [];
+    if (items.length === 0) break;
+    for (const p of items) {
+      const id = p.id;
+      const title = p.name || '';
+      if (!id || !title) continue;
+      const locParts = [
+        p.location?.city,
+        p.location?.region,
+        p.location?.country,
+      ].filter(Boolean);
+      const remoteSuffix = p.location?.remote ? ' (Remote)' : '';
+      const location =
+        p.location?.fullLocation ||
+        (locParts.length > 0 ? `${locParts.join(', ')}${remoteSuffix}` : 'Not specified');
+      out.push({
+        id: `sr-${source.boardToken}-${id}`,
+        sourceId: id,
+        company: source.name,
+        companySlug: source.slug,
+        title,
+        location,
+        department: p.department?.label || p.function?.label || '',
+        salary: null,
+        salaryMin: null,
+        salaryMax: null,
+        url: `https://jobs.smartrecruiters.com/${source.boardToken}/${id}`,
+        ats: 'smartrecruiters',
+        postedAt: p.releasedDate || null,
+        updatedAt: p.releasedDate || null,
+        fetchedAt: new Date().toISOString(),
+      });
+    }
+    // Stop early if we've already fetched everything the API says exists.
+    if (typeof data.totalFound === 'number' && out.length >= data.totalFound) break;
+    if (items.length < PAGE_SIZE) break;
+  }
+  return out;
+}
+
+/**
+ * SmartRecruiters per-job detail: pulls the JD body + sections.
+ * Used by fetchJobDetail to power ATS scoring on SmartRecruiters
+ * listings. Returns the raw JSON; the caller assembles the content
+ * string from `jobAd.sections.{jobDescription,qualifications,additionalInformation}.text`.
+ */
+async function fetchSmartRecruitersJobDetail(
+  boardToken: string,
+  jobId: string,
+): Promise<{ jobAd?: { sections?: Record<string, { text?: string }> } } | null> {
+  const url = `https://api.smartrecruiters.com/v1/companies/${boardToken}/postings/${jobId}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResult> {
@@ -278,8 +408,13 @@ export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResul
 export async function fetchJobDetail(
   listing: JobListing
 ): Promise<JobListingDetail | null> {
-  // Manual listings: content is stored as a local file on disk.
-  if (listing.id.startsWith('manual-')) {
+  // Manual listings AND Google listings: the description was already
+  // cached to disk during list-fetch (manual: by /api/listings/add,
+  // Google: by fetchGoogleJobs which extracts the SSR payload's
+  // responsibilities/qualifications/about/notes fields). Reading the
+  // file is faster than re-hitting the careers API and means Google
+  // listings get full ATS scoring + tailoring just like Greenhouse.
+  if (listing.id.startsWith('manual-') || listing.id.startsWith('gg-')) {
     try {
       const { readFile } = await import('fs/promises');
       const { join } = await import('path');
@@ -287,7 +422,8 @@ export async function fetchJobDetail(
       const filePath = join(process.cwd(), 'data', 'listing-details', `${listing.id}.html`);
       if (!existsSync(filePath)) return null;
       const content = await readFile(filePath, 'utf-8');
-      return { ...listing, content, qualifications: [], responsibilities: [] };
+      const { qualifications, responsibilities } = extractSections(content);
+      return { ...listing, content, qualifications, responsibilities };
     } catch {
       return null;
     }
@@ -360,6 +496,43 @@ export async function fetchJobDetail(
     };
   }
 
+  if (listing.ats === 'smartrecruiters') {
+    // SmartRecruiters per-job detail. Listing id shape:
+    //   sr-{boardToken}-{jobId}.
+    // The slice() — not split('-')[1] — preserves multi-segment job
+    // IDs like '7c4b…-9d12' that SmartRecruiters routinely uses as
+    // GUIDs. Same trick is used for greenhouse-token splitting where
+    // boards have hyphens.
+    const prefix = `sr-`;
+    const after = listing.id.slice(prefix.length);
+    const dash = after.indexOf('-');
+    const boardToken = dash > 0 ? after.slice(0, dash) : after;
+    const detail = await fetchSmartRecruitersJobDetail(boardToken, listing.sourceId);
+    if (!detail) return null;
+    const sections = detail.jobAd?.sections ?? {};
+    // Combine the JD's primary text fields. SmartRecruiters splits
+    // them so we keep them in section order for the section-extractor
+    // to work the same way it does for Greenhouse / Lever.
+    const content = [
+      sections.companyDescription?.text ?? '',
+      sections.jobDescription?.text ?? '',
+      sections.qualifications?.text ?? '',
+      sections.additionalInformation?.text ?? '',
+    ].filter(Boolean).join('\n');
+    if (!content) return null;
+    const salaryInfo = extractSalary(content);
+    const { qualifications, responsibilities } = extractSections(content);
+    return {
+      ...listing,
+      salary: salaryInfo?.display || listing.salary,
+      salaryMin: salaryInfo?.min || listing.salaryMin,
+      salaryMax: salaryInfo?.max || listing.salaryMax,
+      content,
+      qualifications,
+      responsibilities,
+    };
+  }
+
   if (listing.ats === 'eightfold') {
     // Eightfold listing IDs: `ef-{boardToken}-{positionId}`. We need the
     // eightfoldHost to hit the detail endpoint — look it up in the
@@ -419,46 +592,80 @@ export async function fetchJobDetail(
   }
 
   if (listing.ats === 'uber') {
-    // Uber's individual careers pages embed the full job description as
-    // unicode-escaped JSON inside a `<script type="application/json">`.
-    // We fetch the page directly (cheaper than the bulk paginated API)
-    // and pull the `description` value out via regex. The encoding
-    // chain is gnarly (HTML-escaped → unicode-escaped → JSON string),
-    // so we decode in three passes.
+    // Uber's per-listing pages now serve a clean schema.org JSON-LD
+    // <script type="application/ld+json"> block containing the full
+    // JobPosting (title, datePosted, description, hiringOrganization,
+    // jobLocation, …). The old unicode-escaped JSON we used to pull
+    // out only captured a 123-char fragment of the description on
+    // current pages — JSON-LD is the canonical source. Falling back
+    // to the old pattern only when JSON-LD is missing.
+    //
+    // Required headers: Uber's CDN now returns 406 Not Acceptable
+    // unless we send a browser-shape Accept header.
     try {
       const res = await fetch(listing.url, {
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
           'Accept-Language': 'en-US,en;q=0.9',
         },
+        redirect: 'follow',
         signal: AbortSignal.timeout(15000),
       });
       if (!res.ok) return null;
       const html = await res.text();
-      const m = html.match(
-        /\\u0022description\\u0022:\\u0022((?:[^\\]|\\.){50,20000}?)\\u0022/,
-      );
-      if (!m) return null;
-      // Pass 1: unicode-escape decode (handles ", \uXXXX).
-      let decoded: string;
-      try {
-        decoded = JSON.parse(`"${m[1]}"`);
-      } catch {
-        return null;
+
+      const decodeEntities = (s: string): string =>
+        s
+          .replace(/&lt;/g, '<')
+          .replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/&nbsp;/g, ' ')
+          .replace(/&amp;/g, '&'); // last so we don't double-decode
+
+      let descriptionHtml = '';
+
+      // Primary path: parse the schema.org JobPosting block.
+      const ldMatches = html.match(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g);
+      if (ldMatches) {
+        for (const block of ldMatches) {
+          const inner = block.replace(/<script[^>]*>|<\/script>/g, '');
+          try {
+            const parsed = JSON.parse(inner);
+            const node = Array.isArray(parsed) ? parsed.find((p) => p?.['@type'] === 'JobPosting') : parsed;
+            if (node && node['@type'] === 'JobPosting' && typeof node.description === 'string') {
+              descriptionHtml = decodeEntities(node.description);
+              break;
+            }
+          } catch {
+            /* not valid JSON — skip */
+          }
+        }
       }
-      // Pass 2: HTML-entity decode (the inner string was &lt;p&gt;…).
-      decoded = decoded
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&nbsp;/g, ' ');
-      const { qualifications, responsibilities } = extractSections(decoded);
+
+      // Fallback: legacy unicode-escaped pattern (older Uber pages
+      // still in cache may serve this shape).
+      if (!descriptionHtml) {
+        const m = html.match(
+          /\\u0022description\\u0022:\\u0022((?:[^\\]|\\.){50,20000}?)\\u0022/,
+        );
+        if (m) {
+          try {
+            descriptionHtml = decodeEntities(JSON.parse(`"${m[1]}"`));
+          } catch {
+            /* fall through */
+          }
+        }
+      }
+
+      if (!descriptionHtml) return null;
+
+      const { qualifications, responsibilities } = extractSections(descriptionHtml);
       return {
         ...listing,
-        content: decoded,
+        content: descriptionHtml,
         qualifications,
         responsibilities,
       };
