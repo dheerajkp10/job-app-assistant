@@ -32,7 +32,7 @@ import { existsSync } from 'fs';
  * means the listing falls back to "not scorable" downstream, which
  * is the same behavior we had before this optimization.
  */
-async function cacheJobDetailHtml(listingId: string, html: string): Promise<void> {
+export async function cacheJobDetailHtml(listingId: string, html: string): Promise<void> {
   if (!html || html.length < 20) return;
   try {
     const dir = join(process.cwd(), 'data', 'listing-details');

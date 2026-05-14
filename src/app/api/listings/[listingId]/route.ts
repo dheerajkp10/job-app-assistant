@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getListingById, updateListingSalary } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractSalary } from '@/lib/salary-parser';
+import { cacheJobDetailHtml } from '@/lib/custom-fetchers';
 
 /**
  * GET /api/listings/[listingId]
@@ -23,6 +24,14 @@ export async function GET(
   try {
     const detail = await fetchJobDetail(listing);
     if (detail) {
+      // Cache the JD body to disk so /api/search/jd can find it
+      // later for full-text search. Standard ATSes (Greenhouse /
+      // Lever / Ashby) return their content inline in the list
+      // call, so this is the first chance we get to persist it
+      // to a stable per-listing path. Non-fatal on write failure.
+      if (detail.content) {
+        void cacheJobDetailHtml(listingId, detail.content);
+      }
       // Re-run the (now smarter) salary extractor against the full
       // JD body. Detail-fetcher results often have richer text than
       // whatever the list-time extractor saw, so this is our best

@@ -256,6 +256,20 @@ export default function ListingsPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  // Full-text search across cached JD bodies. When enabled, the
+  // listings page also surfaces matches found inside job-description
+  // text on top of the existing title/company/department/location
+  // search. Implemented as a server-side endpoint that walks the
+  // on-disk cache (data/listing-details/*.html); coverage is
+  // partial because not every listing has been opened yet. The
+  // listings page surfaces "matches in N of M cached JDs" so the
+  // user understands the coverage limit.
+  const [searchInJd, setSearchInJd] = useState(false);
+  // Set of listing IDs whose cached JD body matches the current
+  // search query. Refreshed via /api/search/jd whenever the query
+  // OR the toggle changes. Null = "no JD search active".
+  const [jdMatchIds, setJdMatchIds] = useState<Set<string> | null>(null);
+  const [jdSearchMeta, setJdSearchMeta] = useState<{ matched: number; cached: number } | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
@@ -737,12 +751,21 @@ export default function ListingsPage() {
         }
         orGroups[orGroups.length - 1].push({ term: tok, negate: false });
       }
-      result = result.filter((l) =>
-        orGroups.some((group) =>
+      result = result.filter((l) => {
+        // Standard title/company/dept/location match (with AND/OR/NOT).
+        const fieldMatch = orGroups.some((group) =>
           group.length === 0 ||
           group.every((t) => (t.negate ? !matchesField(l, t.term) : matchesField(l, t.term)))
-        )
-      );
+        );
+        if (fieldMatch) return true;
+        // JD body fallback — kept disjunctive with the field match
+        // so a listing matches if EITHER its metadata fields hit OR
+        // its cached JD body contains the query. The server already
+        // applied the (simpler) substring match to the JD text, so
+        // we just check membership here.
+        if (searchInJd && jdMatchIds && jdMatchIds.has(l.id)) return true;
+        return false;
+      });
     }
     // Score-range filter (only kicks in when bounds are non-default).
     if (minScore > 0 || maxScore < 100) {
@@ -833,7 +856,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore]);
+  }, [listings, search, searchInJd, jdMatchIds, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -846,6 +869,31 @@ export default function ListingsPage() {
 
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
+
+  // Fire the JD full-text search whenever the query or toggle
+  // changes. Debounced 300ms so each keystroke doesn't kick a
+  // disk-walk on the server. Empty query clears the match set so
+  // the JD filter is a no-op.
+  useEffect(() => {
+    if (!searchInJd || !search.trim()) {
+      setJdMatchIds(null);
+      setJdSearchMeta(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search/jd?q=${encodeURIComponent(search.trim())}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const ids: string[] = Array.isArray(data.matchingIds) ? data.matchingIds : [];
+        setJdMatchIds(new Set(ids));
+        setJdSearchMeta({ matched: ids.length, cached: data.cachedCount ?? 0 });
+      } catch {
+        // Network blip — keep last result rather than nuking it.
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search, searchInJd]);
 
   if (loading && allListings.length === 0) {
     return (
@@ -1300,6 +1348,23 @@ export default function ListingsPage() {
                       Show flagged ({flaggedCount})
                     </label>
                   )}
+                  <label
+                    className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer"
+                    title="Also match the search query against the body of cached job descriptions, not just the title / company / department / location. Coverage grows as you expand more listings (each expand caches the JD to disk)."
+                  >
+                    <input
+                      type="checkbox"
+                      checked={searchInJd}
+                      onChange={(e) => setSearchInJd(e.target.checked)}
+                      className="rounded"
+                    />
+                    Also search job descriptions
+                    {jdSearchMeta && (
+                      <span className="text-slate-400">
+                        ({jdSearchMeta.matched} of {jdSearchMeta.cached} cached JDs)
+                      </span>
+                    )}
+                  </label>
                 </div>
                 {/* Date-posted preset — keeps only listings within the
                     selected window. Distinct from hideStale (which is a
