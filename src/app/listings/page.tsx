@@ -7,7 +7,7 @@ import {
   Search, RefreshCw, MapPin, Calendar, Building2, ExternalLink,
   DollarSign, Filter, ChevronDown, ChevronUp, ChevronRight, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
-  Tag, EyeOff, Eye, Globe, Sparkles, Check, Users,
+  Tag, EyeOff, Eye, Globe, Sparkles, Check, Users, NotebookPen,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
@@ -1684,6 +1684,14 @@ function ListingCard({
   } | null>(null);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
+  // Per-listing note. Lazy-loaded on expand. Auto-saves on a 800ms
+  // debounce so the user never has to click Save. Empty/whitespace
+  // text deletes the note server-side.
+  const [noteText, setNoteText] = useState<string>('');
+  const [noteLoaded, setNoteLoaded] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
+  const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Live progress for the SSE-driven download. Null when no download
   // is in flight; the inline progress card renders only while this is
   // populated.
@@ -1751,6 +1759,49 @@ function ListingCard({
         .finally(() => setLoadingScore(false));
     }
   }, [isExpanded, detailScore, loadingScore, scoreError, listing.id]);
+
+  // Lazy-load the note on first expand. Subsequent collapse/expand
+  // doesn't re-fetch — the in-memory text is the source of truth
+  // once loaded.
+  useEffect(() => {
+    if (!isExpanded || noteLoaded) return;
+    let cancelled = false;
+    fetch(`/api/listing-notes?listingId=${encodeURIComponent(listing.id)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        if (d.note && typeof d.note.text === 'string') {
+          setNoteText(d.note.text);
+          setNoteSavedAt(d.note.updatedAt ?? null);
+        }
+        setNoteLoaded(true);
+      })
+      .catch(() => !cancelled && setNoteLoaded(true));
+    return () => { cancelled = true; };
+  }, [isExpanded, noteLoaded, listing.id]);
+
+  /** Debounced auto-save — 800ms after the user stops typing the
+   *  note is POSTed. Empty text triggers a server-side delete. */
+  function handleNoteChange(next: string) {
+    setNoteText(next);
+    if (noteTimerRef.current) clearTimeout(noteTimerRef.current);
+    noteTimerRef.current = setTimeout(async () => {
+      setNoteSaving(true);
+      try {
+        const res = await fetch('/api/listing-notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ listingId: listing.id, text: next }),
+        });
+        const data = await res.json();
+        setNoteSavedAt(data?.note?.updatedAt ?? new Date().toISOString());
+      } catch {
+        // Network blip — leave saving false; user can re-type to retry.
+      } finally {
+        setNoteSaving(false);
+      }
+    }, 800);
+  }
 
   async function handleTailor() {
     setTailoring(true);
@@ -2365,6 +2416,38 @@ function ListingCard({
                 )}
               </div>
             )}
+          </section>
+
+          {/* Notes section — free-form per-listing notes. Auto-saves
+              on a 800ms debounce; empty text deletes the note
+              server-side. The textarea grows with content so short
+              notes don't waste space and long ones don't truncate. */}
+          <section className="bg-slate-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <NotebookPen className="w-4 h-4 text-amber-500" />
+                <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
+              </div>
+              <div className="text-[11px] text-slate-400">
+                {noteSaving ? (
+                  <span className="flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                  </span>
+                ) : noteSavedAt ? (
+                  <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
+                    Saved {formatPostedDate(noteSavedAt) ?? ''}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <textarea
+              value={noteText}
+              onChange={(e) => handleNoteChange(e.target.value)}
+              placeholder="Research, contacts, why this job, why you passed — anything you want attached to this listing. Saves automatically."
+              rows={Math.max(3, Math.min(10, noteText.split('\n').length + 1))}
+              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all resize-y"
+              spellCheck
+            />
           </section>
 
           {/* Resume Tailor section */}

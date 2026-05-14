@@ -341,6 +341,18 @@ export interface Database {
    *  detail page. Surfaced via the small bell badge on the top nav
    *  when one is overdue. */
   reminders?: Reminder[];
+  /** Per-listing free-form notes — research, contact names, "why I
+   *  passed" / "why I want this", anything the user wants to remember.
+   *  Plain text (Markdown rendered on display). Keyed by listingId.
+   *  Empty/whitespace-only strings are treated as "no note" and
+   *  pruned at write time. */
+  listingNotes?: Record<string, ListingNote>;
+}
+
+export interface ListingNote {
+  listingId: string;
+  text: string;
+  updatedAt: string;
 }
 
 // --- Portal search links (for LinkedIn, Indeed, Glassdoor) ---

@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry } from './types';
+import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -263,4 +263,43 @@ export async function clearListingFlag(listingId: string): Promise<boolean> {
   delete db.listingFlags[listingId];
   await writeDb(db);
   return true;
+}
+
+// ─── Listing Notes ──────────────────────────────────────────────────
+// Per-listing free-form notes. Keyed by listingId. Empty/whitespace
+// text is treated as "no note" — write deletes the entry.
+
+export async function getListingNotes(): Promise<Record<string, ListingNote>> {
+  const db = await readDb();
+  return db.listingNotes ?? {};
+}
+
+export async function getListingNote(listingId: string): Promise<ListingNote | null> {
+  const db = await readDb();
+  return db.listingNotes?.[listingId] ?? null;
+}
+
+export async function setListingNote(
+  listingId: string,
+  text: string,
+): Promise<ListingNote | null> {
+  const db = await readDb();
+  if (!db.listingNotes) db.listingNotes = {};
+  const trimmed = text.trim();
+  if (!trimmed) {
+    // Empty text = explicit delete.
+    if (db.listingNotes[listingId]) {
+      delete db.listingNotes[listingId];
+      await writeDb(db);
+    }
+    return null;
+  }
+  const entry: ListingNote = {
+    listingId,
+    text: trimmed,
+    updatedAt: new Date().toISOString(),
+  };
+  db.listingNotes[listingId] = entry;
+  await writeDb(db);
+  return entry;
 }
