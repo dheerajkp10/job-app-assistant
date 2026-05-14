@@ -23,6 +23,7 @@ import {
 } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
 import { buildLocationMatcher } from '@/lib/location-match';
+import { diffResume } from '@/lib/text-diff';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
@@ -1880,6 +1881,22 @@ function ListingCard({
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Resume-diff modal state. After tailoring, the user can open a
+  // line-by-line diff of the base resume vs the tailored output.
+  // Tailored text comes from tailorResult.tailoredText (already
+  // populated by the analyze pass). The base text is lazy-fetched
+  // from /api/resume on first open so we don't preload it on every
+  // card expand.
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [diffBaseText, setDiffBaseText] = useState<string | null>(null);
+  useEffect(() => {
+    if (!diffOpen || diffBaseText !== null) return;
+    fetch('/api/resume')
+      .then((r) => r.json())
+      .then((d) => setDiffBaseText(typeof d.text === 'string' ? d.text : ''))
+      .catch(() => setDiffBaseText(''));
+  }, [diffOpen, diffBaseText]);
+
   // Per-keyword scoring explanation. Click the magnifying-glass on
   // a missing-keyword chip → opens a popover showing the JD
   // sentences that mention this keyword, so the user can see WHY
@@ -2801,6 +2818,14 @@ function ListingCard({
                     </div>
                     <div className="text-xs text-blue-600">Improvement</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setDiffOpen(true)}
+                    className="ml-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-white text-indigo-700 border border-indigo-100 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                    title="See exactly which lines were added or modified in the tailored resume"
+                  >
+                    View diff
+                  </button>
                 </div>
 
                 {/* Changes summary */}
@@ -3055,6 +3080,124 @@ function ListingCard({
           </section>
         </div>
       )}
+
+      {/* Resume-diff modal. Renders a line-by-line view of the
+          base resume vs the tailored output. Tailor only appends,
+          so 'added' lines are the headline; we surface 'modified'
+          (bullets with new inline keywords) and 'removed' (rare)
+          for completeness. */}
+      {diffOpen && tailorResult && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+            onClick={() => setDiffOpen(false)}
+          >
+            <div
+              className="bg-white w-full max-w-3xl max-h-[85vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between p-5 border-b border-slate-100">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-800">Resume diff</h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Line-by-line view of what changed in the tailored version of your resume.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setDiffOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {diffBaseText === null ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-6 justify-center">
+                    <Loader2 className="w-4 h-4 animate-spin" /> Loading base resume…
+                  </div>
+                ) : (() => {
+                  const diff = diffResume(diffBaseText, tailorResult.tailoredText);
+                  return (
+                    <>
+                      <div className="flex items-center gap-3 mb-4 text-xs flex-wrap">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                          <strong>{diff.counts.added}</strong> added
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                          <strong>{diff.counts.modified}</strong> modified
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 border border-slate-200">
+                          <strong>{diff.counts.unchanged}</strong> unchanged
+                        </span>
+                        {diff.counts.removed > 0 && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100">
+                            <strong>{diff.counts.removed}</strong> removed
+                          </span>
+                        )}
+                      </div>
+                      <div className="space-y-1 font-mono text-[12px] leading-relaxed">
+                        {diff.lines.map((l, i) => {
+                          if (l.kind === 'unchanged') {
+                            return (
+                              <div key={i} className="flex gap-2 text-slate-500">
+                                <span className="w-5 shrink-0 text-slate-300 select-none">·</span>
+                                <span className="truncate">{l.text}</span>
+                              </div>
+                            );
+                          }
+                          if (l.kind === 'modified') {
+                            return (
+                              <div key={i} className="space-y-0.5">
+                                <div className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
+                                  <span className="w-5 shrink-0 text-rose-500 select-none">-</span>
+                                  <span className="text-rose-700">{l.basedOn}</span>
+                                </div>
+                                <div className="flex gap-2 bg-amber-50 px-2 py-1 rounded">
+                                  <span className="w-5 shrink-0 text-amber-600 select-none">~</span>
+                                  <span className="text-amber-900">{l.text}</span>
+                                </div>
+                              </div>
+                            );
+                          }
+                          // added
+                          return (
+                            <div key={i} className="flex gap-2 bg-emerald-50 px-2 py-1 rounded">
+                              <span className="w-5 shrink-0 text-emerald-600 select-none">+</span>
+                              <span className="text-emerald-800">{l.text}</span>
+                            </div>
+                          );
+                        })}
+                        {diff.removed.length > 0 && (
+                          <>
+                            <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-4 mb-1">
+                              Removed (unusual — tailor normally only appends)
+                            </div>
+                            {diff.removed.map((r, i) => (
+                              <div key={`r-${i}`} className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
+                                <span className="w-5 shrink-0 text-rose-500 select-none">-</span>
+                                <span className="text-rose-700">{r}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+              <div className="flex justify-end gap-2 p-4 border-t border-slate-100 bg-slate-50/60">
+                <button
+                  type="button"
+                  onClick={() => setDiffOpen(false)}
+                  className="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-xl transition-all duration-200"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
 
       {/* Per-keyword context popover. Portaled so it floats above
           every card boundary. Click-outside (the overlay) closes it. */}
