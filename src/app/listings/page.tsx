@@ -945,7 +945,7 @@ export default function ListingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-[1500px] mx-auto animate-fade-in">
+    <div className="p-4 sm:p-8 max-w-[1500px] mx-auto animate-fade-in">
       {/* Score-version migration banner. Shown once after a scorer
           upgrade (e.g. v2 → v3). The auto-batch-scorer effect kicks
           off automatically since the cache GET hides stale entries;
@@ -1275,7 +1275,7 @@ export default function ListingsPage() {
               hiddenCount={excludedByEmployerCount}
               allCompanies={allCompanyNames}
             />
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Company</label>
               <select
@@ -1413,7 +1413,7 @@ export default function ListingsPage() {
                   ))}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-400">Min $</span>
                   <input

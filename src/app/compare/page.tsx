@@ -75,7 +75,7 @@ export default function ComparePage() {
 
   if (selected.length === 0) {
     return (
-      <div className="p-8 max-w-3xl mx-auto">
+      <div className="p-4 sm:p-8 max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent mb-3">
           Compare Listings
         </h1>
@@ -143,7 +143,7 @@ export default function ComparePage() {
   );
 
   return (
-    <div className="p-8 max-w-[1500px] mx-auto animate-fade-in">
+    <div className="p-4 sm:p-8 max-w-[1500px] mx-auto animate-fade-in">
       <div className="mb-6 flex items-baseline justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">

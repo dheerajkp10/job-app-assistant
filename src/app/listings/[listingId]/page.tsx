@@ -287,7 +287,7 @@ export default function ListingDetailPage({
     : null;
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <Link
         href="/listings"
         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-6"
@@ -409,7 +409,7 @@ export default function ListingDetailPage({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div className="p-3 bg-green-50 rounded-lg border border-green-100">
                     <div className="flex items-center gap-1.5 mb-2">
                       <CheckCircle2 className="w-4 h-4 text-green-500" />

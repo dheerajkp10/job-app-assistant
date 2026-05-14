@@ -307,7 +307,7 @@ export default function DashboardPage() {
   const workModeLabels: Record<WorkMode, string> = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' };
 
   return (
-    <div className="p-8 max-w-7xl mx-auto animate-fade-in">
+    <div className="p-4 sm:p-8 max-w-7xl mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
@@ -331,14 +331,14 @@ export default function DashboardPage() {
       />
 
       {/* Stats cards */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
         <StatCard icon={Target} label="Avg ATS Score" value={`${stats.avgScore}%`} sub={`Across ${stats.scoredCount} scored listings`} color="blue" />
         <StatCard icon={BarChart3} label="Strong Matches" value={stats.high} sub={`Score 60%+ (of ${stats.scoredCount})`} color="green" />
         <StatCard icon={Building2} label="Companies" value={stats.companies} sub={`With ${stats.totalListings} matching roles`} color="purple" />
         <StatCard icon={CheckCircle2} label="Applied" value={stats.appliedCount} sub="Jobs you've applied to" color="amber" />
       </div>
 
-      <div className="grid grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Resume ATS Performance. Content wrapped in a fixed-height
             scroll pane so this card stays the same vertical size as
             its row neighbor (Top Companies) and any future addition
@@ -482,7 +482,7 @@ export default function DashboardPage() {
           // Round up to 280px to give a hint of the next row when
           // the user scrolls. `View all →` in the header still
           // links to the full Listings page.
-          <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[280px] dashboard-scroll">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 overflow-y-auto pr-1 max-h-[280px] dashboard-scroll">
             {topListings.map((listing) => {
               const score = scoreCache[listing.id];
               const scoreColor =
@@ -521,7 +521,7 @@ export default function DashboardPage() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left column */}
           <div className="space-y-4">
             <div>

@@ -196,7 +196,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
         <button
@@ -467,7 +467,7 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-500 mb-3">
               Enter only a minimum, only a maximum, or both &mdash; all optional.
             </p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Min total comp (annual)</label>
                 <div className="relative">

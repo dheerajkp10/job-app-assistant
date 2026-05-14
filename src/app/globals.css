@@ -294,3 +294,14 @@ body {
 /* ─── Scrollbar (dashboard cards) ───────────────────────────────── */
 [data-theme="dark"] .dashboard-scroll::-webkit-scrollbar-thumb         { background-color: rgba(148,163,184,0.30); }
 [data-theme="dark"] .dashboard-scroll:hover::-webkit-scrollbar-thumb   { background-color: rgba(148,163,184,0.50); }
+
+/* Hide scrollbar visually but keep scroll behavior — used by the
+   top nav on mobile so the nav can scroll horizontally without a
+   visible thumb. WebKit + Firefox parity. */
+.no-scrollbar {
+  scrollbar-width: none;             /* Firefox */
+  -ms-overflow-style: none;          /* IE 10+ */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;                     /* Safari + Chrome */
+}

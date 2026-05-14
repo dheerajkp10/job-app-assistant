@@ -353,7 +353,7 @@ export default function AddJobPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div className="p-3 bg-green-50 rounded-lg border border-green-100">
                   <div className="flex items-center gap-1.5 mb-2">
                     <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -518,7 +518,7 @@ export default function AddJobPage() {
   // ─── Normal form view ──────────────────────────────────────────
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-800 mb-8">Add Job</h1>
 
       {error && (
@@ -604,7 +604,7 @@ export default function AddJobPage() {
         </div>
 
         {/* Company and Title */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Company Name *</label>
             <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)}
