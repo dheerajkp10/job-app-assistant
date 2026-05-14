@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote } from './types';
+import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -58,7 +58,48 @@ export async function readDb(): Promise<Database> {
   }
   // Merge in any missing settings fields from defaults (migration for old DBs)
   db.settings = { ...DEFAULT_DB.settings, ...db.settings };
+  // Migration: legacy single-resume → resumes[] array. If the user
+  // has a baseResumeText but no resumes[] entry, synthesize one and
+  // point activeResumeId at it. The on-disk file stays at the
+  // legacy `base-resume.docx` path; resolveDocxTemplate falls back
+  // to that path when the active resume's id-keyed file is missing.
+  const dirty = migrateLegacyResume(db.settings);
+  if (dirty) {
+    // Persist the migration so subsequent reads don't re-run it.
+    // Best-effort — we don't block the read on it.
+    void writeDb(db);
+  }
   return db;
+}
+
+/**
+ * Single-shot migration: if `settings.resumes` is empty/undefined
+ * AND `baseResumeText` is set, build a single-entry resumes[] array
+ * and set activeResumeId. Returns true when the settings object was
+ * mutated so the caller knows to flush.
+ *
+ * Idempotent — subsequent calls with a populated resumes[] are no-ops.
+ */
+function migrateLegacyResume(s: Settings): boolean {
+  if (s.resumes && s.resumes.length > 0) {
+    // Already migrated — make sure activeResumeId is valid.
+    if (!s.activeResumeId || !s.resumes.some((r) => r.id === s.activeResumeId)) {
+      s.activeResumeId = s.resumes[0].id;
+      return true;
+    }
+    return false;
+  }
+  if (!s.baseResumeText) return false;
+  const id = `r-legacy-${Date.now().toString(36)}`;
+  s.resumes = [{
+    id,
+    name: 'Default',
+    fileName: s.baseResumeFileName ?? 'resume.docx',
+    text: s.baseResumeText,
+    addedAt: new Date().toISOString(),
+  }];
+  s.activeResumeId = id;
+  return true;
 }
 
 export async function writeDb(db: Database): Promise<void> {
@@ -302,4 +343,92 @@ export async function setListingNote(
   db.listingNotes[listingId] = entry;
   await writeDb(db);
   return entry;
+}
+
+// ─── Resumes (multi-variant library) ────────────────────────────────
+// Manages settings.resumes + settings.activeResumeId. Switching the
+// active resume wipes the score cache (already does on resume upload
+// via clearScoreCache) because cached scores were computed against
+// the previous active resume's text and no longer apply.
+
+export async function listResumes(): Promise<{ resumes: Resume[]; activeId: string | null }> {
+  const db = await readDb();
+  return {
+    resumes: db.settings.resumes ?? [],
+    activeId: db.settings.activeResumeId ?? null,
+  };
+}
+
+export async function getResume(id: string): Promise<Resume | null> {
+  const db = await readDb();
+  return db.settings.resumes?.find((r) => r.id === id) ?? null;
+}
+
+export async function addResume(resume: Resume): Promise<Resume> {
+  const db = await readDb();
+  if (!db.settings.resumes) db.settings.resumes = [];
+  // De-dupe on id (caller is responsible for generating unique ids).
+  db.settings.resumes = db.settings.resumes.filter((r) => r.id !== resume.id);
+  db.settings.resumes.push(resume);
+  // First-ever resume becomes the active one automatically.
+  if (!db.settings.activeResumeId) {
+    db.settings.activeResumeId = resume.id;
+    db.settings.baseResumeText = resume.text;
+    db.settings.baseResumeFileName = resume.fileName;
+  }
+  await writeDb(db);
+  return resume;
+}
+
+export async function updateResumeMeta(id: string, patch: Partial<Pick<Resume, 'name' | 'fileName' | 'text'>>): Promise<Resume | null> {
+  const db = await readDb();
+  const r = db.settings.resumes?.find((x) => x.id === id);
+  if (!r) return null;
+  Object.assign(r, patch);
+  // If this is the active resume, mirror legacy fields.
+  if (id === db.settings.activeResumeId) {
+    if (patch.text != null) db.settings.baseResumeText = patch.text;
+    if (patch.fileName != null) db.settings.baseResumeFileName = patch.fileName;
+  }
+  await writeDb(db);
+  return r;
+}
+
+export async function deleteResume(id: string): Promise<boolean> {
+  const db = await readDb();
+  const before = db.settings.resumes?.length ?? 0;
+  if (!before) return false;
+  db.settings.resumes = (db.settings.resumes ?? []).filter((r) => r.id !== id);
+  const removed = (db.settings.resumes.length ?? 0) < before;
+  if (!removed) return false;
+  // If we just deleted the active resume, promote whatever's first
+  // in the list (or clear when nothing remains).
+  if (db.settings.activeResumeId === id) {
+    const next = db.settings.resumes[0] ?? null;
+    db.settings.activeResumeId = next?.id;
+    db.settings.baseResumeText = next?.text ?? null;
+    db.settings.baseResumeFileName = next?.fileName ?? null;
+  }
+  await writeDb(db);
+  return true;
+}
+
+/**
+ * Switch the active resume. Mirrors the new resume's text +
+ * fileName into the legacy `baseResumeText` / `baseResumeFileName`
+ * fields so call sites that haven't been migrated keep working.
+ *
+ * Returns the new active resume, or null when the id doesn't exist.
+ * Caller is responsible for wiping the score cache if cached scores
+ * should no longer reflect the new resume.
+ */
+export async function setActiveResume(id: string): Promise<Resume | null> {
+  const db = await readDb();
+  const target = db.settings.resumes?.find((r) => r.id === id);
+  if (!target) return null;
+  db.settings.activeResumeId = id;
+  db.settings.baseResumeText = target.text;
+  db.settings.baseResumeFileName = target.fileName;
+  await writeDb(db);
+  return target;
 }

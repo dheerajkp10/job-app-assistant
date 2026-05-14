@@ -37,6 +37,29 @@ export async function resolveDocxTemplate(): Promise<DocxResolution> {
   const settings = await getSettings();
   const activeName = settings.baseResumeFileName;
 
+  // Multi-resume path: when settings has a populated resumes[]
+  // array, look up the active entry's id-keyed file first
+  // (`data/resume/<id>.docx`). Falls through to the legacy
+  // single-file location below if the id-keyed file is missing
+  // — this keeps the very first migration backward-compatible
+  // (the legacy file stays at `base-resume.docx` until the user
+  // re-uploads).
+  const activeId = settings.activeResumeId;
+  const active = settings.resumes?.find((r) => r.id === activeId);
+  if (active) {
+    const ext = extname(active.fileName).toLowerCase();
+    if (ext === '.docx') {
+      const p = join(RESUME_DIR, `${active.id}.docx`);
+      try { await access(p); return { kind: 'ok', path: p }; } catch { /* fall through */ }
+    } else if (ext === '.pdf') {
+      return { kind: 'pdf-only', activeName: active.fileName };
+    }
+  }
+
+  // Legacy single-resume path. Still in use for the migration
+  // grace period — `base-resume.docx` stays on disk after the
+  // resumes[] entry is synthesized; only when the user uploads a
+  // new resume do we write to the id-keyed path.
   if (activeName) {
     const ext = extname(activeName).toLowerCase();
     if (ext === '.docx') {

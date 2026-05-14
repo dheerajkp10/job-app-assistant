@@ -3,11 +3,36 @@ import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import mammoth from 'mammoth';
-import { getSettings, updateSettings, clearScoreCache } from '@/lib/db';
+import {
+  getSettings,
+  updateSettings,
+  clearScoreCache,
+  addResume,
+  updateResumeMeta,
+  setActiveResume,
+  listResumes,
+} from '@/lib/db';
 
 const RESUME_DIR = path.join(process.cwd(), 'data', 'resume');
 
+/**
+ * POST /api/resume
+ *
+ * Modes:
+ *   1. No `resumeId` query param → adds a NEW resume to the
+ *      library. First resume of all time also becomes the active.
+ *   2. `?resumeId=<id>` → REPLACES the file + extracted text on the
+ *      existing resume keyed by that id (e.g. user re-uploads an
+ *      improved version of their EM resume). If the replaced resume
+ *      is the active one, the score cache is wiped.
+ *
+ * Body: multipart/form-data with `file` (.docx or .pdf). Optional
+ * `name` form field to override the resume's display label.
+ *
+ * Response includes `{ resumeId, fileName, text, isActive, clearedScores }`.
+ */
 export async function GET() {
+  // Back-compat: legacy clients want fileName + text of the active.
   const settings = await getSettings();
   return NextResponse.json({
     fileName: settings.baseResumeFileName,
@@ -19,6 +44,8 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
+    const explicitName = (formData.get('name') as string | null)?.trim() ?? null;
+    const replaceId = req.nextUrl.searchParams.get('resumeId');
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -26,7 +53,6 @@ export async function POST(req: NextRequest) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const ext = path.extname(file.name).toLowerCase();
-
     if (ext !== '.docx' && ext !== '.pdf') {
       return NextResponse.json(
         { error: 'Only .docx and .pdf files are supported' },
@@ -34,14 +60,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse text FIRST — if parsing fails, don't save a bad file
+    // Parse text FIRST — if parsing fails, don't save a bad file.
     let text = '';
     if (ext === '.docx') {
       try {
         const result = await mammoth.extractRawText({ buffer });
         text = result.value;
       } catch (err) {
-        console.error('DOCX parse error:', err);
         return NextResponse.json(
           {
             error: 'Failed to parse DOCX file. It may be corrupt or password-protected.',
@@ -52,9 +77,9 @@ export async function POST(req: NextRequest) {
       }
     } else {
       try {
-        // Import pdf-parse's internal module directly to bypass the index.js
-        // debug-mode code path that tries to read a non-existent test fixture
-        // file on require() (a known issue with pdf-parse@1.1.1).
+        // Bypass pdf-parse's index.js debug code path (known issue
+        // with pdf-parse@1.1.1 trying to read a missing test
+        // fixture on require()).
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pdfParse = require('pdf-parse/lib/pdf-parse.js');
         const data = await pdfParse(buffer);
@@ -69,7 +94,6 @@ export async function POST(req: NextRequest) {
           );
         }
       } catch (err) {
-        console.error('PDF parse error:', err);
         return NextResponse.json(
           {
             error:
@@ -81,46 +105,88 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save the file (only after successful parse)
-    if (!existsSync(RESUME_DIR)) {
-      await mkdir(RESUME_DIR, { recursive: true });
+    if (!existsSync(RESUME_DIR)) await mkdir(RESUME_DIR, { recursive: true });
+
+    // Resolve the resume id (existing for replace, new for add).
+    let resumeId: string;
+    let isReplace = false;
+    const existing = await listResumes();
+    if (replaceId && existing.resumes.some((r) => r.id === replaceId)) {
+      resumeId = replaceId;
+      isReplace = true;
+    } else {
+      // New resume id — short timestamp-based prefix is plenty unique
+      // for a single-user local app.
+      resumeId = `r-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
     }
-    const filePath = path.join(RESUME_DIR, `base-resume${ext}`);
+
+    const filePath = path.join(RESUME_DIR, `${resumeId}${ext}`);
     await writeFile(filePath, buffer);
 
-    // Delete any file of the OTHER extension so on-disk state matches the
-    // active resume. Without this, a prior `.docx` upload would be left
-    // stranded after a later `.pdf` upload (or vice versa), and the
-    // tailoring editor would silently use the stale doc — producing
-    // tailored output that doesn't match the user's current resume.
+    // Remove any file of the OTHER extension for this id so the
+    // tailor pipeline doesn't pick up a stale doc when the user
+    // swaps a .pdf for a .docx (or vice versa) under the same id.
     const otherExt = ext === '.docx' ? '.pdf' : '.docx';
-    const staleFilePath = path.join(RESUME_DIR, `base-resume${otherExt}`);
-    await unlink(staleFilePath).catch(() => { /* absent is fine */ });
+    await unlink(path.join(RESUME_DIR, `${resumeId}${otherExt}`)).catch(() => { /* ok */ });
+    // Also remove any leftover legacy single-file artifact when this
+    // is the FIRST upload on a fresh install (before the legacy file
+    // ever existed) — no-op in normal cases.
+    await unlink(path.join(RESUME_DIR, `base-resume${otherExt}`)).catch(() => { /* ok */ });
 
-    // If the resume text actually changed, every cached ATS score is
-    // now computed against a stale baseResumeText and no longer
-    // represents the user's real fit. Wipe the cache so the dashboard
-    // doesn't keep displaying the OLD score (the bug the user hit
-    // after running Generate Master Resume → uploading the result:
-    // dashboard still showed 57% because cached scores were against
-    // the pre-update resume). The listings page auto-scorer re-fills
-    // the cache lazily as the user views listings; the response
-    // returns `clearedScores` so the UI can show a rescore banner.
+    // Decide whether the score cache should be cleared. Caches are
+    // keyed by listingId and were computed against the previously-
+    // active resume's text — clear if the new upload BECOMES the
+    // active resume AND its text differs from the previous active.
     const prevSettings = await getSettings();
-    const changed = (prevSettings.baseResumeText ?? '') !== text;
+    const prevActiveText = prevSettings.baseResumeText ?? '';
+    const willBecomeActive =
+      isReplace
+        ? prevSettings.activeResumeId === resumeId
+        // First-ever resume becomes active by default (see addResume);
+        // subsequent additions don't auto-switch.
+        : !prevSettings.activeResumeId;
     let clearedScores = 0;
-    if (changed) {
+    if (willBecomeActive && prevActiveText !== text) {
       clearedScores = await clearScoreCache();
     }
 
-    await updateSettings({
-      baseResumeFileName: file.name,
-      baseResumeText: text,
-    });
+    // Persist the library entry.
+    const friendlyName = explicitName || (isReplace
+      ? existing.resumes.find((r) => r.id === resumeId)!.name
+      : `Resume ${(existing.resumes.length + 1)}`);
 
-    return NextResponse.json({ fileName: file.name, text, clearedScores });
+    if (isReplace) {
+      await updateResumeMeta(resumeId, { fileName: file.name, text });
+    } else {
+      await addResume({
+        id: resumeId,
+        name: friendlyName,
+        fileName: file.name,
+        text,
+        addedAt: new Date().toISOString(),
+      });
+    }
+
+    // Mirror the active-resume legacy fields when needed.
+    if (willBecomeActive) {
+      // addResume already sets active for the first-ever upload,
+      // but call setActiveResume defensively to keep legacy fields
+      // in sync for replace-into-active flows.
+      await setActiveResume(resumeId);
+    } else if (isReplace && prevSettings.activeResumeId === resumeId) {
+      // Replacing the active one but text unchanged — still sync.
+      await updateSettings({ baseResumeText: text, baseResumeFileName: file.name });
+    }
+
+    return NextResponse.json({
+      resumeId,
+      fileName: file.name,
+      text,
+      name: friendlyName,
+      isActive: willBecomeActive || prevSettings.activeResumeId === resumeId,
+      clearedScores,
+    });
   } catch (err) {
-    console.error('Resume upload unexpected error:', err);
     return NextResponse.json(
       {
         error: 'Unexpected error while uploading resume.',

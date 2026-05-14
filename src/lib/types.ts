@@ -17,9 +17,49 @@ export interface Job {
 
 export type WorkMode = 'remote' | 'hybrid' | 'onsite';
 
+/** One resume the user has uploaded. Multiple resume variants are
+ *  supported so a user can keep e.g. an EM-track resume, an IC-track
+ *  resume, and an early-career resume side-by-side and switch the
+ *  active one per session.
+ *
+ *  Storage:
+ *    - On-disk file: `data/resume/<id>.docx` (or .pdf)
+ *    - `text` is the extracted plain-text version (used for ATS scoring)
+ *    - `id` is opaque to the UI — generated on upload.
+ *
+ *  The single-resume legacy fields (`baseResumeFileName`,
+ *  `baseResumeText`) remain for back-compat; readers should prefer
+ *  the active entry in `resumes[]` when both are present. Migration
+ *  in `db.ts` lifts a legacy single resume into a single-item
+ *  `resumes` array transparently. */
+export interface Resume {
+  id: string;
+  /** Human-friendly label (e.g. "EM track", "Staff IC"). */
+  name: string;
+  /** Original filename the user uploaded. */
+  fileName: string;
+  /** Extracted plain-text — the ATS-scorable form. */
+  text: string;
+  /** ISO timestamp of the upload. */
+  addedAt: string;
+}
+
 export interface Settings {
+  /** Legacy single-resume filename. Mirrors the active resume's
+   *  `fileName` after migration so code that still reads this works.
+   *  Prefer `resumes` + `activeResumeId`. */
   baseResumeFileName: string | null;
+  /** Legacy single-resume extracted text. Mirrors the active
+   *  resume's `text` after migration. Prefer `resumes` + `activeResumeId`. */
   baseResumeText: string | null;
+  /** Library of resume variants. Empty on fresh install — onboarding
+   *  populates it from the uploaded file. */
+  resumes?: Resume[];
+  /** ID of the resume currently in use for scoring + tailoring.
+   *  Always points at one of `resumes[].id` when `resumes` is
+   *  non-empty. Switching this wipes the score cache (cached scores
+   *  were computed against the previous active resume). */
+  activeResumeId?: string;
   userName: string;
 
   // ─── User preferences (set during onboarding) ───

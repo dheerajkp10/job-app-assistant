@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X, RefreshCw } from 'lucide-react';
+import { Upload, FileText, Check, User, Briefcase, MapPin, DollarSign, X, RefreshCw, Loader2, Trash2 } from 'lucide-react';
 import { CustomSourcesPanel } from '@/components/settings/custom-sources';
 import { NetworkImportPanel } from '@/components/settings/network-import';
 import type { WorkMode } from '@/lib/types';
@@ -545,6 +545,9 @@ export default function SettingsPage() {
           </div>
         )}
 
+        <ResumeLibrary />
+
+
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
@@ -664,5 +667,180 @@ function SalaryReprocessPanel() {
         )}
       </button>
     </section>
+  );
+}
+
+// ─── Resume Library panel ────────────────────────────────────────────
+// Surfaces the user's resume variants in a list with switch / rename
+// / delete controls. The actual upload + "add another resume" flow
+// still goes through the drag-and-drop zone above this panel — that
+// path now adds new entries to the library instead of replacing the
+// single base resume.
+
+interface LibraryResume {
+  id: string;
+  name: string;
+  fileName: string;
+  text: string;
+  addedAt: string;
+}
+
+function ResumeLibrary() {
+  const [resumes, setResumes] = useState<LibraryResume[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function reload() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/resumes');
+      const data = await res.json();
+      setResumes(Array.isArray(data.resumes) ? data.resumes : []);
+      setActiveId(data.activeId ?? null);
+    } catch {
+      setError('Failed to load resume library');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    reload();
+  }, []);
+
+  async function setActive(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch('/api/resumes/active', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Failed (${res.status})`);
+      }
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Switch failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function rename(id: string, current: string) {
+    const next = window.prompt('Rename resume', current);
+    if (!next || next.trim() === current) return;
+    setBusyId(id);
+    try {
+      await fetch('/api/resumes', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: next.trim() }),
+      });
+      await reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(id: string, name: string) {
+    if (!window.confirm(`Delete "${name}"? This removes the on-disk files too.`)) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/resumes?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `Delete failed (${res.status})`);
+      }
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (loading) return null;
+  if (resumes.length === 0) return null;
+
+  return (
+    <div className="mb-4 bg-white border border-slate-100 rounded-2xl shadow-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+        <div className="text-sm font-semibold text-slate-800">Resume library</div>
+        <div className="text-xs text-slate-500">
+          {resumes.length} {resumes.length === 1 ? 'resume' : 'resumes'} · active = currently used
+          for scoring + tailoring
+        </div>
+      </div>
+      {error && (
+        <div className="px-4 py-2 bg-rose-50 border-b border-rose-100 text-xs text-rose-700">{error}</div>
+      )}
+      <ul className="divide-y divide-slate-100">
+        {resumes.map((r) => {
+          const isActive = r.id === activeId;
+          return (
+            <li key={r.id} className="px-4 py-3 flex items-center gap-3">
+              <FileText className={`w-4 h-4 shrink-0 ${isActive ? 'text-indigo-500' : 'text-slate-400'}`} />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm font-medium ${isActive ? 'text-slate-800' : 'text-slate-700'}`}>
+                    {r.name}
+                  </span>
+                  {isActive && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      Active
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs text-slate-500 truncate">
+                  {r.fileName} · added {new Date(r.addedAt).toLocaleDateString()} ·{' '}
+                  {r.text.length.toLocaleString()} chars parsed
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {!isActive && (
+                  <button
+                    type="button"
+                    onClick={() => setActive(r.id)}
+                    disabled={!!busyId}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 transition-all disabled:opacity-50"
+                    title="Make this resume the active one — wipes the score cache because cached scores were computed against a different resume"
+                  >
+                    {busyId === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                    Make active
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => rename(r.id, r.name)}
+                  disabled={!!busyId}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all disabled:opacity-50"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(r.id, r.name)}
+                  disabled={!!busyId || resumes.length <= 1}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={resumes.length <= 1 ? 'You need at least one resume — upload another before deleting this one' : 'Delete this resume + its on-disk files'}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/60 text-[11px] text-slate-500">
+        Use the upload box below to add another resume variant. New uploads add to the library; click <strong>Make active</strong> on any entry to switch which one the app uses.
+      </div>
+    </div>
   );
 }
