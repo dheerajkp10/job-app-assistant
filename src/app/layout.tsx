@@ -34,7 +34,24 @@ export default async function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      // The actual theme is applied client-side by the inline
+      // script below before React hydrates — keeps the first paint
+      // in the right theme so the user doesn't see a light flash
+      // before the dark theme kicks in.
+      suppressHydrationWarning
     >
+      <head>
+        {/* Inline theme initializer. Runs before React hydrates, so
+            `<html data-theme="dark">` is set before any CSS paints.
+            Reads localStorage; falls back to the OS prefers-color-
+            scheme media query when no explicit choice is stored. */}
+        <script
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('jobassist-theme');if(!t){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-screen">
         {/* HeroUI v3 components rely on react-aria-components' built-in
             context, so no top-level provider is needed. */}

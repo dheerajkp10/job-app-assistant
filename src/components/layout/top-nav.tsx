@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Kanban,
 } from 'lucide-react';
+import ThemeToggle from './theme-toggle';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -59,6 +60,7 @@ export default function TopNav() {
             );
           })}
         </nav>
+        <ThemeToggle />
       </div>
     </header>
   );
