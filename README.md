@@ -71,6 +71,7 @@ A local-first web app that pulls live job listings from 70+ tech-company career 
 ### ➕ Add Job — capture postings outside the auto-sync
 - Paste a job posting URL → the extractor uses Readability + per-ATS heuristics to pull title, company, location, JD.
 - Or paste raw JD text directly. Either way it's scored against your resume immediately.
+- **Browser extension** (see [extension/](extension/)) adds a floating **Save to JobAssist** button on LinkedIn / Indeed / Greenhouse / Lever / Ashby / Workday / SmartRecruiters / Glassdoor job pages — one click captures the current URL into your local tracker, no copy/paste.
 
 ![Settings — resume upload, preferences, custom sources, network import, salary backfill](docs/screenshots/06-settings.png)
 

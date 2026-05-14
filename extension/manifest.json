@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "JobAssist Capture",
+  "description": "Save the current job posting to your local JobAssist tracker with one click.",
+  "version": "1.0.0",
+  "action": {
+    "default_title": "Save this page to JobAssist",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.linkedin.com/jobs/*",
+        "https://www.indeed.com/viewjob*",
+        "https://indeed.com/viewjob*",
+        "https://*.indeed.com/viewjob*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.ashbyhq.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://careers.smartrecruiters.com/*",
+        "https://jobs.smartrecruiters.com/*",
+        "https://www.glassdoor.com/job-listing/*",
+        "https://www.glassdoor.com/Job/*"
+      ],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  }
+}
