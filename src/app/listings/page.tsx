@@ -3023,6 +3023,91 @@ function ListingCard({
             )}
           </section>
 
+          {/* Hiring & Recruiting Contacts — no scraping; just pre-built
+              LinkedIn / Google deep-search URLs that the user clicks
+              through. Avoids ToS issues and stays robust against
+              LinkedIn UI changes. */}
+          <section className="bg-slate-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-indigo-500" />
+                <h4 className="text-sm font-semibold text-slate-800">Find hiring contacts</h4>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Pre-built searches across LinkedIn + Google site-restricted searches. Each opens in a new tab.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(() => {
+                // Build a smart role keyword based on the listing's
+                // title. For an EM listing → 'engineering manager';
+                // for a Staff IC → 'staff engineer'. Falls back to
+                // the listing title itself if no obvious match.
+                const t = (listing.title || '').toLowerCase();
+                let mgrKeyword = 'engineering manager';
+                if (/director/.test(t)) mgrKeyword = 'director engineering';
+                else if (/vp|vice president/.test(t)) mgrKeyword = 'VP engineering';
+                else if (/staff|principal/.test(t)) mgrKeyword = 'engineering manager';
+                else if (/product manager/.test(t)) mgrKeyword = 'director product';
+                else if (/design/.test(t)) mgrKeyword = 'head of design';
+                const company = listing.company;
+                // LinkedIn people-search keyword query string. We
+                // can't pass company-id without scraping LinkedIn's
+                // typeahead, so we put the company name into the
+                // keywords field (LinkedIn returns close-enough
+                // matches via full-text search).
+                const linkedinUrl = (q: string) =>
+                  `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
+                // Google site-restricted search for LinkedIn
+                // profiles — often surfaces the right person faster
+                // than LinkedIn's own search because Google indexes
+                // profile titles + summaries.
+                const googleUrl = (q: string) =>
+                  `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in ${q}`)}`;
+                const cards = [
+                  {
+                    label: 'Recruiters on LinkedIn',
+                    desc: `"recruiter" at ${company}`,
+                    href: linkedinUrl(`recruiter ${company}`),
+                  },
+                  {
+                    label: 'Hiring managers on LinkedIn',
+                    desc: `"${mgrKeyword}" at ${company}`,
+                    href: linkedinUrl(`${mgrKeyword} ${company}`),
+                  },
+                  {
+                    label: 'Recruiters via Google',
+                    desc: `site:linkedin.com/in "${company}" "recruiter"`,
+                    href: googleUrl(`"${company}" recruiter`),
+                  },
+                  {
+                    label: 'Hiring managers via Google',
+                    desc: `site:linkedin.com/in "${company}" "${mgrKeyword}"`,
+                    href: googleUrl(`"${company}" "${mgrKeyword}"`),
+                  },
+                ];
+                return cards.map((c) => (
+                  <a
+                    key={c.label}
+                    href={c.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-200 hover:bg-indigo-50/40 hover:shadow-sm transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-800">{c.label}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{c.desc}</div>
+                    </div>
+                  </a>
+                ));
+              })()}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-3">
+              Tip: the Google site-restricted searches often surface the right person faster than LinkedIn&apos;s own filtered search.
+            </p>
+          </section>
+
           {/* Cover Letter section. Deterministic 3-paragraph generator
               using the resume's most-recent role title, a quantified
               achievement (when present), the JD's mission sentence,
