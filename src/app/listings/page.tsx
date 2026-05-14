@@ -1880,6 +1880,41 @@ function ListingCard({
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Per-keyword scoring explanation. Click the magnifying-glass on
+  // a missing-keyword chip → opens a popover showing the JD
+  // sentences that mention this keyword, so the user can see WHY
+  // the scorer flagged it as missing. Lazy-fetches on demand.
+  const [keywordContext, setKeywordContext] = useState<{
+    keyword: string;
+    sentences: string[];
+    loading: boolean;
+    anchor: { top: number; left: number };
+  } | null>(null);
+  async function openKeywordContext(keyword: string, btn: HTMLElement) {
+    const rect = btn.getBoundingClientRect();
+    setKeywordContext({
+      keyword,
+      sentences: [],
+      loading: true,
+      anchor: { top: rect.bottom + 4, left: rect.left },
+    });
+    try {
+      const res = await fetch(
+        `/api/keyword-context?listingId=${encodeURIComponent(listing.id)}&keyword=${encodeURIComponent(keyword)}`,
+      );
+      const data = await res.json();
+      setKeywordContext((prev) =>
+        prev?.keyword === keyword
+          ? { ...prev, sentences: data.sentences ?? [], loading: false }
+          : prev,
+      );
+    } catch {
+      setKeywordContext((prev) =>
+        prev?.keyword === keyword ? { ...prev, sentences: [], loading: false } : prev,
+      );
+    }
+  }
+
   // In-app PDF preview. Set when the tailor stream completes; the
   // expanded card shows an inline iframe with the generated PDF
   // alongside a Download button so the user can review before
@@ -2558,20 +2593,49 @@ function ListingCard({
                       {detailScore.missingKeywords.map((k) => {
                         const isSelected = selectedKeywords.has(k);
                         return (
-                          <button
+                          <span
                             key={k}
-                            onClick={() => !tailorResult && toggleKeyword(k)}
-                            disabled={!!tailorResult}
-                            className={`px-1.5 py-0.5 rounded text-xs transition-colors ${
+                            className={`inline-flex items-center rounded text-xs transition-colors ${
                               tailorResult
-                                ? 'bg-red-100 text-red-700 cursor-default'
+                                ? 'bg-red-100 text-red-700'
                                 : isSelected
-                                  ? 'bg-red-200 text-red-800 ring-1 ring-red-400 font-medium cursor-pointer hover:bg-red-300'
-                                  : 'bg-slate-100 text-slate-400 line-through cursor-pointer hover:bg-gray-200'
+                                  ? 'bg-red-200 text-red-800 ring-1 ring-red-400 font-medium'
+                                  : 'bg-slate-100 text-slate-400'
                             }`}
                           >
-                            {k}
-                          </button>
+                            <button
+                              type="button"
+                              onClick={() => !tailorResult && toggleKeyword(k)}
+                              disabled={!!tailorResult}
+                              className={`px-1.5 py-0.5 ${
+                                tailorResult
+                                  ? 'cursor-default'
+                                  : isSelected
+                                    ? 'cursor-pointer hover:bg-red-300 rounded-l'
+                                    : 'line-through cursor-pointer hover:bg-gray-200 rounded-l'
+                              }`}
+                              title={
+                                tailorResult
+                                  ? k
+                                  : isSelected
+                                    ? `Click to deselect — won't be added to the tailored resume`
+                                    : `Click to select — will be added to the tailored resume`
+                              }
+                            >
+                              {k}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openKeywordContext(k, e.currentTarget);
+                              }}
+                              className="px-1 py-0.5 border-l border-current/20 hover:bg-slate-200 rounded-r opacity-70 hover:opacity-100"
+                              title="Show JD sentences mentioning this keyword"
+                            >
+                              <Search className="w-2.5 h-2.5" />
+                            </button>
+                          </span>
                         );
                       })}
                     </div>
@@ -2991,6 +3055,80 @@ function ListingCard({
           </section>
         </div>
       )}
+
+      {/* Per-keyword context popover. Portaled so it floats above
+          every card boundary. Click-outside (the overlay) closes it. */}
+      {keywordContext && typeof document !== 'undefined' &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 z-[60]"
+              onClick={() => setKeywordContext(null)}
+            />
+            <div
+              className="fixed w-80 max-w-[calc(100vw-32px)] bg-white border border-slate-200 rounded-xl shadow-modal z-[70] text-left overflow-hidden"
+              style={{
+                top: keywordContext.anchor.top,
+                left: Math.min(keywordContext.anchor.left, window.innerWidth - 320 - 16),
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Search className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-700 truncate">
+                    Where &quot;{keywordContext.keyword}&quot; appears
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKeywordContext(null)}
+                  className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+                  title="Close"
+                >
+                  <XCircle className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <div className="p-3 max-h-72 overflow-y-auto">
+                {keywordContext.loading ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-500 py-3 justify-center">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading JD context…
+                  </div>
+                ) : keywordContext.sentences.length === 0 ? (
+                  <p className="text-xs text-slate-500">
+                    No JD sentences found. The body might not be cached yet — try expanding
+                    the listing once first.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {keywordContext.sentences.map((s, i) => (
+                      <li key={i} className="text-xs text-slate-700 bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5 leading-relaxed">
+                        {/* Highlight tokens of the keyword in the
+                            sentence so the user sees the match
+                            inline. We split on the keyword's first
+                            token; sufficient for visual scanning. */}
+                        {(() => {
+                          const token = keywordContext.keyword.split(/[-_\s]+/)[0];
+                          if (!token || token.length < 3) return s;
+                          const re = new RegExp(`(\\b${token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b)`, 'gi');
+                          const parts = s.split(re);
+                          return parts.map((p, j) =>
+                            re.test(p) ? (
+                              <mark key={j} className="bg-amber-100 text-amber-900 rounded px-0.5">{p}</mark>
+                            ) : (
+                              <span key={j}>{p}</span>
+                            ),
+                          );
+                        })()}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
     </div>
   );
 }
