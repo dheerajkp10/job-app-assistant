@@ -1881,6 +1881,25 @@ function ListingCard({
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Cover-letter template library. Lazy-loaded on expand. The
+  // 'Save as template' button takes the current textarea contents
+  // and posts it; the picker loads a saved template into the
+  // textarea (clobbers current contents, with a confirm when there
+  // are unsaved edits).
+  const [coverTemplates, setCoverTemplates] = useState<{ id: string; name: string; text: string }[]>([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  useEffect(() => {
+    if (!isExpanded) return;
+    let cancelled = false;
+    fetch('/api/cover-letter-templates')
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && Array.isArray(d.templates)) setCoverTemplates(d.templates);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isExpanded]);
+
   // Resume-diff modal state. After tailoring, the user can open a
   // line-by-line diff of the base resume vs the tailored output.
   // Tailored text comes from tailorResult.tailoredText (already
@@ -3011,25 +3030,56 @@ function ListingCard({
               download — the textarea is the source of truth for the
               final .txt file. */}
           <section className="bg-slate-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-500" />
                 <h4 className="text-sm font-semibold text-slate-800">Cover Letter</h4>
               </div>
-              <button
-                type="button"
-                onClick={handleGenerateCoverLetter}
-                disabled={generatingCover}
-                className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-semibold rounded-lg shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50"
-              >
-                {generatingCover ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
-                ) : coverLetter ? (
-                  <><FileText className="w-3.5 h-3.5" /> Regenerate</>
-                ) : (
-                  <><FileText className="w-3.5 h-3.5" /> Generate Cover Letter</>
+              <div className="flex items-center gap-2">
+                {coverTemplates.length > 0 && (
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const t = coverTemplates.find((x) => x.id === id);
+                      if (!t) return;
+                      if (
+                        coverLetter &&
+                        coverLetter.text.trim() &&
+                        !window.confirm(`Replace the current cover letter with template "${t.name}"?`)
+                      ) {
+                        e.target.value = '';
+                        return;
+                      }
+                      setCoverLetter({ text: t.text, matchedKeywords: [] });
+                      // reset select back to placeholder
+                      e.target.value = '';
+                    }}
+                    className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white text-slate-700 focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
+                    title="Load one of your saved cover-letter templates into the textarea"
+                  >
+                    <option value="">Load template…</option>
+                    {coverTemplates.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
                 )}
-              </button>
+                <button
+                  type="button"
+                  onClick={handleGenerateCoverLetter}
+                  disabled={generatingCover}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-100 text-xs font-semibold rounded-lg shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50"
+                >
+                  {generatingCover ? (
+                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Generating…</>
+                  ) : coverLetter ? (
+                    <><FileText className="w-3.5 h-3.5" /> Regenerate</>
+                  ) : (
+                    <><FileText className="w-3.5 h-3.5" /> Generate Cover Letter</>
+                  )}
+                </button>
+              </div>
             </div>
 
             {coverError && (
@@ -3073,6 +3123,48 @@ function ListingCard({
                     className="flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
                   >
                     Copy to Clipboard
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingTemplate || !coverLetter.text.trim()}
+                    onClick={async () => {
+                      const defaultName = `${listing.company} — ${listing.title}`.slice(0, 60);
+                      const name = window.prompt(
+                        'Name this template (e.g. "Short EM intro", "Detailed staff IC"):',
+                        defaultName,
+                      );
+                      if (!name || !name.trim()) return;
+                      setSavingTemplate(true);
+                      try {
+                        const res = await fetch('/api/cover-letter-templates', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name: name.trim(), text: coverLetter.text }),
+                        });
+                        const data = await res.json();
+                        if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+                        if (data.template) {
+                          setCoverTemplates((prev) => [
+                            ...prev.filter((x) => x.id !== data.template.id),
+                            data.template,
+                          ]);
+                        }
+                      } catch (e) {
+                        window.alert(
+                          `Couldn't save template: ${e instanceof Error ? e.message : 'unknown'}`,
+                        );
+                      } finally {
+                        setSavingTemplate(false);
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-700 border border-indigo-100 text-sm font-medium rounded-xl shadow-sm shadow-indigo-500/10 hover:bg-indigo-100 hover:border-indigo-200 hover:shadow-md hover:shadow-indigo-500/15 transition-all duration-200 disabled:opacity-50"
+                    title="Save this letter as a reusable template — loadable on any future listing via the picker above"
+                  >
+                    {savingTemplate ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
+                    ) : (
+                      <>Save as template</>
+                    )}
                   </button>
                 </div>
               </div>

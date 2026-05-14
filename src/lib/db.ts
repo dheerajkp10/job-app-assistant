@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume } from './types';
+import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -431,4 +431,47 @@ export async function setActiveResume(id: string): Promise<Resume | null> {
   db.settings.baseResumeFileName = target.fileName;
   await writeDb(db);
   return target;
+}
+
+// ─── Cover-letter templates (library) ───────────────────────────────
+// User saves a generated/edited cover letter as a template (via the
+// listing detail's 'Save as template' button); templates can be
+// loaded back into any listing's cover-letter pane. Stored under
+// db.settings.coverLetterTemplates. Settings UI in /settings lists +
+// renames + deletes them.
+
+export async function listCoverLetterTemplates(): Promise<CoverLetterTemplate[]> {
+  const db = await readDb();
+  return db.settings.coverLetterTemplates ?? [];
+}
+
+export async function addCoverLetterTemplate(t: CoverLetterTemplate): Promise<CoverLetterTemplate> {
+  const db = await readDb();
+  if (!db.settings.coverLetterTemplates) db.settings.coverLetterTemplates = [];
+  db.settings.coverLetterTemplates = db.settings.coverLetterTemplates.filter((x) => x.id !== t.id);
+  db.settings.coverLetterTemplates.push(t);
+  await writeDb(db);
+  return t;
+}
+
+export async function updateCoverLetterTemplate(
+  id: string,
+  patch: Partial<Pick<CoverLetterTemplate, 'name' | 'text'>>,
+): Promise<CoverLetterTemplate | null> {
+  const db = await readDb();
+  const t = db.settings.coverLetterTemplates?.find((x) => x.id === id);
+  if (!t) return null;
+  Object.assign(t, patch, { updatedAt: new Date().toISOString() });
+  await writeDb(db);
+  return t;
+}
+
+export async function deleteCoverLetterTemplate(id: string): Promise<boolean> {
+  const db = await readDb();
+  const before = db.settings.coverLetterTemplates?.length ?? 0;
+  if (!before) return false;
+  db.settings.coverLetterTemplates = (db.settings.coverLetterTemplates ?? []).filter((x) => x.id !== id);
+  const removed = (db.settings.coverLetterTemplates.length ?? 0) < before;
+  if (removed) await writeDb(db);
+  return removed;
 }

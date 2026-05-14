@@ -60,6 +60,14 @@ export interface Settings {
    *  non-empty. Switching this wipes the score cache (cached scores
    *  were computed against the previous active resume). */
   activeResumeId?: string;
+  /** User-saved cover-letter templates. Generated cover letters can
+   *  be promoted to templates via the cover-letter pane's 'Save as
+   *  template' button; templates show up in the listing detail's
+   *  'Load template' picker so the user can clone-then-edit a
+   *  proven letter for similar roles. Plain text body — no variable
+   *  interpolation yet (kept minimal until usage tells us what
+   *  placeholders to support). */
+  coverLetterTemplates?: CoverLetterTemplate[];
   userName: string;
 
   // ─── User preferences (set during onboarding) ───
@@ -387,6 +395,15 @@ export interface Database {
    *  Empty/whitespace-only strings are treated as "no note" and
    *  pruned at write time. */
   listingNotes?: Record<string, ListingNote>;
+}
+
+export interface CoverLetterTemplate {
+  id: string;
+  /** Short display label, e.g. 'EM short intro', 'Detailed EM'. */
+  name: string;
+  text: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface ListingNote {

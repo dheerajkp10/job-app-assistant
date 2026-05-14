@@ -546,6 +546,7 @@ export default function SettingsPage() {
         )}
 
         <ResumeLibrary />
+        <CoverLetterTemplateLibrary />
 
 
         <div
@@ -841,6 +842,131 @@ function ResumeLibrary() {
       <div className="px-4 py-2 border-t border-slate-100 bg-slate-50/60 text-[11px] text-slate-500">
         Use the upload box below to add another resume variant. New uploads add to the library; click <strong>Make active</strong> on any entry to switch which one the app uses.
       </div>
+    </div>
+  );
+}
+
+// ─── Cover-letter template library ──────────────────────────────────
+// Saved cover-letter templates are loadable from the per-listing
+// cover-letter pane. This panel lists, renames, and deletes them.
+// Empty state hides the whole panel — no UI clutter until the user
+// saves their first template.
+
+interface CLTemplate {
+  id: string;
+  name: string;
+  text: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+function CoverLetterTemplateLibrary() {
+  const [templates, setTemplates] = useState<CLTemplate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  async function reload() {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/cover-letter-templates');
+      const data = await res.json();
+      setTemplates(Array.isArray(data.templates) ? data.templates : []);
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { reload(); }, []);
+
+  async function rename(t: CLTemplate) {
+    const next = window.prompt('Rename template', t.name);
+    if (!next || !next.trim() || next.trim() === t.name) return;
+    setBusyId(t.id);
+    try {
+      await fetch('/api/cover-letter-templates', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: t.id, name: next.trim() }),
+      });
+      await reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(t: CLTemplate) {
+    if (!window.confirm(`Delete template "${t.name}"?`)) return;
+    setBusyId(t.id);
+    try {
+      await fetch(`/api/cover-letter-templates?id=${encodeURIComponent(t.id)}`, {
+        method: 'DELETE',
+      });
+      await reload();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (loading) return null;
+  if (templates.length === 0) return null;
+
+  return (
+    <div className="mb-4 bg-white border border-slate-100 rounded-2xl shadow-card overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+        <div className="text-sm font-semibold text-slate-800">Cover-letter templates</div>
+        <div className="text-xs text-slate-500">
+          {templates.length} saved · loadable from any listing&apos;s cover-letter pane
+        </div>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {templates.map((t) => {
+          const open = expanded === t.id;
+          return (
+            <li key={t.id} className="px-4 py-3">
+              <div className="flex items-center gap-3">
+                <FileText className="w-4 h-4 shrink-0 text-indigo-500" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-slate-800 truncate">{t.name}</div>
+                  <div className="text-xs text-slate-500 truncate">
+                    {t.text.length.toLocaleString()} chars · created {new Date(t.createdAt).toLocaleDateString()}
+                    {t.updatedAt && ` · edited ${new Date(t.updatedAt).toLocaleDateString()}`}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(open ? null : t.id)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-all"
+                  >
+                    {open ? 'Hide' : 'Preview'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => rename(t)}
+                    disabled={busyId === t.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition-all disabled:opacity-50"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => remove(t)}
+                    disabled={busyId === t.id}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-rose-600 hover:bg-rose-50 hover:text-rose-700 transition-all disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+              {open && (
+                <pre className="mt-2 p-3 bg-slate-50 border border-slate-100 rounded-lg text-[11px] text-slate-600 whitespace-pre-wrap font-mono leading-relaxed max-h-72 overflow-y-auto">
+                  {t.text}
+                </pre>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
