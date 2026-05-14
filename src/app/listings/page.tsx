@@ -1757,6 +1757,25 @@ function ListingCard({
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // In-app PDF preview. Set when the tailor stream completes; the
+  // expanded card shows an inline iframe with the generated PDF
+  // alongside a Download button so the user can review before
+  // downloading. The blob URL is revoked on unmount + when a new
+  // generation kicks off.
+  const [previewPdf, setPreviewPdf] = useState<{
+    url: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  } | null>(null);
+  useEffect(() => {
+    return () => {
+      // Revoke any stale blob URL when the component unmounts so we
+      // don't leak object-URL handles.
+      if (previewPdf?.url) URL.revokeObjectURL(previewPdf.url);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // Live progress for the SSE-driven download. Null when no download
   // is in flight; the inline progress card renders only while this is
   // populated.
@@ -2001,7 +2020,12 @@ function ListingCard({
             done = true;
             break;
           } else if (event.type === 'done') {
-            // Decode base64 payload → Blob → trigger browser download.
+            // Decode base64 payload → Blob → stash for in-app preview
+            // (the user clicks Download from there). Previously we
+            // auto-triggered the browser download; the preview UX is
+            // a) what JobScan / Teal users keep asking for and b)
+            // saves a download/iterate round-trip when the user just
+            // wants to eyeball the result.
             const base64 = String(event.base64 ?? '');
             const contentType = String(event.contentType ?? 'application/pdf');
             const filename = String(event.filename ?? 'tailored_resume.pdf');
@@ -2018,11 +2042,9 @@ function ListingCard({
             for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
             const blob = new Blob([bytes], { type: contentType });
             const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            a.click();
-            URL.revokeObjectURL(url);
+            // Revoke any previous preview URL so we don't leak.
+            if (previewPdf?.url) URL.revokeObjectURL(previewPdf.url);
+            setPreviewPdf({ url, filename, contentType, sizeBytes: bytes.length });
             done = true;
             break;
           }
@@ -2654,7 +2676,10 @@ function ListingCard({
                   </div>
                 </label>
 
-                {/* Download button */}
+                {/* Generate button — runs the tailor pipeline.
+                    Label changes to 'Regenerate' once a preview is
+                    in hand so it's obvious clicking again replaces
+                    the current preview. */}
                 <button
                   onClick={handleDownload}
                   disabled={downloading}
@@ -2662,10 +2687,61 @@ function ListingCard({
                 >
                   {downloading ? (
                     <><Loader2 className="w-4 h-4 animate-spin" /> Generating PDF…</>
+                  ) : previewPdf ? (
+                    <><RefreshCw className="w-4 h-4" /> Regenerate Tailored Resume</>
                   ) : (
-                    <><Download className="w-4 h-4" /> Download Tailored Resume (PDF)</>
+                    <><FileText className="w-4 h-4" /> Generate Tailored Resume</>
                   )}
                 </button>
+
+                {/* In-app PDF preview. iframe with the rendered
+                    blob URL — most modern browsers display PDFs
+                    natively, so no PDF.js dependency needed. Below
+                    the iframe: explicit Download button (since the
+                    Generate click no longer auto-downloads) +
+                    Discard. Height is tall enough to read a 1-page
+                    resume comfortably without dominating the card. */}
+                {previewPdf && (
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+                      <div className="flex items-center gap-2 text-xs text-slate-600 min-w-0">
+                        <FileText className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                        <span className="truncate font-medium text-slate-700">
+                          {previewPdf.filename}
+                        </span>
+                        <span className="text-slate-400 shrink-0">
+                          ({(previewPdf.sizeBytes / 1024).toFixed(0)} KB)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <a
+                          href={previewPdf.url}
+                          download={previewPdf.filename}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-100 hover:bg-emerald-100 hover:border-emerald-200 transition-all"
+                        >
+                          <Download className="w-3 h-3" /> Download
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (previewPdf.url) URL.revokeObjectURL(previewPdf.url);
+                            setPreviewPdf(null);
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-all"
+                          title="Discard preview (the file is gone from memory; click Regenerate to make a new one)"
+                        >
+                          <XCircle className="w-3 h-3" /> Discard
+                        </button>
+                      </div>
+                    </div>
+                    <iframe
+                      src={previewPdf.url}
+                      title="Tailored resume preview"
+                      className="w-full bg-slate-100"
+                      style={{ height: 720 }}
+                    />
+                  </div>
+                )}
 
                 {/* Compression footer — surfaces post-render what the
                     cascade had to do. 'exhausted' as the final token
