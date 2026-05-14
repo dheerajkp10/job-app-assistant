@@ -2226,7 +2226,7 @@ function ListingCard({
               {listing.department && (
                 <span className="text-xs text-slate-400">&middot; {listing.department}</span>
               )}
-              <NetworkBadge company={listing.company} />
+              <NetworkBadge company={listing.company} listingId={listing.id} />
             </div>
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
               {listing.location && listing.location !== 'Not specified' && (
@@ -3006,9 +3006,48 @@ interface BadgeContact {
   url?: string;
 }
 
-function NetworkBadge({ company }: { company: string }) {
+function NetworkBadge({ company, listingId }: { company: string; listingId?: string }) {
   const [contacts, setContacts] = useState<BadgeContact[]>([]);
   const [open, setOpen] = useState(false);
+  // Referral-draft modal state. When set, renders a portaled modal
+  // with the generated subject + body for the chosen contact. The
+  // popover stays mounted underneath; user closes the modal to get
+  // back to the contact list and pick another contact or close.
+  const [referral, setReferral] = useState<
+    | { contactName: string; subject: string; body: string; loading?: false }
+    | { contactName: string; loading: true }
+    | null
+  >(null);
+
+  async function requestReferral(contact: BadgeContact) {
+    if (!listingId) return;
+    const contactName = `${contact.firstName} ${contact.lastName}`.trim() || 'there';
+    setReferral({ contactName, loading: true });
+    try {
+      const res = await fetch('/api/outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingId,
+          template: 'referral-request',
+          contactName: contact.firstName || contactName,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
+      setReferral({
+        contactName,
+        subject: data.subject ?? '',
+        body: data.body ?? '',
+      });
+    } catch (e) {
+      setReferral({
+        contactName,
+        subject: '',
+        body: `Couldn't draft a referral message: ${e instanceof Error ? e.message : 'unknown error'}.\n\nMake sure you have an active resume in Settings and try again.`,
+      });
+    }
+  }
   // Anchor position for the portaled popover. The badge itself sits
   // inside a job card whose ancestors have `overflow: hidden` and a
   // stacking context, so an absolute-positioned popover gets clipped
@@ -3099,18 +3138,33 @@ function NetworkBadge({ company }: { company: string }) {
                           </div>
                         )}
                       </div>
-                      {c.url && (
-                        <a
-                          href={c.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 inline-flex items-center gap-0.5 text-[11px] text-blue-600 hover:text-blue-700 hover:underline"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          LinkedIn
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        {listingId && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestReferral(c);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 transition-colors"
+                            title="Draft a referral request message to this contact for this listing"
+                          >
+                            Referral
+                          </button>
+                        )}
+                        {c.url && (
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-0.5 text-[11px] text-indigo-600 hover:text-indigo-700 hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            LinkedIn
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
                     </div>
                   </li>
                 );
@@ -3118,6 +3172,92 @@ function NetworkBadge({ company }: { company: string }) {
             </ul>
           </div>
         </>,
+          document.body,
+        )}
+      {/* Referral-draft modal. Portaled to body so it overlays the
+          popover + listing card without z-index gymnastics. Renders
+          the generated subject + body in a textarea so the user can
+          tweak before copying. */}
+      {referral && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
+            onClick={() => setReferral(null)}
+          >
+            <div
+              className="bg-white w-full max-w-xl rounded-2xl shadow-modal border border-slate-100 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between p-5 border-b border-slate-100">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5 text-indigo-500" />
+                    <h2 className="text-lg font-semibold text-slate-800">Referral request</h2>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Drafted for <strong className="text-slate-700">{referral.contactName}</strong> at {company}. Tweak as needed, then copy.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setReferral(null)}
+                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <XCircle className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-5 space-y-3">
+                {referral.loading ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500 py-6 justify-center">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Drafting referral request…
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400 mb-1">Subject</label>
+                      <input
+                        type="text"
+                        value={referral.subject}
+                        onChange={(e) => setReferral({ ...referral, subject: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] uppercase tracking-wide text-slate-400 mb-1">Message</label>
+                      <textarea
+                        value={referral.body}
+                        onChange={(e) => setReferral({ ...referral, body: e.target.value })}
+                        rows={12}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none resize-y"
+                        spellCheck
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="flex justify-end gap-2 p-4 border-t border-slate-100 bg-slate-50/60">
+                <button
+                  type="button"
+                  onClick={() => setReferral(null)}
+                  className="px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-xl transition-all duration-200"
+                >
+                  Close
+                </button>
+                {!referral.loading && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const text = `Subject: ${referral.subject}\n\n${referral.body}`;
+                      navigator.clipboard.writeText(text).catch(() => {});
+                    }}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200"
+                  >
+                    Copy to clipboard
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
           document.body,
         )}
     </>
