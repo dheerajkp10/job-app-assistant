@@ -92,6 +92,57 @@ async function fetchTopScoredListingIds() {
   }
 }
 
+/**
+ * Pull every distinct company name from the listings cache and map
+ * each one to a fictitious placeholder. Same real name → same fake
+ * across screenshots so the same listing stays visually consistent
+ * row-to-row. Uses a small pool of obviously-fictional brand names
+ * (Hollywood / classic-business-school stand-ins) so a reader of the
+ * README sees realistic-looking data without leaking which companies
+ * the developer is actually looking at.
+ */
+async function buildCompanyAliasMap() {
+  const FAKE_NAMES = [
+    'Acme Corp', 'Globex', 'Initech', 'Hooli', 'Pied Piper',
+    'Stark Industries', 'Wayne Enterprises', 'Wonka Industries',
+    'Umbrella Co', 'Cyberdyne', 'Tyrell Corp', 'Soylent',
+    'Massive Dynamic', 'Northwind', 'Contoso', 'Fabrikam',
+    'Vandelay Industries', 'Bluth Co', 'Dunder Mifflin',
+    'Sterling Cooper', 'Los Pollos', 'Oscorp', 'LexCorp',
+    'Daily Planet', 'Cogswell Cogs', 'Spacely Sprockets',
+    'Big Kahuna', 'Sirius Cybernetics', 'Yoyodyne', 'Aperture',
+  ];
+  try {
+    const res = await fetch(`${BASE}/api/listings`);
+    const data = await res.json();
+    const listings = data.listings ?? [];
+    // Pull unique company names. Sort by frequency descending so the
+    // most-frequent real companies get the more memorable fake names
+    // (the pool is finite — if the user has 100 distinct companies
+    // we'll start cycling through name + " 2" etc, see below).
+    const counts = new Map();
+    for (const l of listings) {
+      const c = (l.company ?? '').trim();
+      if (c) counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+    const map = {};
+    let cycle = 0;
+    for (let i = 0; i < sorted.length; i++) {
+      const [realName] = sorted[i];
+      // Pool cycles: first 30 get fresh names, next 30 get " II",
+      // then " III", etc. Keeps things readable without name reuse.
+      const base = FAKE_NAMES[i % FAKE_NAMES.length];
+      cycle = Math.floor(i / FAKE_NAMES.length);
+      const suffix = cycle === 0 ? '' : cycle === 1 ? ' II' : ` ${cycle + 1}`;
+      map[realName] = `${base}${suffix}`;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 async function fetchRealValues() {
   const res = await fetch(`${BASE}/api/settings`);
   const json = await res.json();
@@ -118,7 +169,7 @@ async function fetchRealValues() {
  * with the fake placeholders. Runs entirely client-side so the
  * actual DB is never touched. Idempotent.
  */
-function redactInPage(real, fake) {
+function redactInPage(real, fake, companyAliasMap) {
   // We accept the real values as an arg so this can run in the
   // browser page context with no closures over Node-side state.
   const pairs = [];
@@ -136,6 +187,12 @@ function redactInPage(real, fake) {
   if (real.email) pairs.push([real.email, fake.email]);
   if (real.phone) pairs.push([real.phone, fake.phone]);
   if (real.address) pairs.push([real.address, fake.address]);
+  // Company-name redactions. Replace longer names first so a name
+  // that's a prefix of another (e.g. "Pinterest" vs "Pinterest UK")
+  // doesn't get partially matched and leave dangling text.
+  const companyPairs = Object.entries(companyAliasMap ?? {})
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [real, fake] of companyPairs) pairs.push([real, fake]);
 
   // Common LinkedIn export patterns surface initials in avatar
   // bubbles on the listings page network popover. The popover
@@ -181,6 +238,33 @@ function redactInPage(real, fake) {
       el.textContent = '[resume text hidden in screenshots]';
     }
   }
+
+  // Company logo neutralization. CompanyLogo renders an <img> with
+  // alt="<Company> logo" pointing at Clearbit/Google favicons that
+  // carry brand colors. Replace each with a generic indigo→violet
+  // initial chip showing the FAKE company's first letter, so no
+  // brand visual leaks into the screenshot. Width/height/borderRadius
+  // are read off the original img so layout stays identical.
+  for (const img of Array.from(document.querySelectorAll('img'))) {
+    const alt = img.getAttribute('alt') ?? '';
+    const m = alt.match(/^(.+?)\s+logo$/i);
+    if (!m) continue;
+    const realCompany = m[1];
+    const fakeCompany = (companyAliasMap && companyAliasMap[realCompany]) || 'Acme Corp';
+    const initial = fakeCompany.trim().charAt(0).toUpperCase() || '?';
+    const sizeAttr = img.getAttribute('width') || img.clientWidth || 24;
+    const size = typeof sizeAttr === 'string' ? parseInt(sizeAttr, 10) || 24 : sizeAttr;
+    const chip = document.createElement('span');
+    chip.textContent = initial;
+    chip.style.cssText = `
+      display:inline-flex;align-items:center;justify-content:center;
+      width:${size}px;height:${size}px;border-radius:6px;
+      background:linear-gradient(135deg,#6366F1,#8B5CF6);
+      color:#fff;font-weight:700;font-size:${Math.round(size * 0.55)}px;
+      flex-shrink:0;
+    `;
+    img.replaceWith(chip);
+  }
 }
 
 async function capture() {
@@ -190,6 +274,18 @@ async function capture() {
   const real = await fetchRealValues();
   for (const [k, v] of Object.entries(real)) {
     if (v) console.log(`  ${k}: ${v.length > 60 ? v.slice(0, 60) + '…' : v}`);
+  }
+  console.log('');
+
+  console.log('Building company-alias map from /api/listings…');
+  const companyAliasMap = await buildCompanyAliasMap();
+  const aliasCount = Object.keys(companyAliasMap).length;
+  if (aliasCount > 0) {
+    const sample = Object.entries(companyAliasMap).slice(0, 5)
+      .map(([r, f]) => `${r}→${f}`).join(', ');
+    console.log(`  mapped ${aliasCount} companies (sample: ${sample}${aliasCount > 5 ? ', …' : ''})`);
+  } else {
+    console.log('  (no companies found in listings cache — skipping)');
   }
   console.log('');
 
@@ -212,11 +308,15 @@ async function capture() {
     const url = `${BASE}${resolvedPath}`;
     process.stdout.write(`  ${name}  ${url}  →  `);
     try {
-      await page.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+      // networkidle0 is too strict for pages with long-lived HMR
+      // pings + background image loads (the listings page kicks off
+      // tens of favicon requests). networkidle2 + an explicit settle
+      // delay is reliable across all pages.
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 45000 });
       // Let React + lazy data fetches settle.
-      await new Promise((r) => setTimeout(r, 1500));
-      // Redact PII inside the live DOM.
-      await page.evaluate(redactInPage, real, FAKE);
+      await new Promise((r) => setTimeout(r, 2500));
+      // Redact PII + company names inside the live DOM.
+      await page.evaluate(redactInPage, real, FAKE, companyAliasMap);
       // Tiny re-paint delay so layout reflow lands.
       await new Promise((r) => setTimeout(r, 200));
       const file = resolve(OUT_DIR, `${name}.png`);
