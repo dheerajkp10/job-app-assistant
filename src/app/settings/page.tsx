@@ -36,6 +36,9 @@ export default function SettingsPage() {
   // get surprised by network activity.
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
   const [autoRefreshHours, setAutoRefreshHours] = useState(24);
+  // Auto follow-up reminder interval. Days after flagging a listing
+  // as Applied that a reminder is scheduled. 0 disables.
+  const [applyFollowupDays, setApplyFollowupDays] = useState(14);
   const [salaryMin, setSalaryMin] = useState('');
   const [salaryMax, setSalaryMax] = useState('');
   const [salaryBaseMin, setSalaryBaseMin] = useState('');
@@ -66,6 +69,9 @@ export default function SettingsPage() {
         );
         setAutoRefreshEnabled(!!s.autoRefreshEnabled);
         setAutoRefreshHours(s.autoRefreshHours && s.autoRefreshHours > 0 ? s.autoRefreshHours : 24);
+        setApplyFollowupDays(
+          typeof s.applyFollowupDays === 'number' ? Math.max(0, s.applyFollowupDays) : 14,
+        );
         setSalaryMin(s.salaryMin ? String(s.salaryMin) : '');
         setSalaryMax(s.salaryMax ? String(s.salaryMax) : '');
         setSalaryBaseMin(s.salaryBaseMin ? String(s.salaryBaseMin) : '');
@@ -175,6 +181,7 @@ export default function SettingsPage() {
           workAuthCountries,
           autoRefreshEnabled,
           autoRefreshHours,
+          applyFollowupDays,
           salaryMin: salaryMin ? Number(salaryMin) : null,
           salaryMax: salaryMax ? Number(salaryMax) : null,
           salaryBaseMin: salaryBaseMin ? Number(salaryBaseMin) : null,
@@ -424,6 +431,30 @@ export default function SettingsPage() {
         )}
         <p className="text-xs text-slate-400 mt-2">
           When enabled, opening the Listings page after the configured window automatically streams a fresh fetch from all 70+ careers boards. You can keep browsing the existing data while it runs.
+        </p>
+      </section>
+
+      {/* Auto follow-up reminders when a listing is flagged Applied.
+          0 disables the feature. */}
+      <section className="mb-6 bg-white rounded-xl border border-slate-200 p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <RefreshCw className="w-5 h-5 text-slate-500" />
+          <h2 className="text-lg font-semibold text-slate-800">Auto follow-up reminders</h2>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-slate-600 flex-wrap">
+          <span>When I flag a listing as Applied, schedule a follow-up reminder</span>
+          <input
+            type="number"
+            min={0}
+            max={90}
+            value={applyFollowupDays}
+            onChange={(e) => setApplyFollowupDays(Math.max(0, Math.min(90, Number(e.target.value) || 0)))}
+            className="w-16 px-2 py-1 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-indigo-200 outline-none"
+          />
+          <span>days later.</span>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          Set to <strong>0</strong> to disable. Reminders show up under the bell badge in the top nav and on the Pipeline page. Re-flagging the same listing as Applied won&apos;t create duplicates.
         </p>
       </section>
 

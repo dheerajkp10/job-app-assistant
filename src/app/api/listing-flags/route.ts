@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getListingFlags, setListingFlag, clearListingFlag } from '@/lib/db';
-import type { ListingFlag } from '@/lib/types';
+import { getListingFlags, setListingFlag, clearListingFlag, readDb, writeDb, getSettings } from '@/lib/db';
+import type { ListingFlag, Reminder } from '@/lib/types';
+import { randomUUID } from 'crypto';
 
 // The full set of accepted flag values. Was previously
 // ['applied', 'incorrect', 'not-applicable'] which silently 400'd
@@ -48,5 +49,51 @@ export async function POST(req: NextRequest) {
   }
 
   const entry = await setListingFlag(listingId, flag);
-  return NextResponse.json(entry);
+
+  // Time-aware reminder auto-creation. When the flag becomes
+  // 'applied', schedule a follow-up reminder for N days from now
+  // (settings.applyFollowupDays, default 14). Skips if there's
+  // already an unfired auto-applied reminder for this listing, so
+  // re-flagging Applied doesn't pile up duplicates.
+  let autoReminder: Reminder | undefined;
+  if (flag === 'applied') {
+    autoReminder = await maybeScheduleApplyReminder(listingId);
+  }
+
+  return NextResponse.json({ ...entry, autoReminder });
+}
+
+/**
+ * Auto-create a follow-up reminder when a listing is flagged
+ * Applied. Returns the new reminder, or undefined when one was
+ * already scheduled (idempotent) or auto-reminders are disabled
+ * (settings.applyFollowupDays === 0).
+ */
+async function maybeScheduleApplyReminder(listingId: string): Promise<Reminder | undefined> {
+  const settings = await getSettings();
+  const days = typeof settings.applyFollowupDays === 'number'
+    ? settings.applyFollowupDays
+    : 14;
+  if (!Number.isFinite(days) || days <= 0) return undefined;
+
+  const db = await readDb();
+  const existing = (db.reminders ?? []).find(
+    (r) => r.listingId === listingId &&
+           r.source === 'auto-applied' &&
+           !r.firedAt,
+  );
+  if (existing) return undefined;
+
+  const dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+  const reminder: Reminder = {
+    id: randomUUID(),
+    listingId,
+    dueAt,
+    note: `Follow up — applied ${days} days ago, no response yet?`,
+    createdAt: new Date().toISOString(),
+    source: 'auto-applied',
+  };
+  db.reminders = [...(db.reminders ?? []), reminder];
+  await writeDb(db);
+  return reminder;
 }

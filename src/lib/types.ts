@@ -94,6 +94,14 @@ export interface Settings {
   autoRefreshEnabled?: boolean;
   autoRefreshHours?: number;
 
+  // ─── Auto-reminders ───
+  // When a listing's flag becomes 'applied', the listing-flags
+  // route auto-creates a reminder `applyFollowupDays` days from
+  // now (default 14) labeled 'Follow up with recruiter'. Set to 0
+  // to disable. Existing auto-applied reminders for the same
+  // listing aren't duplicated.
+  applyFollowupDays?: number;
+
   // ─── User-curated custom company sources ───
   // Lives alongside the static `COMPANY_SOURCES` in src/lib/sources.ts.
   // The fetcher unions the two sets at runtime so users can add their
@@ -319,6 +327,12 @@ export interface Reminder {
    *  with `firedAt` set are no longer surfaced. */
   firedAt?: string;
   createdAt: string;
+  /** How this reminder was created. Auto-created reminders (e.g.
+   *  the follow-up scheduled when the user flags a listing as
+   *  Applied) carry source='auto-applied' so we don't double-create
+   *  them on subsequent flag changes. User-created reminders carry
+   *  source='manual' or are left undefined for back-compat. */
+  source?: 'manual' | 'auto-applied';
 }
 
 /**
