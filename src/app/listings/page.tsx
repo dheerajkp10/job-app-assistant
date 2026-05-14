@@ -191,6 +191,22 @@ export default function ListingsPage() {
   // floating Compare button at the bottom-right opens /compare with
   // the selected ids in the query string.
   const [compareIds, setCompareIds] = useState<string[]>([]);
+  // Bulk-selection state — orthogonal to compare. When non-empty, a
+  // floating action bar at the bottom of the listings page surfaces
+  // bulk flag / clear-flag / archive operations. Reusing the existing
+  // listing-flag store as the back-end so bulk archive ===
+  // bulk-set-flag('not-applicable') and bulk-clear === clear-flag.
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState<null | ListingFlag | 'clear'>(null);
+  const toggleBulk = useCallback((listingId: string) => {
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(listingId)) next.delete(listingId);
+      else next.add(listingId);
+      return next;
+    });
+  }, []);
+  const clearBulk = useCallback(() => setBulkSelectedIds(new Set()), []);
   const toggleCompare = useCallback((listingId: string) => {
     setCompareIds((prev) => {
       if (prev.includes(listingId)) return prev.filter((x) => x !== listingId);
@@ -1562,6 +1578,8 @@ export default function ListingsPage() {
               isCompareSelected={compareIds.includes(listing.id)}
               compareDisabled={!compareIds.includes(listing.id) && compareIds.length >= 3}
               onCompareToggle={() => toggleCompare(listing.id)}
+              isBulkSelected={bulkSelectedIds.has(listing.id)}
+              onBulkToggle={() => toggleBulk(listing.id)}
             />
           </div>
         ))}
@@ -1642,6 +1660,107 @@ export default function ListingsPage() {
           <ChevronRight className="w-4 h-4" />
         </Link>
       )}
+
+      {/* Bulk-actions bar — visible only when ≥ 1 card is ticked
+          via the per-card 'Select' checkbox. Floats above the
+          listings, doesn't conflict with the Compare CTA (Compare
+          uses right-6; this uses centered-bottom). All actions
+          POST to /api/listing-flags in parallel for each selected
+          listing, then optimistically updates local flag state. */}
+      {bulkSelectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 rounded-2xl shadow-modal flex-wrap">
+          <span className="text-sm font-semibold text-slate-700 pr-2 border-r border-slate-100">
+            {bulkSelectedIds.size} selected
+          </span>
+          {([
+            { flag: 'applied', label: 'Applied', color: 'bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100' },
+            { flag: 'phone-screen', label: 'Phone Screen', color: 'bg-sky-50 text-sky-700 border-sky-100 hover:bg-sky-100' },
+            { flag: 'interviewing', label: 'Interviewing', color: 'bg-cyan-50 text-cyan-700 border-cyan-100 hover:bg-cyan-100' },
+            { flag: 'offer', label: 'Offer', color: 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100' },
+            { flag: 'rejected', label: 'Rejected', color: 'bg-rose-50 text-rose-700 border-rose-100 hover:bg-rose-100' },
+            { flag: 'not-applicable', label: 'Archive', color: 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100' },
+          ] as const).map(({ flag, label, color }) => (
+            <button
+              key={flag}
+              type="button"
+              disabled={!!bulkBusy}
+              onClick={async () => {
+                setBulkBusy(flag);
+                const ids = Array.from(bulkSelectedIds);
+                try {
+                  // Fire all flag-set requests in parallel; the
+                  // listing-flag store keys by listingId so writes
+                  // are independent.
+                  await Promise.all(
+                    ids.map((id) =>
+                      fetch('/api/listing-flags', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ listingId: id, flag }),
+                      }),
+                    ),
+                  );
+                  // Optimistic local update — mirror what setFlagFor does.
+                  setFlags((prev) => {
+                    const next = { ...prev };
+                    const now = new Date().toISOString();
+                    for (const id of ids) {
+                      next[id] = { listingId: id, flag, flaggedAt: now };
+                    }
+                    return next;
+                  });
+                  clearBulk();
+                } finally {
+                  setBulkBusy(null);
+                }
+              }}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200 disabled:opacity-50 ${color}`}
+            >
+              {bulkBusy === flag && <Loader2 className="w-3 h-3 animate-spin" />}
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={!!bulkBusy}
+            onClick={async () => {
+              setBulkBusy('clear');
+              const ids = Array.from(bulkSelectedIds);
+              try {
+                await Promise.all(
+                  ids.map((id) =>
+                    fetch('/api/listing-flags', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ listingId: id, flag: null }),
+                    }),
+                  ),
+                );
+                setFlags((prev) => {
+                  const next = { ...prev };
+                  for (const id of ids) delete next[id];
+                  return next;
+                });
+                clearBulk();
+              } finally {
+                setBulkBusy(null);
+              }
+            }}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 transition-all duration-200 disabled:opacity-50"
+          >
+            {bulkBusy === 'clear' && <Loader2 className="w-3 h-3 animate-spin" />}
+            Clear flags
+          </button>
+          <button
+            type="button"
+            onClick={clearBulk}
+            className="ml-1 p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+            title="Deselect all"
+          >
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1669,6 +1788,8 @@ function ListingCard({
   isCompareSelected,
   compareDisabled,
   onCompareToggle,
+  isBulkSelected,
+  onBulkToggle,
 }: {
   listing: JobListing;
   score?: ScoreCacheEntry;
@@ -1679,6 +1800,8 @@ function ListingCard({
   isCompareSelected: boolean;
   compareDisabled: boolean;
   onCompareToggle: () => void;
+  isBulkSelected: boolean;
+  onBulkToggle: () => void;
 }) {
   const [flagMenuOpen, setFlagMenuOpen] = useState(false);
   const flagButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2157,6 +2280,24 @@ function ListingCard({
             className="shrink-0 flex items-center gap-3"
             onClick={(e) => e.stopPropagation()}
           >
+            {/* Bulk-select checkbox — ticking one or more cards
+                surfaces a floating bulk-actions bar (flag / archive
+                / clear) at the bottom of the page. Independent of
+                the Compare checkbox so a card can be in both sets
+                simultaneously. */}
+            <label
+              className="inline-flex items-center gap-1 text-xs select-none cursor-pointer text-slate-600 hover:text-slate-800"
+              title="Bulk-select — applies whatever action you pick at the bottom of the page"
+            >
+              <input
+                type="checkbox"
+                checked={isBulkSelected}
+                onChange={onBulkToggle}
+                className="rounded"
+              />
+              Select
+            </label>
+
             {/* Compare checkbox — ticking 2-3 surfaces the floating
                 Compare button at the page level. Disabled when the
                 cap (3) is hit unless this card is already selected. */}
