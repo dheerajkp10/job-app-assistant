@@ -131,6 +131,14 @@ export interface Settings {
   // Choosing multiple codes (e.g. ["US","CA"]) opens up roles in any of
   // those countries.
   workAuthCountries?: string[];
+
+  // ─── Visa sponsorship ───
+  // True when the user requires visa sponsorship to take a job (e.g.
+  // they're on F-1 OPT, H-1B transfer, or otherwise not a citizen /
+  // permanent resident of their auth country). When set, listings whose
+  // JD body explicitly says "we do not sponsor" are filtered out —
+  // applying to them is wasted effort. Defaults to false (no filter).
+  needsVisaSponsorship?: boolean;
 }
 
 /**
@@ -266,6 +274,18 @@ export interface JobListing {
   salaryEquityHint?: string | null;
   /** Which extractor layer fired. Useful for the UI source-badge. */
   salarySource?: string | null;
+  /** ISO-4217 currency code when the parser was confident the band
+   *  is denominated in something other than USD ('CAD', 'GBP', 'EUR',
+   *  'AUD', 'INR', …). Omitted / undefined means "assume USD" — same
+   *  behavior every existing caller had before currency detection
+   *  existed. Salary-floor filters should treat a non-USD listing as
+   *  not-comparable rather than directly comparing dollar amounts. */
+  salaryCurrency?: string | null;
+  /** True when the JD body contains an explicit "we do not sponsor
+   *  visas" / "no sponsorship available" phrase. Populated at detail-
+   *  fetch time (we only have JD body then). Filterable via
+   *  `Settings.needsVisaSponsorship`. */
+  noSponsorship?: boolean | null;
   url: string; // direct link to apply
   ats: ATSType;
   postedAt: string | null;

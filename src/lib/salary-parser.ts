@@ -51,9 +51,75 @@ export interface SalaryInfo {
    *  postings vary too much ("$200k equity grant", "stock options
    *  vesting 4 years", "RSU refresh annually"). */
   equityHint?: string;
+  /** Detected currency. ISO-4217 alpha when we can determine it from
+   *  the JD ('USD', 'CAD', 'GBP', 'EUR', 'AUD', 'INR', ...), or
+   *  `undefined` when no currency token was found (in which case
+   *  callers should default to USD — the historical behavior).
+   *  Callers comparing against a USD-denominated `salaryMin` should
+   *  treat non-USD ranges as "convert before comparing or skip the
+   *  floor filter" — otherwise a "$120k CAD" listing slips past a
+   *  $150k USD floor for the wrong reason. */
+  currency?: string;
   /** Which detection layer fired — useful for debugging and for
    *  surfacing a "source" badge in the UI. */
   source?: 'base-and-tc' | 'ote' | 'range' | 'context-amount' | 'k-range' | 'context-k' | 'hourly';
+}
+
+// ─── Currency detection ─────────────────────────────────────────────
+
+/**
+ * Sniff the currency advertised by the JD's salary range. We look for
+ * an explicit ISO code or currency name within ~30 chars of the range
+ * substring; without that we return undefined (callers default to USD).
+ *
+ * Why local-only: most postings either say "USD"/"CAD"/"GBP" adjacent
+ * to the range, or use a country-specific symbol (£ / €). The bare $
+ * is ambiguous (USD, CAD, AUD, NZD, SGD, MXN, ARS all use it) — when
+ * we see plain "$" with no other signal we fall back to USD because
+ * 80%+ of the listings hitting this code path are US tech jobs.
+ */
+const CURRENCY_TOKENS: { code: string; patterns: RegExp[] }[] = [
+  { code: 'USD', patterns: [/\bUSD\b/i, /\bUS\s*dollars?\b/i] },
+  { code: 'CAD', patterns: [/\bCAD\b/i, /\bC\$\s*\d/, /\bCanadian\s+dollars?\b/i] },
+  { code: 'AUD', patterns: [/\bAUD\b/i, /\bA\$\s*\d/, /\bAustralian\s+dollars?\b/i] },
+  { code: 'NZD', patterns: [/\bNZD\b/i, /\bNZ\$\s*\d/] },
+  { code: 'SGD', patterns: [/\bSGD\b/i, /\bS\$\s*\d/, /\bSingapore\s+dollars?\b/i] },
+  { code: 'HKD', patterns: [/\bHKD\b/i, /\bHK\$\s*\d/] },
+  { code: 'GBP', patterns: [/\bGBP\b/i, /£\s*\d/, /\bpounds?\s+sterling\b/i] },
+  { code: 'EUR', patterns: [/\bEUR\b/i, /€\s*\d/, /\bEuros?\b/i] },
+  { code: 'INR', patterns: [/\bINR\b/i, /₹\s*\d/, /\bRs\.?\s*\d/, /\blakhs?\b/i, /\bcrores?\b/i] },
+  { code: 'JPY', patterns: [/\bJPY\b/i, /¥\s*\d/, /\byen\b/i] },
+  { code: 'CNY', patterns: [/\bCNY\b/i, /\bRMB\b/i, /\byuan\b/i] },
+  { code: 'BRL', patterns: [/\bBRL\b/i, /R\$\s*\d/, /\breais?\b/i] },
+  { code: 'MXN', patterns: [/\bMXN\b/i, /\bMex\$\s*\d/, /\bpesos?\s+mexicanos?\b/i] },
+  { code: 'CHF', patterns: [/\bCHF\b/i, /\bSwiss\s+francs?\b/i] },
+];
+
+export function detectCurrency(text: string): string | undefined {
+  for (const { code, patterns } of CURRENCY_TOKENS) {
+    for (const p of patterns) {
+      if (p.test(text)) return code;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Returns true when a listing's salary is denominated in something
+ * other than USD — used by the salary-floor filter to skip the
+ * direct-dollar comparison for non-USD ranges. Checks the persisted
+ * `salaryCurrency` field first (set by `extractSalary` at parse time);
+ * falls back to re-sniffing the display string for listings cached
+ * before the currency field existed.
+ */
+export function isNonUsdSalary(
+  salaryDisplay: string | null | undefined,
+  salaryCurrency: string | null | undefined,
+): boolean {
+  if (salaryCurrency && salaryCurrency !== 'USD') return true;
+  if (!salaryDisplay) return false;
+  const c = detectCurrency(salaryDisplay);
+  return c != null && c !== 'USD';
 }
 
 // ─── Public API ─────────────────────────────────────────────────────
@@ -64,32 +130,41 @@ export function extractSalary(text: string): SalaryInfo | null {
   // sub-extractor sees the same normalized stream.
   const clean = text.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
 
+  // Detect currency once on the cleaned text — used to annotate
+  // whichever layer fires below. Callers can read `info.currency` to
+  // decide whether to apply a USD-denominated floor.
+  const currency = detectCurrency(clean);
+  const annotate = (info: SalaryInfo | null): SalaryInfo | null => {
+    if (info && currency) info.currency = currency;
+    return info;
+  };
+
   // Layer 1 — explicit base + TC split. When the JD names both
   // separately we want to keep them separate downstream rather than
   // collapsing to one band.
   const split = extractBaseAndTc(clean);
-  if (split) return split;
+  if (split) return annotate(split);
 
   // Layer 2 — OTE flag. Used in sales roles. Reads as TC by
   // convention since the "on-target" number includes commission.
   const ote = extractOte(clean);
-  if (ote) return ote;
+  if (ote) return annotate(ote);
 
   // Layer 3 — plain ranges (the bulk case).
   const range = extractRange(clean);
-  if (range) return decorateEquity(range, clean);
+  if (range) return annotate(decorateEquity(range, clean));
 
   // Layer 4 — single amount near a salary keyword.
   const singleAmount = extractSingleAmount(clean);
-  if (singleAmount) return decorateEquity(singleAmount, clean);
+  if (singleAmount) return annotate(decorateEquity(singleAmount, clean));
 
   // Layer 5 — k/K-suffixed range without dollar sign.
   const kRange = extractKRange(clean);
-  if (kRange) return decorateEquity(kRange, clean);
+  if (kRange) return annotate(decorateEquity(kRange, clean));
 
   // Layer 6 — hourly-rate normalized to annual.
   const hourly = extractHourly(clean);
-  if (hourly) return hourly;
+  if (hourly) return annotate(hourly);
 
   return null;
 }

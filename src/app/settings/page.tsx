@@ -30,6 +30,7 @@ export default function SettingsPage() {
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   const [workAuthCountries, setWorkAuthCountries] = useState<string[]>(['US']);
+  const [needsVisaSponsorship, setNeedsVisaSponsorship] = useState(false);
   // Auto-refresh — when enabled, the listings page kicks off a
   // streaming refresh on mount whenever the cache is older than
   // `autoRefreshHours`. Default disabled so first-time users never
@@ -67,6 +68,7 @@ export default function SettingsPage() {
         setWorkAuthCountries(
           s.workAuthCountries && s.workAuthCountries.length > 0 ? s.workAuthCountries : ['US']
         );
+        setNeedsVisaSponsorship(!!s.needsVisaSponsorship);
         setAutoRefreshEnabled(!!s.autoRefreshEnabled);
         setAutoRefreshHours(s.autoRefreshHours && s.autoRefreshHours > 0 ? s.autoRefreshHours : 24);
         setApplyFollowupDays(
@@ -179,6 +181,7 @@ export default function SettingsPage() {
           preferredLocations,
           workMode,
           workAuthCountries,
+          needsVisaSponsorship,
           autoRefreshEnabled,
           autoRefreshHours,
           applyFollowupDays,
@@ -394,6 +397,30 @@ export default function SettingsPage() {
                 </button>
               );
             })}
+          </div>
+          {/* Visa sponsorship sub-toggle — when on, listings whose JD
+              body explicitly says "we don't sponsor" are filtered out
+              (the detection runs on detail-page open, so only previously-
+              viewed listings get flagged on the first pass). */}
+          <div className="mt-4 pt-4 border-t border-slate-200">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={needsVisaSponsorship}
+                onChange={(e) => setNeedsVisaSponsorship(e.target.checked)}
+                className="mt-0.5 w-4 h-4"
+              />
+              <div>
+                <div className="text-sm font-medium text-slate-800">
+                  I need visa sponsorship
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Hide listings whose JD says &ldquo;we don&apos;t sponsor visas&rdquo;.
+                  Only listings you&apos;ve opened get scanned for this phrase;
+                  newly fetched ones are filtered on subsequent passes.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
       </section>

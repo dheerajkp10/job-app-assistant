@@ -3,6 +3,8 @@ import { getListingById, updateListingSalary } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractSalary } from '@/lib/salary-parser';
 import { cacheJobDetailHtml } from '@/lib/custom-fetchers';
+import { jdRejectsSponsorship } from '@/lib/work-auth-filter';
+import { readDb, writeDb } from '@/lib/db';
 
 /**
  * GET /api/listings/[listingId]
@@ -49,7 +51,27 @@ export async function GET(
         salaryTcMax: parsed?.tcMax ?? null,
         salaryEquityHint: parsed?.equityHint ?? null,
         salarySource: parsed?.source ?? null,
+        salaryCurrency: parsed?.currency ?? null,
       });
+
+      // Scan the JD body for explicit "we do not sponsor" phrasing.
+      // Persisted on the listing so the filter pipeline can drop it
+      // for users who require sponsorship (Settings.needsVisaSponsorship).
+      // Only writes when we have a real signal so we don't churn the DB.
+      if (detail.content) {
+        const rejects = jdRejectsSponsorship(detail.content);
+        if (rejects) {
+          const db = await readDb();
+          const idx = db.listingsCache.listings.findIndex((l) => l.id === listingId);
+          if (idx !== -1 && !db.listingsCache.listings[idx].noSponsorship) {
+            db.listingsCache.listings[idx] = {
+              ...db.listingsCache.listings[idx],
+              noSponsorship: true,
+            };
+            await writeDb(db);
+          }
+        }
+      }
     }
     if (!detail) {
       return NextResponse.json({

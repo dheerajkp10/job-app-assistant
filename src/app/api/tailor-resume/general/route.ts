@@ -5,6 +5,7 @@ import { matchesLevelPreference } from '@/lib/level-matcher';
 import { isWorkAuthorized } from '@/lib/work-auth-filter';
 import { buildLocationMatcher } from '@/lib/location-match';
 import { classifyRoleFamily } from '@/lib/salary-intelligence';
+import { isNonUsdSalary } from '@/lib/salary-parser';
 import { isUnscorableAts } from '@/lib/scorable';
 import {
   getCompanyAliases,
@@ -250,13 +251,28 @@ function applyPreferenceFilters(
     isWorkAuthorized(l.location, settings.workAuthCountries ?? ['US']),
   );
 
-  // Salary range
+  // Visa sponsorship. Only drops listings we've actually opened the
+  // detail of (the JD body is what gets scanned for the "no sponsorship"
+  // phrase, and that runs in the listing-detail route). Listings the
+  // user hasn't viewed yet pass through; they get filtered on the next
+  // pass after viewing.
+  if (settings.needsVisaSponsorship) {
+    result = result.filter((l) => !l.noSponsorship);
+  }
+
+  // Salary range. The user's salary floor is denominated in USD (the
+  // settings form has no currency picker). When the listing's salary
+  // string carries a non-USD currency hint, we skip the floor compare
+  // rather than do an incorrect direct-dollar comparison — otherwise a
+  // posting that reads "$120k–$160k CAD" looks like it passes a $150k
+  // USD floor when it actually doesn't (CAD ≈ 0.73 USD at writing).
   if (settings.salaryMin != null || settings.salaryMax != null) {
     result = result.filter((l) => {
       const hasSalary = l.salaryMin != null || l.salaryMax != null;
       // Keep listings without salary info — we don't want to drop
       // 90% of postings just because they don't post comp.
       if (!hasSalary) return true;
+      if (isNonUsdSalary(l.salary, l.salaryCurrency)) return true;
       if (settings.salaryMin != null) {
         const top = l.salaryMax ?? l.salaryMin ?? 0;
         if (top < settings.salaryMin) return false;

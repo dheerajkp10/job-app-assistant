@@ -201,6 +201,7 @@ export async function updateListingSalary(
     salaryTcMax?: number | null;
     salaryEquityHint?: string | null;
     salarySource?: string | null;
+    salaryCurrency?: string | null;
   },
 ): Promise<void> {
   const db = await readDb();
@@ -222,6 +223,7 @@ export async function updateListingSalary(
     salaryTcMax: patch.salaryTcMax ?? cur.salaryTcMax ?? null,
     salaryEquityHint: patch.salaryEquityHint ?? cur.salaryEquityHint ?? null,
     salarySource: patch.salarySource ?? cur.salarySource ?? null,
+    salaryCurrency: patch.salaryCurrency ?? cur.salaryCurrency ?? null,
   };
   // Bail when nothing changed (avoid disk IO on idempotent calls).
   if (
@@ -233,7 +235,8 @@ export async function updateListingSalary(
     next.salaryTcMin === (cur.salaryTcMin ?? null) &&
     next.salaryTcMax === (cur.salaryTcMax ?? null) &&
     next.salaryEquityHint === (cur.salaryEquityHint ?? null) &&
-    next.salarySource === (cur.salarySource ?? null)
+    next.salarySource === (cur.salarySource ?? null) &&
+    next.salaryCurrency === (cur.salaryCurrency ?? null)
   ) {
     return;
   }

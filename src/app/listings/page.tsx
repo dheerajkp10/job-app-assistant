@@ -24,6 +24,7 @@ import {
 import { isUnscorableAts } from '@/lib/scorable';
 import { buildLocationMatcher } from '@/lib/location-match';
 import { diffResume } from '@/lib/text-diff';
+import { isNonUsdSalary } from '@/lib/salary-parser';
 
 const ATS_LABELS: Record<string, string> = {
   greenhouse: 'Greenhouse',
@@ -808,11 +809,17 @@ export default function ListingsPage() {
     if (selectedDepartment !== 'all') {
       result = result.filter((l) => l.department === selectedDepartment);
     }
-    // Salary filter — keep listings missing salary data unless salaryOnly is on.
+    // Salary filter — keep listings missing salary data unless
+    // salaryOnly is on. Listings denominated in a non-USD currency
+    // (e.g. "$120k–$160k CAD") skip the floor/ceiling compare because
+    // the user's min/max are USD-only — directly comparing dollar
+    // amounts across currencies leaks listings that look like they
+    // pass but don't (CAD ≈ 0.73 USD).
     if (minSalary != null || maxSalary != null || salaryOnly) {
       result = result.filter((l) => {
         const hasSalary = l.salaryMin != null || l.salaryMax != null;
         if (!hasSalary) return !salaryOnly;
+        if (isNonUsdSalary(l.salary, l.salaryCurrency)) return true;
         // Listing's max should be >= user's min (if set)
         if (minSalary != null) {
           const top = l.salaryMax ?? l.salaryMin ?? 0;
