@@ -953,7 +953,7 @@ export default function ListingsPage() {
   }
 
   return (
-    <div className="p-4 sm:p-8 max-w-[1500px] mx-auto animate-fade-in">
+    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
       {/* Score-version migration banner. Shown once after a scorer
           upgrade (e.g. v2 → v3). The auto-batch-scorer effect kicks
           off automatically since the cache GET hides stale entries;

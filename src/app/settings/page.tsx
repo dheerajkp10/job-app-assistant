@@ -206,7 +206,11 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
+    // Outer wrapper matches the rest of the app (1400px); inner column
+    // keeps the form readable (input fields shouldn't stretch the full
+    // width of the page). Same pattern on /jobs/add.
+    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto">
+     <div className="max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-slate-800">Settings</h1>
         <button
@@ -638,6 +642,7 @@ export default function SettingsPage() {
           </div>
         )}
       </section>
+     </div>
     </div>
   );
 }

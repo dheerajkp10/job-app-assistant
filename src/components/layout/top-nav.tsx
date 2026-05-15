@@ -31,7 +31,7 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur-md bg-white/70 border-b border-slate-100">
-      <div className="max-w-[1500px] mx-auto px-3 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
+      <div className="max-w-[1400px] mx-auto px-3 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
         <Link href="/dashboard" className="flex items-center gap-2 group shrink-0">
           <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-md shadow-indigo-500/25 group-hover:shadow-lg group-hover:shadow-indigo-500/35 group-hover:-translate-y-0.5 transition-all duration-200">
             <Briefcase className="w-4 h-4 text-white" />

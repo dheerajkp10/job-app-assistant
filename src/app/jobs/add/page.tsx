@@ -300,7 +300,10 @@ export default function AddJobPage() {
 
   if (savedJobId) {
     return (
-      <div className="p-8 max-w-4xl mx-auto">
+      // Uniform outer wrapper; inner column keeps the post-save result
+      // panel readable — same pattern as /settings.
+      <div className="p-4 sm:p-6 max-w-[1400px] mx-auto">
+       <div className="max-w-4xl mx-auto">
         {/* Success banner */}
         <div className="mb-6 p-4 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm flex items-center gap-3">
           <CheckCircle2 className="w-5 h-5 text-green-500 shrink-0" />
@@ -511,6 +514,7 @@ export default function AddJobPage() {
             Back to Listings
           </Link>
         </div>
+       </div>
       </div>
     );
   }
@@ -518,7 +522,8 @@ export default function AddJobPage() {
   // ─── Normal form view ──────────────────────────────────────────
 
   return (
-    <div className="p-4 sm:p-8 max-w-3xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto">
+     <div className="max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-800 mb-8">Add Job</h1>
 
       {error && (
@@ -652,6 +657,7 @@ export default function AddJobPage() {
           </button>
         </div>
       </div>
+     </div>
     </div>
   );
 }
