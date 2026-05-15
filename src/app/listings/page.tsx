@@ -1915,6 +1915,10 @@ function ListingCard({
   // card expand.
   const [diffOpen, setDiffOpen] = useState(false);
   const [diffBaseText, setDiffBaseText] = useState<string | null>(null);
+  // 'unified' = the original single-column view (red-then-amber stacked
+  // pairs); 'split' = two columns (base on the left, tailored on the
+  // right) with the rows aligned so you can scan a change horizontally.
+  const [diffView, setDiffView] = useState<'unified' | 'split'>('split');
   useEffect(() => {
     if (!diffOpen || diffBaseText !== null) return;
     fetch('/api/resume')
@@ -3286,7 +3290,9 @@ function ListingCard({
             onClick={() => setDiffOpen(false)}
           >
             <div
-              className="bg-white w-full max-w-3xl max-h-[85vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col"
+              className={`bg-white w-full ${
+                diffView === 'split' ? 'max-w-6xl' : 'max-w-3xl'
+              } max-h-[85vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start justify-between p-5 border-b border-slate-100">
@@ -3296,12 +3302,42 @@ function ListingCard({
                     Line-by-line view of what changed in the tailored version of your resume.
                   </p>
                 </div>
-                <button
-                  onClick={() => setDiffOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                >
-                  <XCircle className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* View toggle. Side-by-side ('split') is the default
+                      because aligned rows make it easier to spot what's
+                      different at a glance; 'unified' keeps the legacy
+                      vertical view for narrow viewports or quick scans. */}
+                  <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setDiffView('split')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        diffView === 'split'
+                          ? 'bg-indigo-500 text-white'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      Side-by-side
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiffView('unified')}
+                      className={`px-2.5 py-1 rounded-md transition-colors ${
+                        diffView === 'unified'
+                          ? 'bg-indigo-500 text-white'
+                          : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      Unified
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setDiffOpen(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <XCircle className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4">
                 {diffBaseText === null ? (
@@ -3328,52 +3364,160 @@ function ListingCard({
                           </span>
                         )}
                       </div>
-                      <div className="space-y-1 font-mono text-[12px] leading-relaxed">
-                        {diff.lines.map((l, i) => {
-                          if (l.kind === 'unchanged') {
+                      {diffView === 'unified' ? (
+                        // ─── Unified view (legacy) ────────────────────
+                        <div className="space-y-1 font-mono text-[12px] leading-relaxed">
+                          {diff.lines.map((l, i) => {
+                            if (l.kind === 'unchanged') {
+                              return (
+                                <div key={i} className="flex gap-2 text-slate-500">
+                                  <span className="w-5 shrink-0 text-slate-300 select-none">·</span>
+                                  <span className="truncate">{l.text}</span>
+                                </div>
+                              );
+                            }
+                            if (l.kind === 'modified') {
+                              return (
+                                <div key={i} className="space-y-0.5">
+                                  <div className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
+                                    <span className="w-5 shrink-0 text-rose-500 select-none">-</span>
+                                    <span className="text-rose-700">{l.basedOn}</span>
+                                  </div>
+                                  <div className="flex gap-2 bg-amber-50 px-2 py-1 rounded">
+                                    <span className="w-5 shrink-0 text-amber-600 select-none">~</span>
+                                    <span className="text-amber-900">{l.text}</span>
+                                  </div>
+                                </div>
+                              );
+                            }
+                            // added
                             return (
-                              <div key={i} className="flex gap-2 text-slate-500">
-                                <span className="w-5 shrink-0 text-slate-300 select-none">·</span>
-                                <span className="truncate">{l.text}</span>
+                              <div key={i} className="flex gap-2 bg-emerald-50 px-2 py-1 rounded">
+                                <span className="w-5 shrink-0 text-emerald-600 select-none">+</span>
+                                <span className="text-emerald-800">{l.text}</span>
                               </div>
                             );
-                          }
-                          if (l.kind === 'modified') {
-                            return (
-                              <div key={i} className="space-y-0.5">
-                                <div className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
+                          })}
+                          {diff.removed.length > 0 && (
+                            <>
+                              <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-4 mb-1">
+                                Removed (unusual — tailor normally only appends)
+                              </div>
+                              {diff.removed.map((r, i) => (
+                                <div key={`r-${i}`} className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
                                   <span className="w-5 shrink-0 text-rose-500 select-none">-</span>
-                                  <span className="text-rose-700">{l.basedOn}</span>
+                                  <span className="text-rose-700">{r}</span>
                                 </div>
-                                <div className="flex gap-2 bg-amber-50 px-2 py-1 rounded">
-                                  <span className="w-5 shrink-0 text-amber-600 select-none">~</span>
-                                  <span className="text-amber-900">{l.text}</span>
-                                </div>
-                              </div>
-                            );
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        // ─── Side-by-side view ────────────────────────
+                        // Two aligned columns. Each row pairs the base
+                        // line on the left with the tailored line on the
+                        // right so changes show up horizontally rather
+                        // than as stacked pairs the eye has to associate.
+                        //
+                        // Row mapping:
+                        //   unchanged → same text both sides, dimmed
+                        //   modified  → basedOn on left, text on right
+                        //   added     → left empty / placeholder, right filled
+                        //   removed   → left filled, right empty (rare)
+                        (() => {
+                          type SplitRow = {
+                            kind: 'unchanged' | 'modified' | 'added' | 'removed';
+                            left: string | null;
+                            right: string | null;
+                          };
+                          const rows: SplitRow[] = diff.lines.map((l) => {
+                            if (l.kind === 'unchanged') {
+                              return { kind: 'unchanged', left: l.text, right: l.text };
+                            }
+                            if (l.kind === 'modified') {
+                              return { kind: 'modified', left: l.basedOn ?? '', right: l.text };
+                            }
+                            // added
+                            return { kind: 'added', left: null, right: l.text };
+                          });
+                          for (const r of diff.removed) {
+                            rows.push({ kind: 'removed', left: r, right: null });
                           }
-                          // added
                           return (
-                            <div key={i} className="flex gap-2 bg-emerald-50 px-2 py-1 rounded">
-                              <span className="w-5 shrink-0 text-emerald-600 select-none">+</span>
-                              <span className="text-emerald-800">{l.text}</span>
+                            <div className="font-mono text-[12px] leading-relaxed">
+                              {/* Column headers */}
+                              <div className="grid grid-cols-2 gap-3 mb-2 pb-2 border-b border-slate-100 text-[11px] uppercase tracking-wide text-slate-500 sticky top-0 bg-white">
+                                <div className="px-2">Base resume</div>
+                                <div className="px-2">Tailored</div>
+                              </div>
+                              <div className="space-y-1">
+                                {rows.map((row, i) => {
+                                  // Per-row backgrounds telegraph the
+                                  // change kind. Unchanged rows are
+                                  // muted so the eye lands on diffs.
+                                  const leftBg =
+                                    row.kind === 'modified' || row.kind === 'removed'
+                                      ? 'bg-rose-50'
+                                      : '';
+                                  const rightBg =
+                                    row.kind === 'added'
+                                      ? 'bg-emerald-50'
+                                      : row.kind === 'modified'
+                                      ? 'bg-amber-50'
+                                      : '';
+                                  const leftText =
+                                    row.kind === 'modified' || row.kind === 'removed'
+                                      ? 'text-rose-700'
+                                      : 'text-slate-500';
+                                  const rightText =
+                                    row.kind === 'added'
+                                      ? 'text-emerald-800'
+                                      : row.kind === 'modified'
+                                      ? 'text-amber-900'
+                                      : 'text-slate-500';
+                                  // Marker glyphs match the unified view
+                                  // so users switching between modes see
+                                  // the same vocabulary.
+                                  const leftMarker =
+                                    row.kind === 'modified' || row.kind === 'removed'
+                                      ? '-'
+                                      : row.left
+                                      ? '·'
+                                      : '';
+                                  const rightMarker =
+                                    row.kind === 'added'
+                                      ? '+'
+                                      : row.kind === 'modified'
+                                      ? '~'
+                                      : row.right
+                                      ? '·'
+                                      : '';
+                                  return (
+                                    <div key={i} className="grid grid-cols-2 gap-3">
+                                      <div className={`flex gap-2 px-2 py-1 rounded ${leftBg}`}>
+                                        <span className="w-4 shrink-0 select-none text-slate-300">
+                                          {leftMarker}
+                                        </span>
+                                        <span className={`break-words whitespace-pre-wrap ${leftText}`}>
+                                          {row.left ?? ''}
+                                        </span>
+                                      </div>
+                                      <div className={`flex gap-2 px-2 py-1 rounded ${rightBg}`}>
+                                        <span className="w-4 shrink-0 select-none text-slate-300">
+                                          {rightMarker}
+                                        </span>
+                                        <span className={`break-words whitespace-pre-wrap ${rightText}`}>
+                                          {row.right ?? ''}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           );
-                        })}
-                        {diff.removed.length > 0 && (
-                          <>
-                            <div className="text-[11px] uppercase tracking-wide text-slate-400 mt-4 mb-1">
-                              Removed (unusual — tailor normally only appends)
-                            </div>
-                            {diff.removed.map((r, i) => (
-                              <div key={`r-${i}`} className="flex gap-2 bg-rose-50 px-2 py-1 rounded">
-                                <span className="w-5 shrink-0 text-rose-500 select-none">-</span>
-                                <span className="text-rose-700">{r}</span>
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </div>
+                        })()
+                      )}
                     </>
                   );
                 })()}
