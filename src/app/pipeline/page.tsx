@@ -132,7 +132,7 @@ export default function PipelinePage() {
     <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
             Application Pipeline
           </h1>
           <p className="text-sm text-slate-500 mt-1">

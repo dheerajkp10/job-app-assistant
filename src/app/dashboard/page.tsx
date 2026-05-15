@@ -310,7 +310,7 @@ export default function DashboardPage() {
     <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
           {settings.userName ? `Welcome back, ${settings.userName}` : 'Dashboard'}
         </h1>
         <p className="text-sm text-slate-500 mt-1">
@@ -331,7 +331,7 @@ export default function DashboardPage() {
       />
 
       {/* Stats cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
         <StatCard icon={Target} label="Avg ATS Score" value={`${stats.avgScore}%`} sub={`Across ${stats.scoredCount} scored listings`} color="blue" />
         <StatCard icon={BarChart3} label="Strong Matches" value={stats.high} sub={`Score 60%+ (of ${stats.scoredCount})`} color="green" />
         <StatCard icon={Building2} label="Companies" value={stats.companies} sub={`With ${stats.totalListings} matching roles`} color="purple" />

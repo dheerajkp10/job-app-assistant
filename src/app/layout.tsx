@@ -22,6 +22,19 @@ export const metadata: Metadata = {
   description: "Track and manage job applications across portals",
 };
 
+// Mobile viewport setup. Without this, iOS/Android render the page at
+// desktop scale and the user has to pinch-zoom. `width=device-width`
+// makes the layout follow the device's CSS pixel width;
+// `maximumScale=1` prevents the iOS auto-zoom-on-input behavior that
+// jumps the page when a small input is focused. We deliberately leave
+// `userScalable` at its default (true) so users can still pinch-zoom
+// to read content — locking it down is an accessibility regression.
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+};
+
 export default async function RootLayout({
   children,
 }: Readonly<{

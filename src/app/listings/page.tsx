@@ -1019,10 +1019,12 @@ export default function ListingsPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      {/* Header — stacks vertically on mobile so the title doesn't
+          fight the Refresh All button for the same row; goes inline
+          again above sm: where there's room for both. */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
             Job Listings
           </h1>
           <p className="text-sm text-slate-500 mt-1 flex items-center gap-2 flex-wrap">
@@ -1064,8 +1066,7 @@ export default function ListingsPage() {
         <Button
           onPress={streamingRefresh}
           isDisabled={refreshing}
-          size="lg"
-          className="group bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600"
+          className="group bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600 self-start sm:self-auto"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : 'group-data-[hovered=true]:rotate-180 transition-transform duration-500'}`} />
           {refreshing ? 'Refreshing...' : 'Refresh All'}
@@ -1919,6 +1920,22 @@ function ListingCard({
   // pairs); 'split' = two columns (base on the left, tailored on the
   // right) with the rows aligned so you can scan a change horizontally.
   const [diffView, setDiffView] = useState<'unified' | 'split'>('split');
+  // Mobile force-flip. Side-by-side at 375px would give two ~150px
+  // columns of mono text — unreadable. We track the viewport via a
+  // matchMedia subscription and treat `isNarrow=true` as "always
+  // unified" regardless of the user's toggle selection. The toggle
+  // itself is hidden below sm: so the user doesn't see a button that
+  // would do nothing.
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 639px)');
+    const update = () => setIsNarrow(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  const effectiveDiffView: 'unified' | 'split' = isNarrow ? 'unified' : diffView;
   useEffect(() => {
     if (!diffOpen || diffBaseText !== null) return;
     fetch('/api/resume')
@@ -2281,9 +2298,15 @@ function ListingCard({
             onToggle();
           }
         }}
-        className="w-full text-left p-5 cursor-pointer"
+        className="w-full text-left p-4 sm:p-5 cursor-pointer"
       >
-        <div className="flex items-start justify-between gap-4">
+        {/* Header — wraps to a stacked layout on mobile so the title
+            isn't squeezed by the bulk-action checkboxes. The
+            checkboxes themselves get hidden on phone — bulk actions
+            are a power-user flow that doesn't belong in the first
+            mobile view of a card. The score + chevron stay top-right
+            because those are the primary signals at-a-glance. */}
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-slate-800 truncate text-base">{listing.title}</h3>
@@ -2368,7 +2391,7 @@ function ListingCard({
                 the Compare checkbox so a card can be in both sets
                 simultaneously. */}
             <label
-              className="inline-flex items-center gap-1 text-xs select-none cursor-pointer text-slate-600 hover:text-slate-800"
+              className="hidden sm:inline-flex items-center gap-1 text-xs select-none cursor-pointer text-slate-600 hover:text-slate-800"
               title="Bulk-select — applies whatever action you pick at the bottom of the page"
             >
               <input
@@ -2382,9 +2405,10 @@ function ListingCard({
 
             {/* Compare checkbox — ticking 2-3 surfaces the floating
                 Compare button at the page level. Disabled when the
-                cap (3) is hit unless this card is already selected. */}
+                cap (3) is hit unless this card is already selected.
+                Hidden on mobile — same reasoning as Select above. */}
             <label
-              className={`inline-flex items-center gap-1 text-xs select-none ${
+              className={`hidden sm:inline-flex items-center gap-1 text-xs select-none ${
                 compareDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer text-slate-600 hover:text-slate-800'
               }`}
               title={compareDisabled ? 'Compare cap is 3' : 'Tick to add to comparison'}
@@ -3291,8 +3315,8 @@ function ListingCard({
           >
             <div
               className={`bg-white w-full ${
-                diffView === 'split' ? 'max-w-6xl' : 'max-w-3xl'
-              } max-h-[85vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col`}
+                effectiveDiffView === 'split' ? 'max-w-6xl' : 'max-w-3xl'
+              } max-h-[90vh] sm:max-h-[85vh] rounded-2xl shadow-modal border border-slate-100 overflow-hidden flex flex-col`}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-start justify-between p-5 border-b border-slate-100">
@@ -3306,8 +3330,12 @@ function ListingCard({
                   {/* View toggle. Side-by-side ('split') is the default
                       because aligned rows make it easier to spot what's
                       different at a glance; 'unified' keeps the legacy
-                      vertical view for narrow viewports or quick scans. */}
-                  <div className="inline-flex rounded-lg border border-slate-200 p-0.5 text-xs">
+                      vertical view for narrow viewports or quick scans.
+                      Hidden on mobile — there isn't enough horizontal
+                      room for the split view to be readable at 375px,
+                      so we just always render unified there (see
+                      effectiveDiffView above). */}
+                  <div className="hidden sm:inline-flex rounded-lg border border-slate-200 p-0.5 text-xs">
                     <button
                       type="button"
                       onClick={() => setDiffView('split')}
@@ -3364,7 +3392,7 @@ function ListingCard({
                           </span>
                         )}
                       </div>
-                      {diffView === 'unified' ? (
+                      {effectiveDiffView === 'unified' ? (
                         // ─── Unified view (legacy) ────────────────────
                         <div className="space-y-1 font-mono text-[12px] leading-relaxed">
                           {diff.lines.map((l, i) => {
