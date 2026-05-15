@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getListingsCache, saveListingsCache } from '@/lib/db';
+import { getListingsCache, saveListingsCache, getSettings, updateSettings } from '@/lib/db';
 import { fetchAllJobs } from '@/lib/job-fetcher';
 import { getAllSources } from '@/lib/sources';
+
+/** Merge fresh 404s into Settings.deadSources so the next refresh
+ *  skips them. Called after each refresh — no-op when the run found
+ *  no new dead sources. */
+async function recordDeadSources(
+  newDead: Record<string, { since: string; statusCode: number }> | undefined,
+) {
+  if (!newDead || Object.keys(newDead).length === 0) return;
+  const settings = await getSettings();
+  await updateSettings({
+    deadSources: { ...(settings.deadSources ?? {}), ...newDead },
+  });
+}
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -20,7 +33,9 @@ export async function GET(req: NextRequest) {
   if (forceRefresh) {
     // Synchronous fetch — forced refresh only
     const sources = await getAllSources();
-    const result = await fetchAllJobs(sources);
+    const settings = await getSettings();
+    const result = await fetchAllJobs(sources, settings.deadSources);
+    await recordDeadSources(result.newDeadSources);
     const newCache = {
       listings: result.listings,
       lastFetchedAt: new Date().toISOString(),
@@ -48,7 +63,9 @@ export async function GET(req: NextRequest) {
  */
 export async function POST() {
   const sources = await getAllSources();
-  const result = await fetchAllJobs(sources);
+  const settings = await getSettings();
+  const result = await fetchAllJobs(sources, settings.deadSources);
+  await recordDeadSources(result.newDeadSources);
   const newCache = {
     listings: result.listings,
     lastFetchedAt: new Date().toISOString(),

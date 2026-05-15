@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { saveListingsCache } from '@/lib/db';
+import { saveListingsCache, getSettings, updateSettings } from '@/lib/db';
 import { fetchAllJobs } from '@/lib/job-fetcher';
 import { getAllSources } from '@/lib/sources';
 import type { JobListing } from '@/lib/types';
@@ -41,7 +41,28 @@ export async function GET() {
       // Pull the union of static + user-added custom sources at the
       // start of the stream so per-batch slicing below stays correct
       // even if `Settings.customSources` is mutated mid-fetch.
-      const sources = await getAllSources();
+      const allSources = await getAllSources();
+      // Read once up-front; we'll merge new 404s back at the end of
+      // the stream so dead sources stop hammering on next refresh.
+      const initialSettings = await getSettings();
+      const deadSourceMap = { ...(initialSettings.deadSources ?? {}) };
+      // Drop sources that are still inside the 24h cooldown — the
+      // helper from job-fetcher handles the math.
+      const { isDeadSourceFresh, deadSourceKey } = await import('@/lib/job-fetcher');
+      const now = Date.now();
+      const sources = allSources.filter((s) => !isDeadSourceFresh(deadSourceMap[deadSourceKey(s)], now));
+      const cooldownSkipped = allSources.length - sources.length;
+      if (cooldownSkipped > 0) {
+        for (const s of allSources) {
+          const entry = deadSourceMap[deadSourceKey(s)];
+          if (isDeadSourceFresh(entry, now)) {
+            errors.push({
+              company: s.name,
+              error: `skipped — ${s.ats} board returned ${entry.statusCode} on a prior fetch (24h cooldown)`,
+            });
+          }
+        }
+      }
       const total = sources.length;
       let completed = 0;
 
@@ -64,8 +85,13 @@ export async function GET() {
 
         const results = await Promise.allSettled(
           batch.map(async (source) => {
-            const result = await fetchAllJobs([source]);
-            return { source, listings: result.listings, errors: result.errors };
+            const result = await fetchAllJobs([source], deadSourceMap);
+            return {
+              source,
+              listings: result.listings,
+              errors: result.errors,
+              newDeadSources: result.newDeadSources,
+            };
           })
         );
 
@@ -75,9 +101,10 @@ export async function GET() {
           completed++;
 
           if (result.status === 'fulfilled') {
-            const { listings, errors: fetchErrors } = result.value;
+            const { listings, errors: fetchErrors, newDeadSources } = result.value;
             allListings.push(...listings);
             errors.push(...fetchErrors);
+            if (newDeadSources) Object.assign(deadSourceMap, newDeadSources);
 
             controller.enqueue(
               encoder.encode(
@@ -121,6 +148,22 @@ export async function GET() {
         lastFetchedAt: new Date().toISOString(),
         fetchErrors: errors,
       });
+
+      // Persist any newly-discovered dead boards so the next refresh
+      // skips them for 24h. We only write when there's something new
+      // to avoid a no-op disk roundtrip.
+      const currentDead = (initialSettings.deadSources ?? {});
+      const merged: Record<string, { since: string; statusCode: number }> = { ...currentDead };
+      let dirty = false;
+      for (const [k, v] of Object.entries(deadSourceMap)) {
+        if (!currentDead[k] || currentDead[k].since !== v.since) {
+          merged[k] = v;
+          if (!currentDead[k]) dirty = true;
+        }
+      }
+      if (dirty) {
+        await updateSettings({ deadSources: merged });
+      }
 
       // Send completion event
       controller.enqueue(

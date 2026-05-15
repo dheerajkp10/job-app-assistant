@@ -1,6 +1,7 @@
 import type { CompanySource, JobListing, JobListingDetail } from './types';
 import { extractSalary } from './salary-parser';
 import { unescapeHtml } from './html-utils';
+import { fetchWithRetry, HttpError } from './fetch-with-retry';
 import {
   fetchGoogleJobs,
   fetchAppleJobs,
@@ -50,8 +51,10 @@ async function fetchGreenhouseJobs(source: CompanySource): Promise<JobListing[]>
   // payload is bigger (~2-5× without content) but still completes in
   // a single HTTP roundtrip per company.
   const url = `https://boards-api.greenhouse.io/v1/boards/${source.boardToken}/jobs?content=true`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetchWithRetry(url, {
+    timeoutMs: 20000,
+    atsName: 'Greenhouse',
+  });
   const data = await res.json();
   const jobs: (GreenhouseJob & { content?: string })[] = data.jobs || [];
 
@@ -112,8 +115,7 @@ interface LeverPosting {
 
 async function fetchLeverJobs(source: CompanySource): Promise<JobListing[]> {
   const url = `https://api.lever.co/v0/postings/${source.boardToken}?mode=json`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetchWithRetry(url, { atsName: 'Lever' });
   const postings: LeverPosting[] = await res.json();
 
   return postings.map((post) => {
@@ -175,8 +177,7 @@ interface AshbyBoardResponse {
 
 async function fetchAshbyJobs(source: CompanySource): Promise<JobListing[]> {
   const url = `https://api.ashbyhq.com/posting-api/job-board/${source.boardToken}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetchWithRetry(url, { atsName: 'Ashby' });
   const data: AshbyBoardResponse = await res.json();
   const jobs = data.jobs || [];
 
@@ -229,6 +230,11 @@ export async function fetchAshbyJobDetail(
 export interface FetchResult {
   listings: JobListing[];
   errors: { company: string; error: string }[];
+  /** New permanent failures (404) detected this run. The refresh
+   *  endpoints merge these into Settings.deadSources so subsequent
+   *  refreshes skip them for the cooldown window. Empty when nothing
+   *  new went dead. */
+  newDeadSources?: Record<string, { since: string; statusCode: number }>;
 }
 
 /**
@@ -297,9 +303,17 @@ async function fetchSmartRecruitersJobs(source: CompanySource): Promise<JobListi
   for (let page = 0; page < MAX_PAGES; page++) {
     const offset = page * PAGE_SIZE;
     const url = `https://api.smartrecruiters.com/v1/companies/${source.boardToken}/postings?limit=${PAGE_SIZE}&offset=${offset}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-    if (!res.ok) {
-      if (page === 0) throw new Error(`SmartRecruiters HTTP ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetchWithRetry(url, { atsName: 'SmartRecruiters' });
+    } catch (err) {
+      // First page failure is fatal (board likely doesn't exist).
+      // Past page 0 we've already fetched some results — treat as
+      // "end of pagination" rather than losing the whole batch.
+      if (page === 0) throw err;
+      // 404 mid-paginate just means we walked off the end.
+      if (err instanceof HttpError && err.status === 404) break;
+      // Transient that exhausted retries past page 0: keep what we have.
       break;
     }
     let data: SmartRecruitersListResponse;
@@ -365,9 +379,52 @@ async function fetchSmartRecruitersJobDetail(
   return res.json();
 }
 
-export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResult> {
+// Dead-source cooldown window — once a 404 is recorded for a board,
+// we skip that source for this many hours before trying again. 24h
+// is generous enough to absorb a one-off ATS outage while keeping the
+// retry cadence low.
+const DEAD_SOURCE_COOLDOWN_HOURS = 24;
+
+export function isDeadSourceFresh(
+  entry: { since: string } | undefined,
+  now = Date.now(),
+): boolean {
+  if (!entry) return false;
+  const ageMs = now - new Date(entry.since).getTime();
+  return ageMs < DEAD_SOURCE_COOLDOWN_HOURS * 60 * 60 * 1000;
+}
+
+export function deadSourceKey(source: { ats: string; boardToken: string }): string {
+  return `${source.ats}:${source.boardToken}`;
+}
+
+export async function fetchAllJobs(
+  sources: CompanySource[],
+  /** Optional dead-source map (typically `settings.deadSources`). When
+   *  passed, sources with a fresh entry are skipped — they go straight
+   *  into `errors` with a "skipped (cooldown)" note so the UI can show
+   *  the user without spending a retry slot on them. */
+  deadSources?: Record<string, { since: string; statusCode: number }>,
+): Promise<FetchResult & {
+  /** New 404s detected during this run. Callers (the refresh API) should
+   *  merge these into `settings.deadSources` so the next refresh skips
+   *  them within the cooldown window. */
+  newDeadSources: Record<string, { since: string; statusCode: number }>;
+}> {
+  const now = Date.now();
+  const newDeadSources: Record<string, { since: string; statusCode: number }> = {};
+  // Partition sources into "try" vs "skip-by-cooldown" up front so we
+  // can report the skipped ones without spending a network roundtrip.
+  const skipped: CompanySource[] = [];
+  const tryable: CompanySource[] = [];
+  for (const s of sources) {
+    const entry = deadSources?.[deadSourceKey(s)];
+    if (isDeadSourceFresh(entry, now)) skipped.push(s);
+    else tryable.push(s);
+  }
+
   const results = await Promise.allSettled(
-    sources.map(async (source) => {
+    tryable.map(async (source) => {
       const fetcher = pickFetcher(source);
       const jobs = await fetcher(source);
       return { source, jobs };
@@ -377,16 +434,34 @@ export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResul
   const listings: JobListing[] = [];
   const errors: { company: string; error: string }[] = [];
 
-  for (const result of results) {
+  // Cooldown-skipped sources: report so the UI can tell the user
+  // they were intentionally skipped (rather than silently dropped).
+  for (const s of skipped) {
+    const entry = deadSources![deadSourceKey(s)];
+    errors.push({
+      company: s.name,
+      error: `skipped — ${s.ats} board returned ${entry.statusCode} on a prior fetch (cooldown until ${new Date(new Date(entry.since).getTime() + DEAD_SOURCE_COOLDOWN_HOURS * 3600_000).toLocaleString()})`,
+    });
+  }
+
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i];
+    const source = tryable[i];
     if (result.status === 'fulfilled') {
       listings.push(...result.value.jobs);
     } else {
-      // Extract company name from the error context
-      const idx = results.indexOf(result);
-      const source = sources[idx];
+      const reason = result.reason;
+      // Record permanent dead sources so the next refresh can skip
+      // them rather than re-paying the failure latency.
+      if (reason instanceof HttpError && reason.isDead) {
+        newDeadSources[deadSourceKey(source)] = {
+          since: new Date().toISOString(),
+          statusCode: reason.status,
+        };
+      }
       errors.push({
         company: source.name,
-        error: result.reason?.message || 'Unknown error',
+        error: reason?.message || 'Unknown error',
       });
     }
   }
@@ -402,7 +477,7 @@ export async function fetchAllJobs(sources: CompanySource[]): Promise<FetchResul
     deduped.push(l);
   }
 
-  return { listings: deduped, errors };
+  return { listings: deduped, errors, newDeadSources };
 }
 
 // =========================================================

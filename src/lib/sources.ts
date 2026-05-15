@@ -25,7 +25,10 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'DoorDash', slug: 'doordash', ats: 'greenhouse', boardToken: 'doordashusa', logoColor: '#FF3008' },
   { name: 'Databricks', slug: 'databricks', ats: 'greenhouse', boardToken: 'databricks', logoColor: '#FF3621' },
   { name: 'Robinhood', slug: 'robinhood', ats: 'greenhouse', boardToken: 'robinhood', logoColor: '#00C805' },
-  { name: 'Coinbase', slug: 'coinbase', ats: 'greenhouse', boardToken: 'coinbase', logoColor: '#0052FF' },
+  // Coinbase migrated off Greenhouse (the public Greenhouse board now
+  // returns 404). Their careers site is server-rendered with no clean
+  // public ATS endpoint we can fetch. Users who want Coinbase roles
+  // can re-add it via custom sources once a viable token surfaces.
   { name: 'Discord', slug: 'discord', ats: 'greenhouse', boardToken: 'discord', logoColor: '#5865F2' },
   { name: 'Reddit', slug: 'reddit', ats: 'greenhouse', boardToken: 'reddit', logoColor: '#FF4500' },
   { name: 'Pinterest', slug: 'pinterest', ats: 'greenhouse', boardToken: 'pinterest', logoColor: '#E60023' },
@@ -61,7 +64,11 @@ export const COMPANY_SOURCES: CompanySource[] = [
   // Zillow → Workday (verified — Zillow_Group_External, ~197 jobs).
   // Walmart → Workday (verified — WalmartExternal, ~2000 jobs).
   // Compass — no public API; removed.
-  { name: 'Nutanix', slug: 'nutanix', ats: 'ashby', boardToken: 'nutanix', logoColor: '#024DA1' },
+  // Nutanix migrated off Ashby (their old job-board token now 404s on
+  // api.ashbyhq.com). Nutanix Careers currently runs on Workday but the
+  // public tenant + site segments aren't easy to enumerate from the
+  // careers UI. Users wanting Nutanix can re-add via custom sources
+  // once the Workday host is known.
   { name: 'Smartsheet', slug: 'smartsheet', ats: 'greenhouse', boardToken: 'smartsheet', logoColor: '#1F6BFF', region: 'Seattle' },
   { name: 'Asana', slug: 'asana', ats: 'greenhouse', boardToken: 'asana', logoColor: '#F06A6A' },
   // GitHub now lives at github.careers (Microsoft careers infra) —

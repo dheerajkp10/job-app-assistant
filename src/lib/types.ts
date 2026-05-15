@@ -108,6 +108,15 @@ export interface Settings {
   // own niche company without editing source code or deploying.
   customSources?: CustomCompanySource[];
 
+  // ─── Dead-source cooldown ───
+  // When a board returns 404 (the company migrated off the ATS we
+  // were probing), we mark the source for a 24h skip. Without this
+  // every refresh wastes a roundtrip + a slot of the parallel fetch
+  // window on a board we already know is gone. After 24h we retry
+  // automatically — the user may have updated the boardToken or the
+  // company may have moved back. Keyed by `${ats}:${boardToken}`.
+  deadSources?: Record<string, { since: string; statusCode: number }>;
+
   // ─── Imported network (LinkedIn connections CSV) ───
   // The user uploads their LinkedIn "Connections.csv" export; we
   // parse the company column and store a flat name->[contacts] map
