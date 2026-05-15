@@ -379,14 +379,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {settings.baseResumeFileName && (
-              <div className="mt-4 p-3 bg-slate-50 rounded-lg">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-slate-400" />
-                  <span className="text-xs text-slate-600 font-medium truncate">{settings.baseResumeFileName}</span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
