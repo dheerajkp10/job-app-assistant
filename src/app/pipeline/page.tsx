@@ -129,7 +129,7 @@ export default function PipelinePage() {
   const totalOnBoard = PIPELINE_FLAGS.reduce((acc, f) => acc + grouped[f.key].length, 0);
 
   return (
-    <div className="p-4 sm:p-8 max-w-[1500px] mx-auto animate-fade-in">
+    <div className="p-4 sm:p-6 max-w-[1400px] mx-auto animate-fade-in">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-slate-800 via-indigo-600 to-violet-600 bg-clip-text text-transparent">
@@ -167,10 +167,11 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {/* Kanban columns. Horizontal scroll on narrow screens — five
-          fixed-width columns is friendly on a 1500px laptop and
-          collapses cleanly to a swipe deck below ~1100px. */}
-      <div className="flex gap-4 overflow-x-auto pb-4">
+      {/* Kanban columns. Sized so all five stages fit a 1440px laptop
+          without horizontal scroll: 5 × 248 + 4 × 12 (gap-3) + 48
+          (container padding) = 1336 — comfortable margin on a 1440
+          viewport, still scrolls cleanly on anything narrower. */}
+      <div className="flex gap-3 overflow-x-auto pb-4">
         {PIPELINE_FLAGS.map((flagDef, idx) => {
           const items = grouped[flagDef.key];
           const isFirst = idx === 0;
@@ -178,7 +179,7 @@ export default function PipelinePage() {
           return (
             <section
               key={flagDef.key}
-              className="flex-shrink-0 w-[280px] bg-white/60 rounded-2xl border border-slate-100 shadow-card flex flex-col max-h-[calc(100vh-220px)]"
+              className="flex-shrink-0 w-[248px] bg-white/60 rounded-2xl border border-slate-100 shadow-card flex flex-col max-h-[calc(100vh-220px)]"
             >
               <header
                 className="px-4 py-3 border-b border-slate-100 rounded-t-2xl"
