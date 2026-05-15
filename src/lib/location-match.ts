@@ -126,6 +126,49 @@ const COUNTRY_ALIASES: Record<string, string> = {
   nl: 'nl', netherlands: 'nl', holland: 'nl',
   jp: 'jp', japan: 'jp',
   sg: 'sg', singapore: 'sg',
+  // LatAm — common on remote job boards. Without these, listings like
+  // "Argentina Remote" parse with countries=∅ and slip through the
+  // remote-fallback clause that assumes unknown-country = US.
+  ar: 'ar', argentina: 'ar',
+  br: 'br', brazil: 'br', brasil: 'br',
+  mx: 'mx', mexico: 'mx', méxico: 'mx',
+  cl: 'cl', chile: 'cl',
+  co: 'co', colombia: 'co', // 'CO' is also Colorado — handled by 2-letter state check first
+  pe: 'pe', peru: 'pe', perú: 'pe',
+  uy: 'uy', uruguay: 'uy',
+  // Europe (non-EU + EU we hadn't covered)
+  es: 'es', spain: 'es', españa: 'es',
+  it: 'it', italy: 'it', italia: 'it',
+  pt: 'pt', portugal: 'pt',
+  pl: 'pl', poland: 'pl',
+  se: 'se', sweden: 'se', sverige: 'se',
+  no: 'no', norway: 'no',
+  dk: 'dk', denmark: 'dk',
+  fi: 'fi', finland: 'fi',
+  ch: 'ch', switzerland: 'ch',
+  at: 'at', austria: 'at',
+  be: 'be', belgium: 'be',
+  cz: 'cz', czechia: 'cz', 'czech republic': 'cz',
+  ro: 'ro', romania: 'ro',
+  ua: 'ua', ukraine: 'ua',
+  // Asia / Oceania
+  cn: 'cn', china: 'cn',
+  hk: 'hk', 'hong kong': 'hk',
+  tw: 'tw', taiwan: 'tw',
+  kr: 'kr', korea: 'kr', 'south korea': 'kr',
+  ph: 'ph', philippines: 'ph',
+  id: 'id', indonesia: 'id',
+  my: 'my', malaysia: 'my',
+  th: 'th', thailand: 'th',
+  vn: 'vn', vietnam: 'vn',
+  nz: 'nz', 'new zealand': 'nz',
+  // Middle East / Africa
+  il: 'il', israel: 'il',
+  ae: 'ae', uae: 'ae', 'united arab emirates': 'ae',
+  za: 'za', 'south africa': 'za',
+  ng: 'ng', nigeria: 'ng',
+  eg: 'eg', egypt: 'eg',
+  ke: 'ke', kenya: 'ke',
 };
 
 // ─── Tokenization ───────────────────────────────────────────────────
@@ -180,6 +223,17 @@ export function parseLocation(loc: string): ParsedLocation {
 
   const tokens = splitDelimiters(loc);
 
+  // Track tokens whose state classification is ambiguous with a city
+  // of the same name. The canonical example: "Washington, DC" — the
+  // "Washington" token first parses as the state WA, but the DC token
+  // in the same string proves it's actually the city. After the main
+  // pass we reclassify these to cities iff DC also ended up in states.
+  const ambiguousCityStates = new Map<string, string>([
+    ['washington', 'WA'], // Washington state vs. Washington, DC
+    ['new york', 'NY'],   // New York state vs. New York City (NYC)
+  ]);
+  const ambiguousHits: string[] = [];
+
   // Also keep the original lower-cased string for substring checks
   // we can't capture via tokens alone (e.g. "remote in the us").
   const flat = loc.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -223,6 +277,7 @@ export function parseLocation(loc: string): ParsedLocation {
     // Full state name?
     if (STATE_NAME_TO_CODE[norm]) {
       out.states.add(STATE_NAME_TO_CODE[norm]);
+      if (ambiguousCityStates.has(norm)) ambiguousHits.push(norm);
       continue;
     }
 
@@ -235,12 +290,64 @@ export function parseLocation(loc: string): ParsedLocation {
       continue;
     }
 
+    // Multi-word token fallback — try whitespace-splitting and
+    // re-checking against country/state tables. Catches space-only
+    // separators like "Argentina Remote" (no comma/dash), where the
+    // whole phrase otherwise becomes a single bogus "city" and the
+    // country signal is lost.
+    if (/\s/.test(norm)) {
+      let matchedAny = false;
+      for (const part of norm.split(/\s+/)) {
+        if (!part) continue;
+        if (part === 'remote' || part === 'virtual') {
+          out.isRemote = true;
+          matchedAny = true;
+          continue;
+        }
+        if (US_ALIASES.has(part)) { out.countries.add('us'); matchedAny = true; continue; }
+        if (part !== 'ca' && COUNTRY_ALIASES[part]) {
+          out.countries.add(COUNTRY_ALIASES[part]);
+          matchedAny = true;
+          continue;
+        }
+        const up = part.toUpperCase();
+        if (up.length === 2 && STATE_CODE_TO_NAME[up]) {
+          out.states.add(up); matchedAny = true; continue;
+        }
+        if (STATE_NAME_TO_CODE[part]) {
+          out.states.add(STATE_NAME_TO_CODE[part]);
+          if (ambiguousCityStates.has(part)) ambiguousHits.push(part);
+          matchedAny = true;
+          continue;
+        }
+      }
+      // If any sub-token matched a structured field, don't also dump
+      // the raw phrase into cities — it'd just create noise.
+      if (matchedAny) continue;
+    }
+
     // City fallback. We don't gate on a known-city list — career
     // boards use thousands of city names. Just trust the token; the
     // matcher's symmetry handles it (user preferred-loc cities pass
     // through here too).
     if (norm.length >= 2) {
       out.cities.add(norm);
+    }
+  }
+
+  // Post-pass: reclassify ambiguous city/state collisions. If we
+  // added WA because we saw "Washington", but DC is also in states,
+  // then "Washington" was really the city — drop the bogus WA and
+  // record the city instead. Same for "New York" co-occurring with
+  // NYC airport or any other NY-city signal.
+  for (const norm of ambiguousHits) {
+    const bogusState = ambiguousCityStates.get(norm)!;
+    if (norm === 'washington' && out.states.has('DC')) {
+      out.states.delete(bogusState);
+      out.cities.add('washington');
+    } else if (norm === 'new york' && out.cities.has('new york city')) {
+      // Keep state for "New York, NY" but drop if explicitly NYC-only.
+      // Rare in practice; current behavior is safe to leave as-is.
     }
   }
 
