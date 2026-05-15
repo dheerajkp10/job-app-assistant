@@ -394,7 +394,7 @@ export default function DashboardPage() {
             the dashboard layout stays stable as more companies hit
             the top-10 cutoff and the card height matches its row
             neighbor (Resume Performance). */}
-        <div className="col-span-2 bg-white rounded-2xl border border-slate-100 p-6 shadow-card flex flex-col">
+        <div className="col-span-1 lg:col-span-2 bg-white rounded-2xl border border-slate-100 p-6 shadow-card flex flex-col">
           <div className="flex items-center justify-between mb-5">
             <div className="flex items-center gap-2">
               <Star className="w-5 h-5 text-amber-500" />
