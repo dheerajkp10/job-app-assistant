@@ -580,7 +580,19 @@ export function scoreResumeFromKeywords(
     ? resumeFullText.toLowerCase()
     : Array.from(resumeKeywords.keys()).join(' ').toLowerCase();
   const jdBigrams = extractJdBigrams(jobDescription);
+  // Skip bigrams whose phrase is already represented in the taxonomy
+  // pass — e.g. "distributed systems" is in TECHNICAL_SKILLS AND will
+  // also surface from the bigram extractor when the JD mentions it
+  // ≥3 times. Without this guard the same string ends up in both
+  // matched/missing lists, which React then renders with duplicate
+  // keys ("Encountered two children with the same key").
+  const alreadyCounted = new Set<string>([
+    ...matched,
+    ...missing,
+  ]);
   for (const { phrase, weight } of jdBigrams) {
+    if (alreadyCounted.has(phrase)) continue;
+    alreadyCounted.add(phrase);
     stats.phrases.totalW += weight;
     const isFound = resumeLower.includes(phrase);
     if (isFound) {

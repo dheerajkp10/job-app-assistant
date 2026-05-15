@@ -2614,7 +2614,13 @@ function ListingCard({
                       <span className="font-medium text-green-800 text-xs">Matched ({detailScore.totalMatched})</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {detailScore.matchedKeywords.slice(0, 15).map((k) => (
+                      {/* Defensive dedupe: old cached scores (written
+                          before the scorer dedupe fix) can repeat the
+                          same keyword between the taxonomy and bigram
+                          passes ("distributed systems" was the common
+                          case). Without this, React warns about
+                          duplicate keys until the cache rolls over. */}
+                      {Array.from(new Set(detailScore.matchedKeywords)).slice(0, 15).map((k) => (
                         <span key={k} className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs">{k}</span>
                       ))}
                       {detailScore.matchedKeywords.length > 15 && (
@@ -2633,7 +2639,10 @@ function ListingCard({
                       )}
                     </div>
                     <div className="flex flex-wrap gap-1">
-                      {detailScore.missingKeywords.map((k) => {
+                      {/* Same dedupe as matched (above) — cached scores
+                          can repeat keywords across taxonomy + bigram
+                          passes. */}
+                      {Array.from(new Set(detailScore.missingKeywords)).map((k) => {
                         const isSelected = selectedKeywords.has(k);
                         return (
                           <span
