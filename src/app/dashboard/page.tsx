@@ -339,46 +339,45 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Resume ATS Performance. Content wrapped in a fixed-height
-            scroll pane so this card stays the same vertical size as
-            its row neighbor (Top Companies) and any future addition
-            to the score breakdown / tier-counts area scrolls instead
-            of growing the card. */}
+        {/* Resume ATS Performance. Card sizes to fit its content
+            naturally — the score ring + four category bars + strong/
+            moderate/weak tier counts have a bounded height that
+            doesn't grow over time, so the old internal scroll pane
+            isn't needed. (The neighboring Top Companies card still
+            scrolls its list inside its own max-h pane because that
+            list DOES grow with the number of scored companies.) */}
         <div className="col-span-1 bg-white rounded-2xl border border-slate-100 p-6 shadow-card flex flex-col">
           <div className="flex items-center gap-2 mb-5">
             <Target className="w-5 h-5 text-blue-500" />
             <h2 className="text-base font-semibold text-slate-800">Resume Performance</h2>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-1 max-h-[340px] dashboard-scroll">
-            <div className="flex justify-center mb-5">
-              <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
-            </div>
+          <div className="flex justify-center mb-5">
+            <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
+          </div>
 
-            <div className="space-y-3">
-              <CategoryBar label="Technical" score={stats.avgTechnical} />
-              <CategoryBar label="Management" score={stats.avgManagement} />
-              <CategoryBar label="Domain" score={stats.avgDomain} />
-              <CategoryBar label="Soft Skills" score={stats.avgSoft} />
-            </div>
+          <div className="space-y-3">
+            <CategoryBar label="Technical" score={stats.avgTechnical} />
+            <CategoryBar label="Management" score={stats.avgManagement} />
+            <CategoryBar label="Domain" score={stats.avgDomain} />
+            <CategoryBar label="Soft Skills" score={stats.avgSoft} />
+          </div>
 
-            <div className="mt-5 pt-4 border-t border-slate-100">
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <div className="text-lg font-bold text-green-600">{stats.high}</div>
-                  <div className="text-xs text-slate-500">Strong</div>
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-yellow-600">{stats.medium}</div>
-                  <div className="text-xs text-slate-500">Moderate</div>
-                </div>
-                <div>
-                  <div className="text-lg font-bold text-red-500">{stats.low}</div>
-                  <div className="text-xs text-slate-500">Weak</div>
-                </div>
+          <div className="mt-5 pt-4 border-t border-slate-100">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <div className="text-lg font-bold text-green-600">{stats.high}</div>
+                <div className="text-xs text-slate-500">Strong</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-yellow-600">{stats.medium}</div>
+                <div className="text-xs text-slate-500">Moderate</div>
+              </div>
+              <div>
+                <div className="text-lg font-bold text-red-500">{stats.low}</div>
+                <div className="text-xs text-slate-500">Weak</div>
               </div>
             </div>
-
           </div>
         </div>
 
