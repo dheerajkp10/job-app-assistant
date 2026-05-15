@@ -37,7 +37,10 @@ const ROLE_FAMILY_RULES: { family: string; keywords: string[] }[] = [
   { family: 'Engineering Manager', keywords: ['engineering manager', 'software development manager', 'em', 'manager of engineering'] },
   { family: 'Director of Engineering', keywords: ['director of engineering', 'engineering director', 'sr. director'] },
   { family: 'Staff Engineer', keywords: ['staff engineer', 'principal engineer', 'distinguished'] },
-  { family: 'Product Manager', keywords: ['product manager', 'pm,', 'group product manager', 'tpm', 'technical program manager'] },
+  // 'pm,' previously required a trailing comma which never matched
+  // " PM " in real titles — dropped in favor of catching the long
+  // forms only. Better to miss a few PM titles than to false-match.
+  { family: 'Product Manager', keywords: ['product manager', 'group product manager', 'tpm', 'technical program manager'] },
   { family: 'Data Scientist', keywords: ['data scientist', 'applied scientist'] },
   { family: 'ML Engineer', keywords: ['machine learning engineer', 'ml engineer', 'mle', 'ai engineer'] },
   { family: 'Designer', keywords: ['designer', 'ux', 'ui designer'] },
@@ -61,15 +64,19 @@ export function classifyRoleFamily(title: string): string | null {
 function bucketLocation(loc: string): string {
   const lc = loc.toLowerCase();
   if (/\bremote\b/.test(lc)) {
-    if (/india|bangalore/.test(lc)) return 'Remote-IN';
-    if (/canada|toronto|vancouver/.test(lc)) return 'Remote-CA';
-    if (/uk|london|united kingdom/.test(lc)) return 'Remote-UK';
+    // Word-boundary the country tokens — bare 'uk' previously matched
+    // "Louk", "Souk", any city name with that bigram. Same idea for
+    // 'india' vs "indianapolis" (which is a real US city we don't
+    // want bucketed as Remote-IN).
+    if (/\bindia\b|\bbangalore\b|\bbengaluru\b|\bmumbai\b|\bhyderabad\b/.test(lc)) return 'Remote-IN';
+    if (/\bcanada\b|\btoronto\b|\bvancouver\b|\bmontreal\b/.test(lc)) return 'Remote-CA';
+    if (/\buk\b|\blondon\b|\bunited kingdom\b/.test(lc)) return 'Remote-UK';
     return 'Remote-US';
   }
-  if (/\bwa\b|seattle|bellevue|kirkland|redmond/.test(lc)) return 'WA-Seattle';
+  if (/\bwa\b|\bseattle\b|\bbellevue\b|\bkirkland\b|\bredmond\b/.test(lc)) return 'WA-Seattle';
   if (/san francisco|sf bay|palo alto|sunnyvale|menlo park|cupertino|mountain view|san jose|oakland/.test(lc)) return 'CA-SFBay';
-  if (/new york|nyc|brooklyn|manhattan/.test(lc)) return 'NY-NYC';
-  if (/austin|texas/.test(lc)) return 'TX-Austin';
+  if (/new york|\bnyc\b|brooklyn|manhattan/.test(lc)) return 'NY-NYC';
+  if (/\baustin\b|\btexas\b/.test(lc)) return 'TX-Austin';
   return lc.split(',')[0].trim();
 }
 

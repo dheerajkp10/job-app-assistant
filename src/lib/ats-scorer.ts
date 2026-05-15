@@ -48,17 +48,29 @@
 // ─── Keyword Taxonomy ────────────────────────────────────────────────
 
 const TECHNICAL_SKILLS = new Set([
-  // Languages
-  'python', 'java', 'javascript', 'typescript', 'go', 'golang', 'rust', 'c++',
-  'c#', 'ruby', 'scala', 'kotlin', 'swift', 'php', 'sql', 'r', 'bash', 'shell',
+  // Languages.
+  // NOTE: removed bare 'r' (single letter — `\br\b` matches any standalone
+  // R in prose like "R&D", "X-R-Y" lists) and bare 'go' (matches "go to
+  // market", "go-getter"). `golang` covers Go; statisticians put "R"-as-a-
+  // skill in a phrase like "R programming" / "statistical R" which still
+  // shows up via DOMAIN_KEYWORDS or phrase scoring — the false-positive
+  // cost outweighs the rare resume mention.
+  'python', 'java', 'javascript', 'typescript', 'golang', 'rust', 'c++',
+  'c#', 'ruby', 'scala', 'kotlin', 'swift', 'php', 'sql', 'bash', 'shell',
   'perl', 'lua', 'haskell', 'elixir', 'dart', 'objective-c',
-  // Frontend
+  // Frontend.
+  // Removed bare 'rest' — matches "at rest", "rest assured", "the rest of"
+  // in any prose. `restful` and `rest api` (phrase) carry the API signal
+  // without the noise.
   'react', 'angular', 'vue', 'svelte', 'next.js', 'nextjs', 'nuxt',
   'html', 'css', 'sass', 'tailwind', 'webpack', 'vite', 'redux',
-  'graphql', 'rest', 'restful',
-  // Backend
-  'node.js', 'nodejs', 'express', 'django', 'flask', 'fastapi', 'spring',
-  'spring boot', 'rails', 'laravel', 'asp.net', 'gin', 'fiber',
+  'graphql', 'restful', 'rest api',
+  // Backend.
+  // Removed bare 'spring' (collides with the season — "spring 2025",
+  // "spring planning"), 'gin' (drink), 'fiber' (cable, dietary, optic).
+  // Kept `spring boot` since it's an unambiguous multi-word phrase.
+  'node.js', 'nodejs', 'express', 'django', 'flask', 'fastapi',
+  'spring boot', 'rails', 'laravel', 'asp.net',
   // Cloud & Infra
   'aws', 'amazon web services', 'gcp', 'google cloud', 'azure', 'ec2', 's3',
   'lambda', 'ecs', 'eks', 'fargate', 'cloudformation', 'terraform', 'pulumi',
@@ -78,9 +90,12 @@ const TECHNICAL_SKILLS = new Set([
   'mlops', 'sagemaker', 'mlflow', 'kubeflow', 'feature store',
   // Mobile
   'ios', 'android', 'react native', 'flutter', 'swiftui',
-  // DevOps / SRE
+  // DevOps / SRE.
+  // Removed bare 'chef' (collides with kitchen/cooking and proper names);
+  // `chef` as a config-mgmt tool is going out of fashion anyway and `ansible`
+  // / `puppet` are still in.
   'ci/cd', 'cicd', 'devops', 'sre', 'site reliability',
-  'infrastructure as code', 'iac', 'ansible', 'puppet', 'chef',
+  'infrastructure as code', 'iac', 'ansible', 'puppet',
   'linux', 'unix', 'nginx', 'load balancing',
   // Architecture
   'microservices', 'monolith', 'event-driven', 'serverless', 'api gateway',
@@ -122,26 +137,36 @@ const MANAGEMENT_SKILLS = new Set([
   'architecture review', 'design review', 'code review',
 ]);
 
+// Domain keywords — high-signal industry/product areas.
+//
+// Pruned generic single-word tokens that produced false-positives in
+// plain prose: 'search' (verb), 'ads' (too short, matches "ads up"),
+// 'platform' / 'compute' / 'media' / 'video' / 'content' / 'fleet' /
+// 'growth' / 'engagement' / 'delivery' / 'activation' / 'storage'.
+// These either match common English usage or appear as filler in any
+// JD ("our platform", "media calls"). The multi-word forms below
+// (`social media`, `streaming media`, `developer platform`) still
+// carry the signal where it's actually meaningful.
 const DOMAIN_KEYWORDS = new Set([
   'machine learning', 'ml', 'artificial intelligence', 'ai',
   'deep learning', 'nlp', 'natural language processing',
   'computer vision', 'recommendation', 'personalization',
-  'search', 'ranking', 'information retrieval',
+  'ranking', 'information retrieval',
   'payments', 'fintech', 'financial', 'banking', 'trading',
-  'e-commerce', 'ecommerce', 'marketplace', 'advertising', 'ads',
-  'social media', 'messaging', 'communication', 'collaboration',
-  'healthcare', 'health', 'biotech', 'genomics',
+  'e-commerce', 'ecommerce', 'marketplace', 'advertising',
+  'social media', 'messaging', 'collaboration',
+  'healthcare', 'biotech', 'genomics',
   'autonomous', 'self-driving', 'robotics', 'iot',
-  'gaming', 'video', 'streaming', 'media', 'content',
-  'enterprise', 'saas', 'b2b', 'b2c', 'platform',
+  'gaming', 'streaming',
+  'enterprise', 'saas', 'b2b', 'b2c',
   'developer tools', 'developer experience', 'developer platform',
   'infrastructure', 'cloud infrastructure', 'edge computing',
-  'networking', 'storage', 'compute', 'database',
+  'networking', 'database',
   'observability', 'monitoring', 'logging', 'tracing',
   'trust and safety', 'trust & safety', 'fraud', 'abuse',
   'privacy', 'data protection', 'consent',
-  'supply chain', 'logistics', 'delivery', 'fleet',
-  'growth', 'engagement', 'retention', 'activation',
+  'supply chain', 'logistics',
+  'retention',
   'identity', 'authentication', 'authorization',
 ]);
 
