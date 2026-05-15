@@ -2300,13 +2300,12 @@ function ListingCard({
         }}
         className="w-full text-left p-4 sm:p-5 cursor-pointer"
       >
-        {/* Header — wraps to a stacked layout on mobile so the title
-            isn't squeezed by the bulk-action checkboxes. The
-            checkboxes themselves get hidden on phone — bulk actions
-            are a power-user flow that doesn't belong in the first
-            mobile view of a card. The score + chevron stay top-right
-            because those are the primary signals at-a-glance. */}
-        <div className="flex items-start justify-between gap-3 sm:gap-4">
+        {/* Header — on mobile the title gets its own full-width row
+            (so it isn't truncated by the Flag pill + Score badge eating
+            the right side), and the Flag/Score/Chevron drop below as a
+            small actions strip. Above sm: we go back to the inline
+            two-column layout. */}
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="font-semibold text-slate-800 truncate text-base">{listing.title}</h3>
@@ -2382,7 +2381,7 @@ function ListingCard({
             </div>
           </div>
           <div
-            className="shrink-0 flex items-center gap-3"
+            className="sm:shrink-0 flex items-center gap-3 self-end sm:self-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Bulk-select checkbox — ticking one or more cards

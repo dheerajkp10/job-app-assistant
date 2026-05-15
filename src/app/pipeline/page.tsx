@@ -37,6 +37,10 @@ export default function PipelinePage() {
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [scoreCache, setScoreCache] = useState<Record<string, ScoreCacheEntry>>({});
   const [loading, setLoading] = useState(true);
+  // Mobile single-lane selector. The five-column kanban can't fit on
+  // a phone, so we render one lane at a time on narrow viewports
+  // (driven by a select). Defaults to the first lane in PIPELINE_FLAGS.
+  const [mobileLane, setMobileLane] = useState<ListingFlag>(PIPELINE_FLAGS[0].key);
 
   // Fetch on mount + refresh on tab focus so the board stays in sync
   // when the user updates flags from the Listings page in another tab.
@@ -167,11 +171,168 @@ export default function PipelinePage() {
         )}
       </div>
 
-      {/* Kanban columns. Sized so all five stages fit a 1440px laptop
-          without horizontal scroll: 5 × 248 + 4 × 12 (gap-3) + 48
-          (container padding) = 1336 — comfortable margin on a 1440
-          viewport, still scrolls cleanly on anything narrower. */}
-      <div className="flex gap-3 overflow-x-auto pb-4">
+      {/* ─── Mobile single-lane view ──────────────────────────────
+          On a phone the 5-column kanban can't fit. We replace it with
+          a lane selector (a row of pill buttons, one per stage, each
+          showing the count) and a single full-width column showing the
+          cards for whichever lane is active. The pill row scrolls
+          horizontally inside its own container if needed, but the
+          card column doesn't — so the user only scrolls vertically
+          through their actual pipeline once they pick a lane. */}
+      <div className="sm:hidden mb-3 -mx-1 px-1 flex gap-2 overflow-x-auto pb-1">
+        {PIPELINE_FLAGS.map((flagDef) => {
+          const count = grouped[flagDef.key].length;
+          const active = mobileLane === flagDef.key;
+          return (
+            <button
+              key={flagDef.key}
+              type="button"
+              onClick={() => setMobileLane(flagDef.key)}
+              className={`shrink-0 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                active
+                  ? 'text-white border-transparent shadow-sm'
+                  : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+              }`}
+              style={active ? { backgroundColor: flagDef.color } : undefined}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{
+                  backgroundColor: active ? 'rgba(255,255,255,0.9)' : flagDef.color,
+                }}
+              />
+              {flagDef.label}
+              <span
+                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                  active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="sm:hidden pb-4">
+        {(() => {
+          const flagDef = PIPELINE_FLAGS.find((f) => f.key === mobileLane);
+          if (!flagDef) return null;
+          const items = grouped[flagDef.key];
+          const idx = PIPELINE_FLAGS.indexOf(flagDef);
+          const isFirst = idx === 0;
+          const isLast = idx === PIPELINE_FLAGS.length - 1;
+          return (
+            <section
+              className="bg-white/60 rounded-2xl border border-slate-100 shadow-card"
+            >
+              <div className="p-2 space-y-2">
+                {items.length === 0 && (
+                  <p className="text-xs text-slate-400 italic text-center py-6">
+                    No applications in {flagDef.label.toLowerCase()} yet.
+                  </p>
+                )}
+                {items.map(({ listing }) => {
+                  const score = scoreCache[listing.id];
+                  return (
+                    <article
+                      key={listing.id}
+                      className="bg-white rounded-xl border border-slate-100 shadow-card p-3"
+                    >
+                      <div className="flex items-start gap-2 mb-1">
+                        <CompanyLogo companySlug={listing.companySlug} companyName={listing.company} size={20} />
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-slate-800 line-clamp-2">
+                            {listing.title}
+                          </h4>
+                          <div className="text-xs text-slate-600 truncate">{listing.company}</div>
+                        </div>
+                      </div>
+                      {listing.location && listing.location !== 'Not specified' && (
+                        <div className="flex items-center gap-1 text-xs text-slate-500 mb-1.5">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{listing.location}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-1 mt-2">
+                        <div className="flex gap-0.5">
+                          <button
+                            type="button"
+                            disabled={isFirst}
+                            onClick={() => {
+                              const prev = PIPELINE_FLAGS[idx - 1];
+                              if (prev) {
+                                updateFlag(listing.id, prev.key);
+                                setMobileLane(prev.key);
+                              }
+                            }}
+                            className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            title="Move to previous stage"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5 rotate-180" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={isLast}
+                            onClick={() => {
+                              const nxt = PIPELINE_FLAGS[idx + 1];
+                              if (nxt) {
+                                updateFlag(listing.id, nxt.key);
+                                setMobileLane(nxt.key);
+                              }
+                            }}
+                            className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            title="Move to next stage"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateFlag(listing.id, null)}
+                            className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            title="Remove from pipeline"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          {score && score.totalCount > 0 && (
+                            <span
+                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                score.overall >= 70
+                                  ? 'bg-green-100 text-green-700'
+                                  : score.overall >= 50
+                                    ? 'bg-yellow-100 text-yellow-700'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}
+                              title="ATS match score"
+                            >
+                              {score.overall}%
+                            </span>
+                          )}
+                          <Link
+                            href={`/listings/${listing.id}`}
+                            className="p-1 rounded text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
+                            title="Open listing"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })()}
+      </div>
+
+      {/* ─── Desktop kanban (sm: and up) ──────────────────────────
+          Sized so all five stages fit a 1440px laptop without
+          horizontal scroll: 5 × 248 + 4 × 12 (gap-3) + 48 (container
+          padding) = 1336 — comfortable margin on a 1440 viewport, still
+          scrolls cleanly on anything narrower. */}
+      <div className="hidden sm:flex gap-3 overflow-x-auto pb-4">
         {PIPELINE_FLAGS.map((flagDef, idx) => {
           const items = grouped[flagDef.key];
           const isFirst = idx === 0;

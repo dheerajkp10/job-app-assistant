@@ -592,10 +592,13 @@ export default function AddJobPage() {
           </div>
         )}
 
-        {/* Portal */}
+        {/* Portal — flex-wrap so the four pills stack onto a second
+            row on mobile instead of overflowing past the form's right
+            edge. The "Company Sites" label is the longest; on a 375px
+            viewport four equal-padding pills in one row don't fit. */}
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">Portal</label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {PORTALS.map((p) => (
               <button key={p.key} onClick={() => setPortal(p.key)}
                 className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${

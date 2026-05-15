@@ -447,18 +447,21 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Top Matching Listings */}
-      <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-card mb-8">
-        <div className="flex items-center justify-between mb-5">
+      {/* Top Matching Listings — header wraps to a stacked layout on
+          mobile (title row + actions row) so the Generate Master Resume
+          button and the View all link don't cram against the title.
+          Above sm: everything stays inline. */}
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 sm:p-6 shadow-card mb-6 sm:mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-blue-500" />
             <h2 className="text-base font-semibold text-slate-800">Top Matching Jobs</h2>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={() => setMasterModalOpen(true)}
               title="Generate one resume optimized for broad ATS coverage across every open listing matching your preferences."
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Generate Master Resume
