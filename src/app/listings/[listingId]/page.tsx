@@ -324,11 +324,15 @@ export default function ListingDetailPage({
           )}
         </div>
         <div className="mt-4 flex items-center gap-3 flex-wrap">
+          {/* Apply CTA. Rendered as <a> (not <button>) because it
+              targets an external URL; we match the shared Button
+              size=lg surface manually so it stays visually uniform
+              with primary CTAs elsewhere. */}
           <a
             href={listing.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             <ExternalLink className="w-4 h-4" /> Apply on {listing.company}
           </a>

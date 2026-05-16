@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Plus, Trash2, Loader2, CheckCircle2, AlertCircle, Globe } from 'lucide-react';
 import type { CustomCompanySource, ATSType } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 
 /**
  * Settings panel for adding/removing custom company career sources
@@ -228,18 +229,15 @@ export function CustomSourcesPanel() {
             <>Test connection</>
           )}
         </button>
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={save}
-          disabled={!name || !boardToken || probeState.phase !== 'ok' || saving}
-          className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          disabled={!name || !boardToken || probeState.phase !== 'ok'}
+          isLoading={saving}
+          leftIcon={<Plus className="w-3.5 h-3.5" />}
         >
-          {saving ? (
-            <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>
-          ) : (
-            <><Plus className="w-3.5 h-3.5" /> Add source</>
-          )}
-        </button>
+          {saving ? 'Saving…' : 'Add source'}
+        </Button>
         {probeState.phase === 'ok' && (
           <span className="inline-flex items-center gap-1 text-xs text-green-700">
             <CheckCircle2 className="w-3.5 h-3.5" /> {probeState.jobCount} open jobs

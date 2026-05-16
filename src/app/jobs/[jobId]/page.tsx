@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { PORTALS, JOB_STATUSES, type Job, type JobStatus } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 
 export default function JobDetailPage({ params }: { params: Promise<{ jobId: string }> }) {
   const { jobId } = use(params);
@@ -158,14 +159,13 @@ export default function JobDetailPage({ params }: { params: Promise<{ jobId: str
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               onClick={saveChanges}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              isLoading={saving}
+              leftIcon={<Save className="w-4 h-4" />}
             >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Save
-            </button>
+            </Button>
             <button
               onClick={deleteJobAction}
               disabled={deleting}

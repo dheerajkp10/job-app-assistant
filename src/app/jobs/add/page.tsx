@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   Link2, FileText, Loader2, Target, CheckCircle2, XCircle,
-  Download, AlertTriangle, ArrowUpRight,
+  Download, AlertTriangle, ArrowUpRight, Plus,
 } from 'lucide-react';
 import { PORTALS, type JobPortal } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 
 type Tab = 'url' | 'manual';
 
@@ -522,14 +523,17 @@ export default function AddJobPage() {
 
         {/* Add another job */}
         <div className="flex gap-3">
-          <button onClick={() => {
-            setSavedJobId(null); setSavedListingId(null); setScore(null);
-            setTailorResult(null); setUrl(''); setCompanyName(''); setJobTitle('');
-            setLocation(''); setDescription(''); setNotes(''); setError(null);
-          }}
-            className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+          <Button
+            size="lg"
+            leftIcon={<Plus className="w-4 h-4" />}
+            onClick={() => {
+              setSavedJobId(null); setSavedListingId(null); setScore(null);
+              setTailorResult(null); setUrl(''); setCompanyName(''); setJobTitle('');
+              setLocation(''); setDescription(''); setNotes(''); setError(null);
+            }}
+          >
             Add Another Job
-          </button>
+          </Button>
           <Link href="/listings"
             className="inline-flex items-center px-5 py-2.5 border border-slate-200 text-slate-700 text-sm font-medium rounded-lg hover:bg-slate-50 transition-colors">
             Back to Listings
@@ -576,11 +580,14 @@ export default function AddJobPage() {
               <input type="url" value={url} onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://www.linkedin.com/jobs/view/..."
                 className="flex-1 px-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 outline-none" />
-              <button onClick={extractFromUrl} disabled={extracting || !url.trim()}
-                className="px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-2">
-                {extracting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {extracting ? 'Extracting...' : 'Extract'}
-              </button>
+              <Button
+                size="lg"
+                onClick={extractFromUrl}
+                disabled={!url.trim()}
+                isLoading={extracting}
+              >
+                {extracting ? 'Extracting…' : 'Extract'}
+              </Button>
             </div>
             <p className="text-xs text-slate-400 mt-1.5">
               Works best with company career sites. LinkedIn / Glassdoor may need manual paste.
@@ -674,11 +681,14 @@ export default function AddJobPage() {
 
         {/* Submit */}
         <div className="pt-2">
-          <button onClick={saveJob} disabled={saving}
-            className="w-full px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2">
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {saving ? 'Saving...' : 'Save Job & Analyze'}
-          </button>
+          <Button
+            size="lg"
+            fullWidth
+            onClick={saveJob}
+            isLoading={saving}
+          >
+            {saving ? 'Saving…' : 'Save Job & Analyze'}
+          </Button>
         </div>
       </div>
      </div>

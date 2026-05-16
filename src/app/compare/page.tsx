@@ -256,11 +256,15 @@ export default function ComparePage() {
                 >
                   Open
                 </Link>
+                {/* Inline Apply pill. Mirrors the small-size shared
+                    Button visual (gradient indigo→violet, rounded-lg)
+                    via inline classes since this is an external
+                    <a> link, not a <button>. */}
                 <a
                   href={l.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700"
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 hover:shadow-md transition-all"
                 >
                   <ExternalLink className="w-3 h-3" />
                   Apply

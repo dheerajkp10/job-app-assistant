@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import type { WorkMode } from '@/lib/types';
 import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
 
 const STEPS = ['Role & Level', 'Location', 'Salary', 'Resume', 'Companies', 'Fetch Jobs'] as const;
@@ -412,7 +413,7 @@ export default function OnboardingWizard() {
             <div key={s} className="flex-1 flex items-center gap-1">
               <div
                 className={`h-1.5 flex-1 rounded-full transition-colors ${
-                  i <= step ? 'bg-blue-600' : 'bg-gray-200'
+                  i <= step ? 'bg-indigo-500' : 'bg-gray-200'
                 }`}
               />
             </div>
@@ -469,7 +470,7 @@ export default function OnboardingWizard() {
                         onClick={() => toggleRole(r)}
                         className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                           on
-                            ? 'bg-blue-600 text-white border-blue-600'
+                            ? 'bg-indigo-500 text-white border-indigo-500'
                             : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
                         }`}
                       >
@@ -618,7 +619,7 @@ export default function OnboardingWizard() {
                         }
                         className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                           on
-                            ? 'bg-blue-600 text-white border-blue-600'
+                            ? 'bg-indigo-500 text-white border-indigo-500'
                             : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
                         }`}
                       >
@@ -645,7 +646,7 @@ export default function OnboardingWizard() {
                         onClick={() => toggleLocation(loc)}
                         className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
                           on
-                            ? 'bg-blue-600 text-white border-blue-600'
+                            ? 'bg-indigo-500 text-white border-indigo-500'
                             : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
                         }`}
                       >
@@ -950,9 +951,9 @@ export default function OnboardingWizard() {
                     </span>
                     <span className="text-sm font-bold text-indigo-700">{pct}%</span>
                   </div>
-                  <div className="h-3 bg-blue-100 rounded-full overflow-hidden">
+                  <div className="h-3 bg-indigo-100 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-out"
+                      className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-300 ease-out"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
@@ -1061,51 +1062,46 @@ export default function OnboardingWizard() {
           )}
 
           {step < STEP_RESUME && (
-            <button
-              type="button"
+            <Button
+              size="lg"
               onClick={() => setStep((s) => s + 1)}
               disabled={!canProceed()}
-              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              rightIcon={<ChevronRight className="w-4 h-4" />}
             >
               Continue
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            </Button>
           )}
 
           {step === STEP_RESUME && (
-            <button
-              type="button"
+            <Button
+              size="lg"
               onClick={handleSaveAndPreview}
-              disabled={saving}
-              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              isLoading={saving}
+              rightIcon={!saving ? <ChevronRight className="w-4 h-4" /> : undefined}
             >
-              {saving ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</>
-              ) : (
-                <>Review Companies <ChevronRight className="w-4 h-4" /></>
-              )}
-            </button>
+              {saving ? 'Saving…' : 'Review Companies'}
+            </Button>
           )}
 
           {step === STEP_COMPANIES && (
-            <button
-              type="button"
+            <Button
+              size="lg"
               onClick={() => setStep(STEP_FETCH)}
               disabled={companyPreviewLoading}
-              className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+              leftIcon={<Rocket className="w-4 h-4" />}
             >
-              <Rocket className="w-4 h-4" /> Find Jobs
-            </button>
+              Find Jobs
+            </Button>
           )}
 
           {step === STEP_FETCH && fetchState.phase === 'done' && (
-            <button
-              type="button"
+            <Button
+              size="lg"
               onClick={() => router.push('/dashboard')}
-              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+              leftIcon={<Rocket className="w-4 h-4" />}
             >
-              <Rocket className="w-4 h-4" /> Go to Dashboard
-            </button>
+              Go to Dashboard
+            </Button>
           )}
         </div>
 

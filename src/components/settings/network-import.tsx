@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Upload, Loader2, Trash2, Users, FileText, X, Send, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 /**
  * LinkedIn Connections.csv import panel for Settings.
@@ -299,18 +300,14 @@ export function NetworkImportPanel() {
               anything in it. Sits first so it's the leftmost,
               most-prominent button. */}
           {staged.length > 0 && (
-            <button
-              type="button"
+            <Button
+              size="sm"
               onClick={uploadStaged}
-              disabled={busy}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              isLoading={busy}
+              leftIcon={<Send className="w-3.5 h-3.5" />}
             >
-              {busy ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Parsing…</>
-              ) : (
-                <><Send className="w-3.5 h-3.5" /> Upload {staged.length} file{staged.length === 1 ? '' : 's'}</>
-              )}
-            </button>
+              {busy ? 'Parsing…' : `Upload ${staged.length} file${staged.length === 1 ? '' : 's'}`}
+            </Button>
           )}
           {/* The pick action. Label changes to make sequential
               behavior obvious: first click says "Add a file" (no
