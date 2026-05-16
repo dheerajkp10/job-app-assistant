@@ -2894,13 +2894,14 @@ function ListingCard({
           <SalaryIntelInline listingId={listing.id} listingSalary={listing.salary} />
 
 
-          {/* ─── Group divider: Resume tailoring ─── */}
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
-              Resume tailoring
-            </span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
+          {/* 3-col grid wrapping the primary application-prep
+              sections: ATS Match Score | Resume Tailor | Cover Letter.
+              Each card stays its natural height (items-start) so a
+              tall post-tailor result column doesn't stretch its
+              neighbors. Stacks below lg (≤1023px) so each section
+              still has room to breathe on tablet/mobile. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+
           {/* ATS Score Detail */}
           <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -3495,22 +3496,6 @@ function ListingCard({
             )}
           </section>
 
-          {/* ─── Group divider: Materials & outreach ─── */}
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
-              Materials & outreach
-            </span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-
-          {/* 2-col grid wrapping Cover Letter + Find Hiring Contacts.
-              Stacks on mobile, side-by-side on md+ so the expanded
-              card stops being a 2000px vertical wall. Cover Letter
-              gets the left column (it's the bigger of the two — has
-              a textarea + template picker); Contacts on the right
-              renders 2-4 short cards. */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
           {/* Cover Letter section. Deterministic 3-paragraph generator
               using the resume's most-recent role title, a quantified
               achievement (when present), the JD's mission sentence,
@@ -3659,9 +3644,14 @@ function ListingCard({
             )}
           </section>
 
-          {/* (No separate Outreach divider — the "Materials &
-              outreach" group label above covers both columns of
-              the 2-col grid.) */}
+          </div>
+          {/* /grid: ATS Score | Resume Tailor | Cover Letter */}
+
+          {/* 2-col grid wrapping Find Hiring Contacts + Notes — the
+              two secondary concerns parallel to the resume-prep
+              flow above. Stacks on mobile; side-by-side on md+. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+
           {/* Hiring & Recruiting Contacts — no scraping; just pre-built
               LinkedIn deep-search URLs that the user clicks through.
               Avoids ToS issues and stays robust against LinkedIn UI
@@ -3728,16 +3718,6 @@ function ListingCard({
             </div>
           </section>
 
-          </div>
-          {/* /grid Materials & outreach */}
-
-          {/* ─── Group divider: Notes ─── */}
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
-              Notes
-            </span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
           {/* Notes section — collapsed by default. The Notes feature
               is power-user-only (most listings never get one); keeping
               it collapsed keeps the card header tidy. Auto-opens when
@@ -3833,6 +3813,9 @@ function ListingCard({
               </div>
             )}
           </section>
+
+          </div>
+          {/* /grid: Find Hiring Contacts | Notes */}
         </div>
       )}
 
