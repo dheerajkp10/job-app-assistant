@@ -2009,6 +2009,12 @@ function ListingCard({
 
   // Keyword selection state — all selected by default
   const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
+  // Keywords the user has REJECTED after seeing the first tailored
+  // result — they were originally selected and accepted, but on review
+  // the user decided they don't want them. Subtracted from selected
+  // when re-tailoring. Resets every time a fresh tailor finishes (any
+  // re-tailor produces a new acceptance baseline).
+  const [rejectedKeywords, setRejectedKeywords] = useState<Set<string>>(new Set());
   const [keywordsInitialized, setKeywordsInitialized] = useState(false);
 
   // Suggestion-selection state. Same model as keywords: server returns
@@ -2113,20 +2119,31 @@ function ListingCard({
     setTailoring(true);
     setTailorError(null);
     try {
+      // Subtract any keywords the user rejected after seeing the first
+      // tailor. On the first call rejectedKeywords is empty so this is
+      // equivalent to the previous behavior.
+      const effectiveKeywords = Array.from(selectedKeywords).filter(
+        (k) => !rejectedKeywords.has(k),
+      );
       const res = await fetch('/api/tailor-resume', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           listingId: listing.id,
           format: 'json',
-          selectedKeywords: Array.from(selectedKeywords),
+          selectedKeywords: effectiveKeywords,
           selectedSuggestions: Array.from(selectedSuggestions),
           mode: mandatoryMode ? 'mandatory' : 'budget-ladder',
         }),
       });
       const data = await res.json();
       if (data.error) setTailorError(data.error);
-      else setTailorResult(data);
+      else {
+        setTailorResult(data);
+        // Fresh tailor — clear any prior rejections so the new
+        // addedKeywords set is the baseline for further rejection.
+        setRejectedKeywords(new Set());
+      }
     } catch {
       setTailorError('Failed to tailor resume');
     } finally {
@@ -2903,17 +2920,113 @@ function ListingCard({
                   </ul>
                 </div>
 
-                {/* Added keywords */}
+                {/* Added keywords with reject + re-tailor flow.
+                    Click × on any pill to mark it rejected (strike-
+                    through + slate background); once you have at
+                    least one rejection, the "Re-tailor without N"
+                    button appears so you can rebuild the resume
+                    without those keywords. Lets users walk back
+                    individual decisions without restarting the whole
+                    keyword-selection flow. */}
                 {tailorResult.addedKeywords.length > 0 && (
                   <div>
-                    <h5 className="text-xs font-medium text-slate-700 mb-1.5">Keywords Added</h5>
+                    <h5 className="text-xs font-medium text-slate-700 mb-1.5 flex items-center justify-between gap-2">
+                      <span>Keywords Added</span>
+                      {rejectedKeywords.size > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleTailor}
+                          disabled={tailoring}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-rose-50 text-rose-700 border border-rose-100 hover:bg-rose-100 hover:border-rose-200 disabled:opacity-50 transition-colors"
+                          title="Regenerate the tailored resume without the keywords you've rejected"
+                        >
+                          Re-tailor without {rejectedKeywords.size}
+                        </button>
+                      )}
+                    </h5>
                     <div className="flex flex-wrap gap-1">
-                      {tailorResult.addedKeywords.map((k) => (
-                        <span key={k} className="px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded text-xs font-medium">{k}</span>
-                      ))}
+                      {tailorResult.addedKeywords.map((k) => {
+                        const isRejected = rejectedKeywords.has(k);
+                        return (
+                          <span
+                            key={k}
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
+                              isRejected
+                                ? 'bg-slate-100 text-slate-400 line-through'
+                                : 'bg-violet-100 text-violet-700'
+                            }`}
+                          >
+                            {k}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setRejectedKeywords((prev) => {
+                                  const next = new Set(prev);
+                                  if (next.has(k)) next.delete(k);
+                                  else next.add(k);
+                                  return next;
+                                })
+                              }
+                              className={`-mr-0.5 ml-0.5 rounded-full text-[10px] leading-none px-1 ${
+                                isRejected
+                                  ? 'text-slate-400 hover:text-slate-600'
+                                  : 'text-violet-500 hover:bg-violet-200 hover:text-violet-800'
+                              }`}
+                              title={
+                                isRejected
+                                  ? 'Restore — include this keyword on next re-tailor'
+                                  : 'Reject — exclude from the next re-tailor'
+                              }
+                            >
+                              {isRejected ? '↺' : '×'}
+                            </button>
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
+
+                {/* Delta stats — quick numerical sanity check that the
+                    tailored resume didn't grow unreasonably. Words +
+                    lines are the things that drive readability +
+                    page-fit; characters are a finer-grained signal we
+                    show only when the change is significant. Lazy:
+                    we read diffBaseText when it's already been loaded
+                    for the diff modal; otherwise we render nothing
+                    rather than fetch eagerly. */}
+                {diffBaseText && (() => {
+                  const baseWords = diffBaseText.trim().split(/\s+/).filter(Boolean).length;
+                  const tailWords = tailorResult.tailoredText.trim().split(/\s+/).filter(Boolean).length;
+                  const baseLines = diffBaseText.split('\n').filter((l) => l.trim()).length;
+                  const tailLines = tailorResult.tailoredText.split('\n').filter((l) => l.trim()).length;
+                  const wDelta = tailWords - baseWords;
+                  const lDelta = tailLines - baseLines;
+                  return (
+                    <div className="grid grid-cols-3 gap-2 p-2 rounded-lg bg-slate-50 border border-slate-100 text-center">
+                      <div>
+                        <div className="text-xs font-semibold text-slate-700">{tailWords}</div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">
+                          Words {wDelta >= 0 ? '+' : ''}{wDelta}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-700">{tailLines}</div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">
+                          Lines {lDelta >= 0 ? '+' : ''}{lDelta}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-slate-700">
+                          {tailorResult.addedKeywords.length - rejectedKeywords.size}
+                        </div>
+                        <div className="text-[10px] text-slate-400 uppercase tracking-wide">
+                          Accepted kw
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Live progress card — visible only while the SSE
                     stream from /api/tailor-resume/stream is in flight.
