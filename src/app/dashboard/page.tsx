@@ -1323,6 +1323,11 @@ function TailorTopJobsModal({
                         <div className="flex flex-wrap gap-2">
                           {kws.map((kw) => {
                             const isSelected = selected.has(kw.keyword);
+                            // frequency === 0 marks synthetic entries
+                            // that came from dashboard ⚠ staging, not
+                            // from the cohort analysis. Show a "staged"
+                            // hint instead of the confusing "×0".
+                            const isStaged = kw.frequency === 0;
                             return (
                               <button
                                 key={kw.keyword}
@@ -1332,13 +1337,23 @@ function TailorTopJobsModal({
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
                                     : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
-                                title={kw.jobTitles.join(' · ')}
+                                title={
+                                  isStaged
+                                    ? 'Staged from your Resume Performance ⚠ picks'
+                                    : kw.jobTitles.join(' · ')
+                                }
                               >
                                 {isSelected && <Check className="w-3 h-3" />}
                                 <span>{displayKeyword(kw.keyword)}</span>
-                                <span className={isSelected ? 'opacity-70' : 'opacity-50'}>
-                                  ×{kw.frequency}
-                                </span>
+                                {isStaged ? (
+                                  <span className={`text-[10px] uppercase tracking-wide font-semibold ${isSelected ? 'opacity-80' : 'opacity-60'}`}>
+                                    staged
+                                  </span>
+                                ) : (
+                                  <span className={isSelected ? 'opacity-70' : 'opacity-50'}>
+                                    ×{kw.frequency}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
@@ -1611,7 +1626,43 @@ function MasterResumeModal({
     }
   }
 
-  const keywords = analysis?.missingKeywords ?? [];
+  // Merge the user's dashboard-staged keywords INTO the rendered
+  // keyword list. The /general analyze returns the cohort's missing
+  // keywords; a staged pick like "Python" may not appear there
+  // (because the cohort doesn't flag it as missing) but the user
+  // explicitly added it from the Resume Performance ⚠ popover. We
+  // synthesize zero-frequency entries for those so they show up as
+  // checked rows in the modal — otherwise the user sees a "fresh"
+  // modal that looks like their picks got discarded.
+  const keywords: AggregatedKeyword[] = useMemo(() => {
+    const cohort = analysis?.missingKeywords ?? [];
+    if (!initialStagedKeywords || initialStagedKeywords.size === 0) {
+      return cohort;
+    }
+    const present = new Set(cohort.map((k) => k.keyword.toLowerCase()));
+    // Look up each staged keyword's category in the FIXES_BY_CATEGORY
+    // catalog (the source of truth for ⚠ popover picks).
+    const stagedExtras: AggregatedKeyword[] = [];
+    for (const kw of initialStagedKeywords) {
+      if (present.has(kw.toLowerCase())) continue;
+      let cat: Category = 'technical';
+      outer: for (const c of ['technical', 'management', 'domain', 'soft'] as Category[]) {
+        for (const g of FIXES_BY_CATEGORY[c] ?? []) {
+          if (g.items.some((it) => it.toLowerCase() === kw.toLowerCase())) {
+            cat = c;
+            break outer;
+          }
+        }
+      }
+      stagedExtras.push({
+        keyword: kw,
+        category: cat,
+        frequency: 0,
+        jobTitles: [],
+      });
+    }
+    return [...stagedExtras, ...cohort];
+  }, [analysis, initialStagedKeywords]);
   const categories: Category[] = ['technical', 'management', 'domain', 'soft'];
   const downloadDisabled =
     !!downloadingFormat || loading || !analysis || selected.size < MIN_KEEP;
@@ -1777,6 +1828,11 @@ function MasterResumeModal({
                         <div className="flex flex-wrap gap-2">
                           {kws.map((kw) => {
                             const isSelected = selected.has(kw.keyword);
+                            // frequency === 0 marks synthetic entries
+                            // that came from dashboard ⚠ staging, not
+                            // from the cohort analysis. Show a "staged"
+                            // hint instead of the confusing "×0".
+                            const isStaged = kw.frequency === 0;
                             return (
                               <button
                                 key={kw.keyword}
@@ -1786,13 +1842,23 @@ function MasterResumeModal({
                                     ? `${CATEGORY_COLOR[cat]} font-semibold`
                                     : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100'
                                 }`}
-                                title={kw.jobTitles.join(' · ')}
+                                title={
+                                  isStaged
+                                    ? 'Staged from your Resume Performance ⚠ picks'
+                                    : kw.jobTitles.join(' · ')
+                                }
                               >
                                 {isSelected && <Check className="w-3 h-3" />}
                                 <span>{displayKeyword(kw.keyword)}</span>
-                                <span className={isSelected ? 'opacity-70' : 'opacity-50'}>
-                                  ×{kw.frequency}
-                                </span>
+                                {isStaged ? (
+                                  <span className={`text-[10px] uppercase tracking-wide font-semibold ${isSelected ? 'opacity-80' : 'opacity-60'}`}>
+                                    staged
+                                  </span>
+                                ) : (
+                                  <span className={isSelected ? 'opacity-70' : 'opacity-50'}>
+                                    ×{kw.frequency}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
