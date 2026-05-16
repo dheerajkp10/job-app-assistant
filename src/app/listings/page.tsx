@@ -2964,14 +2964,21 @@ function ListingCard({
               supported browsers streams Web Speech API transcription
               straight into the textarea. */}
           <section className="bg-slate-50 rounded-lg p-4">
-            <button
-              type="button"
-              onClick={() => setNotesExpanded((v) => !v)}
-              className="w-full flex items-center justify-between gap-2 text-left"
-              aria-expanded={notesExpanded}
-            >
-              <div className="flex items-center gap-2">
-                <NotebookPen className="w-4 h-4 text-amber-500" />
+            {/* Header row. Structured as a flex strip rather than a
+                single big <button> because we need to nest a separate
+                <button> (Voice) on the right side, and HTML doesn't
+                allow button-in-button. Left side (icon + label + hint
+                pill) AND the chevron pill on the right both call the
+                toggle; the Voice button sits between save-indicator
+                and chevron WITHOUT being a toggle target. */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setNotesExpanded((v) => !v)}
+                className="flex items-center gap-2 text-left flex-1 min-w-0"
+                aria-expanded={notesExpanded}
+              >
+                <NotebookPen className="w-4 h-4 text-amber-500 shrink-0" />
                 <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
                 {/* Hint pill when collapsed — surfaces whether a note
                     already exists (with a char count) so the user knows
@@ -2986,11 +2993,20 @@ function ListingCard({
                     Click to add
                   </span>
                 )}
-              </div>
-              <div className="flex items-center gap-2">
-                {/* Save indicator stays visible in the header even
-                    when collapsed, so a long voice-recording session
-                    still surfaces persistence feedback. */}
+              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Voice button — only visible when expanded; would
+                    otherwise be a confusing always-on control. Sits
+                    inline with the save indicator + chevron so the
+                    header row has a single, tidy right-edge. */}
+                {notesExpanded && (
+                  <VoiceNoteButton
+                    onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
+                  />
+                )}
+                {/* Save indicator. Stays visible even when collapsed
+                    so a debounced save kicked off from a long voice
+                    session still surfaces persistence feedback. */}
                 <div className="text-[11px] text-slate-400">
                   {noteSaving ? (
                     <span className="flex items-center gap-1">
@@ -3002,21 +3018,25 @@ function ListingCard({
                     </span>
                   ) : null}
                 </div>
-                {notesExpanded ? (
-                  <ChevronUp className="w-4 h-4 text-slate-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-slate-400" />
-                )}
+                {/* Chevron — secondary toggle target so the user can
+                    click the icon directly without aiming at the label. */}
+                <button
+                  type="button"
+                  onClick={() => setNotesExpanded((v) => !v)}
+                  aria-label={notesExpanded ? 'Collapse notes' : 'Expand notes'}
+                  className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200"
+                >
+                  {notesExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
               </div>
-            </button>
+            </div>
 
             {notesExpanded && (
-              <div className="mt-3 space-y-2">
-                <div className="flex justify-end">
-                  <VoiceNoteButton
-                    onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
-                  />
-                </div>
+              <div className="mt-3">
                 <textarea
                   value={noteText}
                   onChange={(e) => handleNoteChange(e.target.value)}
