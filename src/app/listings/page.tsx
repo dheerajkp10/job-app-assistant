@@ -4416,10 +4416,13 @@ function SalaryIntelInline({
   }, [listingId]);
   if (!loaded || !stats) return null;
   const fmt = (v: number) => `$${Math.round(v / 1000)}k`;
+  // Text-only confidence colors (no background). The stat cell renders
+  // value as inline text alongside other cells; a background pill
+  // would visually shout louder than its peers.
   const confidenceStyle: Record<typeof stats.confidence, string> = {
-    high: 'text-green-700 bg-green-100',
-    medium: 'text-amber-700 bg-amber-100',
-    low: 'text-slate-600 bg-slate-100',
+    high: 'text-emerald-700',
+    medium: 'text-amber-700',
+    low: 'text-slate-500',
   };
   // Percentile badge — answers "where does this offer sit?" at a
   // glance. Color-coded so a glance tells the user whether to
@@ -4428,39 +4431,98 @@ function SalaryIntelInline({
   // had enough samples to compute a meaningful percentile.
   const pct = stats.targetPercentile;
   const pctMeta = pct == null ? null
-    : pct >= 75 ? { label: `${pct}th percentile`, color: 'text-emerald-700 bg-emerald-100 border-emerald-200', hint: 'Top quartile — strong offer' }
-    : pct >= 50 ? { label: `${pct}th percentile`, color: 'text-indigo-700 bg-indigo-100 border-indigo-200', hint: 'Above the cohort median' }
-    : pct >= 25 ? { label: `${pct}th percentile`, color: 'text-amber-700 bg-amber-100 border-amber-200', hint: 'Below median — room to negotiate' }
-    : { label: `${pct}th percentile`, color: 'text-rose-700 bg-rose-100 border-rose-200', hint: 'Bottom quartile — significant negotiation room' };
+    : pct >= 75 ? { label: `${pct}th percentile`, color: 'text-emerald-700 bg-emerald-50 border-emerald-200', hint: 'Top quartile — strong offer' }
+    : pct >= 50 ? { label: `${pct}th percentile`, color: 'text-indigo-700 bg-indigo-50 border-indigo-200', hint: 'Above the cohort median' }
+    : pct >= 25 ? { label: `${pct}th percentile`, color: 'text-amber-700 bg-amber-50 border-amber-200', hint: 'Below median — room to negotiate' }
+    : { label: `${pct}th percentile`, color: 'text-rose-700 bg-rose-50 border-rose-200', hint: 'Bottom quartile — significant negotiation room' };
+
+  // Humanize the scope token. computeSalaryStats emits machine-y
+  // bucket codes like "Remote-US" and "WA-Seattle"; this turns them
+  // into human-readable strings without rewriting the upstream API.
+  const prettyScope = stats.scope
+    .replace(/\bRemote-(\w+)\b/g, 'Remote · $1')
+    .replace(/\bWA-Seattle\b/g, 'Seattle area')
+    .replace(/\bCA-SFBay\b/g, 'SF Bay Area')
+    .replace(/\bNY-NYC\b/g, 'NYC')
+    .replace(/\bTX-Austin\b/g, 'Austin');
+
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-lg text-xs">
-      <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
-      <div className="flex-1 min-w-0 flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <span className="font-semibold text-emerald-900">
-          Market: {fmt(stats.p25)}–{fmt(stats.p75)}
-        </span>
-        <span className="text-emerald-800/80">
-          median {fmt(stats.median)}
-        </span>
-        <span className="text-emerald-700/70">{stats.scope}</span>
-        {listingSalary && (
-          <span className="text-slate-500">· This posting: {listingSalary}</span>
+    // Stat-card layout: small header strip (icon + label + scope),
+    // then a row of labeled metric cells. Each cell stacks its label
+    // (small uppercase) above the value (semibold) so the eye lands
+    // on the numbers first and reads the meaning second. Replaces
+    // the previous fragmented paragraph-style strip that put every
+    // value behind a different connective phrase.
+    <div className="rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-teal-50/60 px-4 py-3">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            Market data
+          </span>
+          <span className="text-[11px] text-slate-500 truncate">
+            · {prettyScope}
+          </span>
+        </div>
+        {pctMeta && (
+          <span
+            className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${pctMeta.color}`}
+            title={pctMeta.hint}
+          >
+            {pctMeta.label}
+          </span>
         )}
       </div>
-      {pctMeta && (
-        <span
-          className={`px-2 py-0.5 rounded-full font-semibold border ${pctMeta.color}`}
-          title={pctMeta.hint}
-        >
-          {pctMeta.label}
-        </span>
-      )}
-      <span
-        className={`px-2 py-0.5 rounded-full font-medium ${confidenceStyle[stats.confidence]}`}
-        title={`${stats.n} comparable postings in your listings cache`}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Stat
+          label="This posting"
+          value={listingSalary || '—'}
+          emphasis
+        />
+        <Stat
+          label="Cohort median"
+          value={fmt(stats.median)}
+        />
+        <Stat
+          label="P25 – P75 range"
+          value={`${fmt(stats.p25)}–${fmt(stats.p75)}`}
+        />
+        <Stat
+          label={`Sample (n=${stats.n})`}
+          value={stats.confidence === 'high' ? 'High' : stats.confidence === 'medium' ? 'Medium' : 'Low'}
+          valueClass={confidenceStyle[stats.confidence]}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Small label/value cell used inside the salary stat card. Keeps
+ *  the visual rhythm identical across every metric so the row reads
+ *  as a tidy grid instead of a paragraph. */
+function Stat({
+  label,
+  value,
+  emphasis,
+  valueClass,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  valueClass?: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 truncate">
+        {label}
+      </div>
+      <div
+        className={`mt-0.5 text-sm truncate ${
+          emphasis ? 'font-bold text-emerald-900' : 'font-semibold text-slate-800'
+        } ${valueClass ?? ''}`}
       >
-        n={stats.n}
-      </span>
+        {value}
+      </div>
     </div>
   );
 }
