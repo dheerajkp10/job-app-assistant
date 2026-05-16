@@ -154,6 +154,12 @@ interface ATSScore {
   missingKeywords: string[];
   totalJdKeywords: number;
   totalMatched: number;
+  /** Per-keyword breakdown — used by the Quick-wins panel to rank
+   *  missing keywords by their category's weight in the overall
+   *  score. The server-side ATSScore already includes this; the
+   *  local mirror just declares the field so TypeScript doesn't
+   *  trip over `keywordDetails` access. */
+  keywordDetails?: { keyword: string; category: 'technical' | 'management' | 'domain' | 'soft'; found: boolean }[];
   /** Tailoring suggestions returned alongside the score (server-side
    *  heuristic detector). Each can be toggled and round-tripped to the
    *  tailor route as `selectedSuggestions: string[]`. */
@@ -2650,6 +2656,79 @@ function ListingCard({
                     <CategoryBar label="Soft Skills" score={detailScore.soft} />
                   </div>
                 </div>
+
+                {/* Quick-wins panel. The "Missing" pill cloud below
+                    answers WHAT's missing; this answers WHICH ONES
+                    matter most. Ranks the missing keywords by their
+                    JD category's weight in the overall score:
+                      Technical 40% → high impact
+                      Management 20% → medium
+                      Domain / phrases 15% → medium
+                      Soft 10% → low
+                    so the user spends their next round of tailoring
+                    on the keywords that actually move the needle. */}
+                {(() => {
+                  const CAT_WEIGHT: Record<string, number> = {
+                    technical: 0.40, management: 0.20, domain: 0.15, soft: 0.10,
+                  };
+                  const CAT_IMPACT_LABEL = (w: number) => w >= 0.30 ? 'high' : w >= 0.15 ? 'medium' : 'low';
+                  const missing = (detailScore.keywordDetails ?? [])
+                    .filter((k) => !k.found)
+                    .map((k) => ({ ...k, weight: CAT_WEIGHT[k.category] ?? 0 }))
+                    .sort((a, b) => b.weight - a.weight)
+                    .slice(0, 3);
+                  if (missing.length === 0 || detailScore.overall >= 90) return null;
+                  const nextTier = detailScore.overall < 60 ? 60 : detailScore.overall < 75 ? 75 : 90;
+                  return (
+                    <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <h5 className="text-xs font-semibold text-indigo-900">
+                          Quick wins → {nextTier}%
+                        </h5>
+                        <span className="text-[10px] text-indigo-500 uppercase tracking-wide">
+                          Top 3 by impact
+                        </span>
+                      </div>
+                      <ul className="space-y-1.5">
+                        {missing.map((m) => {
+                          const impact = CAT_IMPACT_LABEL(m.weight);
+                          const impactColor =
+                            impact === 'high' ? 'bg-rose-100 text-rose-700' :
+                            impact === 'medium' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600';
+                          const alreadySelected = selectedKeywords.has(m.keyword);
+                          return (
+                            <li key={m.keyword} className="flex items-center justify-between gap-2 text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`shrink-0 px-1.5 py-0 rounded text-[10px] font-bold uppercase tracking-wide ${impactColor}`}>
+                                  {impact}
+                                </span>
+                                <span className="font-medium text-slate-800 truncate">{m.keyword}</span>
+                                <span className="text-[10px] text-slate-500 shrink-0">· {m.category}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => toggleKeyword(m.keyword)}
+                                className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${
+                                  alreadySelected
+                                    ? 'bg-indigo-500 text-white'
+                                    : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50'
+                                }`}
+                                title={
+                                  alreadySelected
+                                    ? 'Already selected for next tailor — click to deselect'
+                                    : 'Add to keywords for next tailor'
+                                }
+                              >
+                                {alreadySelected ? '✓ Selected' : 'Target'}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="p-3 bg-green-50 rounded-lg border border-green-100">

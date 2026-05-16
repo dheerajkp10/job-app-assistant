@@ -379,6 +379,54 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
+
+          {/* Portfolio "where to focus" hint. Surfaces the weakest
+              category across all scored listings + the lift that
+              would unlock if it moved up — the answer to
+              "if I have time for one improvement, what is it?".
+              Hidden when nothing is scored or the user's already
+              at par across the board. */}
+          {stats.scoredCount >= 5 && (() => {
+            const cats: { label: string; score: number; weight: number; tip: string }[] = [
+              { label: 'Technical', score: stats.avgTechnical, weight: 0.40,
+                tip: 'Add hands-on stacks / cloud / language mentions to your Skills + bullets.' },
+              { label: 'Management', score: stats.avgManagement, weight: 0.20,
+                tip: 'Mention team size, scope, and outcomes in your Summary / Experience.' },
+              { label: 'Domain', score: stats.avgDomain, weight: 0.15,
+                tip: 'Name the industry verticals (fintech, healthcare, etc.) you\'ve shipped in.' },
+              { label: 'Soft Skills', score: stats.avgSoft, weight: 0.10,
+                tip: 'Add leadership / collab / customer-focus phrases in your Summary line.' },
+            ];
+            // Rank by impact: a 10pt lift in a 40%-weight category
+            // moves overall more than a 30pt lift in a 10%-weight one.
+            // Estimated lift = (100 - score) × weight, capped to keep
+            // the number realistic.
+            cats.sort((a, b) => (100 - b.score) * b.weight - (100 - a.score) * a.weight);
+            const focus = cats[0];
+            if (focus.score >= 80) return null; // already strong across the board
+            const lift = Math.min(8, Math.round((100 - focus.score) * focus.weight * 0.3));
+            return (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-start gap-2">
+                  <Target className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-700">
+                      Where to focus next
+                    </div>
+                    <div className="text-xs text-slate-600 mt-0.5">
+                      <span className="font-medium text-indigo-700">{focus.label}</span> is your
+                      weakest category ({focus.score}%). Lifting it could add{' '}
+                      <span className="font-semibold text-emerald-600">~{lift} pts</span> to
+                      your portfolio average.
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-1 italic">
+                      {focus.tip}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Top Companies. List scrolls within a fixed-height pane so
