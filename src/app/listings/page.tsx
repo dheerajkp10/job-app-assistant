@@ -934,50 +934,6 @@ export default function ListingsPage() {
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
-  // ─── Keyboard triage shortcuts ───────────────────────────────────
-  // j/k navigate to the next/previous card in the current page
-  // (matches the Gmail / Vim convention many users already know);
-  // a / s flag the focused card as Applied / Incorrect respectively
-  // so the user can clear a backlog without reaching for the mouse.
-  // Disabled when typing in a text input / textarea so the user's
-  // search query / cover-letter edits aren't hijacked.
-  useEffect(() => {
-    function isTypingTarget(el: EventTarget | null): boolean {
-      if (!(el instanceof HTMLElement)) return false;
-      const tag = el.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-      if (el.isContentEditable) return true;
-      return false;
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (isTypingTarget(e.target)) return;
-      const ids = paginated.map((l) => l.id);
-      if (ids.length === 0) return;
-      const curIdx = expandedId ? ids.indexOf(expandedId) : -1;
-      const key = e.key.toLowerCase();
-      if (key === 'j') {
-        e.preventDefault();
-        const next = curIdx < 0 ? 0 : Math.min(ids.length - 1, curIdx + 1);
-        setExpandedId(ids[next]);
-      } else if (key === 'k') {
-        e.preventDefault();
-        const prev = curIdx < 0 ? 0 : Math.max(0, curIdx - 1);
-        setExpandedId(ids[prev]);
-      } else if (key === 'a' && expandedId) {
-        e.preventDefault();
-        setFlagFor(expandedId, 'applied');
-      } else if (key === 's' && expandedId) {
-        // 's' marks the listing as 'incorrect' — the closest existing
-        // flag to "skip / not for me". Hides it from the default
-        // listings view going forward (showFlagged toggle still surfaces).
-        e.preventDefault();
-        setFlagFor(expandedId, 'incorrect');
-      }
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [paginated, expandedId, setFlagFor]);
 
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
@@ -1661,22 +1617,12 @@ export default function ListingsPage() {
 
       {/* Results count */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
+        <p className="text-sm text-slate-500">
           {filtered.length > 0 ? (
             <>Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, filtered.length)} of {filtered.length.toLocaleString()} results</>
           ) : (
             <>No results</>
           )}
-          {/* Keyboard hint — only shown on viewports with a real
-              keyboard (skipped on mobile/touch). Tooltip enumerates
-              the full set so it stays a quiet discovery affordance
-              rather than nagging real estate. */}
-          <span
-            className="hidden md:inline-flex items-center gap-1 text-[11px] text-slate-400 italic"
-            title="Keyboard shortcuts:&#10;j / k — next / previous listing&#10;a — flag Applied&#10;s — flag Incorrect (skip)"
-          >
-            · keys: <kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">j</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">k</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">a</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">s</kbd>
-          </span>
         </p>
         {refreshing && (
           <span className="flex items-center gap-1.5 text-xs text-blue-600">
