@@ -148,6 +148,12 @@ export interface Settings {
   // JD body explicitly says "we do not sponsor" are filtered out —
   // applying to them is wasted effort. Defaults to false (no filter).
   needsVisaSponsorship?: boolean;
+
+  // ─── Listings triage ───
+  // Timestamp of the last time the user opened the listings page.
+  // Used by the "new since last visit" filter to show only listings
+  // discovered after this point. Updated on every listings-page load.
+  listingsLastVisitedAt?: string;
 }
 
 /**

@@ -308,6 +308,13 @@ export default function ListingsPage() {
   // through them. Default off so first-time users see everything;
   // power users typically toggle on after their first refresh cycle.
   const [hideStale, setHideStale] = useState(false);
+  // "Only new since last visit" filter — drops listings the user has
+  // already seen on a prior visit. Driven by Settings.listingsLastVisitedAt
+  // which we read once on mount; we re-stamp the timestamp AFTER read
+  // so toggling the filter still shows the same set within a single
+  // session.
+  const [onlyNewSinceVisit, setOnlyNewSinceVisit] = useState(false);
+  const [lastVisitedAt, setLastVisitedAt] = useState<string | null>(null);
   // Date-posted filter — keeps listings whose `postedAt` falls within
   // the selected window. 'all' is a no-op (default). Listings without
   // a postedAt fall back to fetchedAt so manually-added entries still
@@ -503,6 +510,19 @@ export default function ListingsPage() {
         if (d.settings.salaryMax != null) setMaxSalary(d.settings.salaryMax);
         setLevelsInitialized(true);
       }
+      // Capture the previous "last visited" timestamp BEFORE we stamp
+      // the new one, so the "only new since last visit" filter has a
+      // stable cutoff for this session. Then update the timestamp on
+      // the server so the next session compares against this visit.
+      if (d.settings.listingsLastVisitedAt) {
+        setLastVisitedAt(d.settings.listingsLastVisitedAt);
+      }
+      fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ listingsLastVisitedAt: new Date().toISOString() }),
+      }).catch(() => {});
+
       // Seed excludedCompanies from settings; if empty, try to auto-detect
       // the current employer from the resume and persist it so it sticks.
       if (!excludeInitialized) {
@@ -843,6 +863,22 @@ export default function ListingsPage() {
     if (selectedLevels.length > 0) {
       result = result.filter((l) => matchesLevelPreference(l.title, selectedLevels));
     }
+    // "Only new since last visit" filter — drops listings whose
+    // fetchedAt is at-or-before the cutoff captured at page load.
+    // If we never recorded a last visit (first time on this page),
+    // the filter is a no-op so the user doesn't see an empty page.
+    if (onlyNewSinceVisit && lastVisitedAt) {
+      const cutoff = Date.parse(lastVisitedAt);
+      if (!isNaN(cutoff)) {
+        result = result.filter((l) => {
+          const stamp = l.fetchedAt || l.postedAt;
+          if (!stamp) return false;
+          const t = Date.parse(stamp);
+          if (isNaN(t)) return false;
+          return t > cutoff;
+        });
+      }
+    }
     // Hide-stale filter — drops listings whose postedAt (or fetchedAt
     // as a fallback) is older than 30 days. Listings with no posted
     // date at all are kept, since not knowing their age isn't grounds
@@ -886,7 +922,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, searchInJd, jdMatchIds, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore]);
+  }, [listings, search, searchInJd, jdMatchIds, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore, onlyNewSinceVisit, lastVisitedAt]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -896,6 +932,51 @@ export default function ListingsPage() {
   // Paginate
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  // ─── Keyboard triage shortcuts ───────────────────────────────────
+  // j/k navigate to the next/previous card in the current page
+  // (matches the Gmail / Vim convention many users already know);
+  // a / s flag the focused card as Applied / Incorrect respectively
+  // so the user can clear a backlog without reaching for the mouse.
+  // Disabled when typing in a text input / textarea so the user's
+  // search query / cover-letter edits aren't hijacked.
+  useEffect(() => {
+    function isTypingTarget(el: EventTarget | null): boolean {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      return false;
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTypingTarget(e.target)) return;
+      const ids = paginated.map((l) => l.id);
+      if (ids.length === 0) return;
+      const curIdx = expandedId ? ids.indexOf(expandedId) : -1;
+      const key = e.key.toLowerCase();
+      if (key === 'j') {
+        e.preventDefault();
+        const next = curIdx < 0 ? 0 : Math.min(ids.length - 1, curIdx + 1);
+        setExpandedId(ids[next]);
+      } else if (key === 'k') {
+        e.preventDefault();
+        const prev = curIdx < 0 ? 0 : Math.max(0, curIdx - 1);
+        setExpandedId(ids[prev]);
+      } else if (key === 'a' && expandedId) {
+        e.preventDefault();
+        setFlagFor(expandedId, 'applied');
+      } else if (key === 's' && expandedId) {
+        // 's' marks the listing as 'incorrect' — the closest existing
+        // flag to "skip / not for me". Hides it from the default
+        // listings view going forward (showFlagged toggle still surfaces).
+        e.preventDefault();
+        setFlagFor(expandedId, 'incorrect');
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [paginated, expandedId, setFlagFor]);
 
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
@@ -1365,6 +1446,28 @@ export default function ListingsPage() {
                     />
                     Hide listings &gt; 30 days old
                   </label>
+                  {/* New-since-visit filter — drops listings the user
+                      already saw on a prior visit. Disabled (with hint)
+                      on first-ever visit when we have no cutoff. */}
+                  <label
+                    className={`flex items-center gap-1.5 text-xs cursor-pointer ${
+                      lastVisitedAt ? 'text-slate-500' : 'text-slate-300 cursor-not-allowed'
+                    }`}
+                    title={
+                      lastVisitedAt
+                        ? `Shows only listings fetched after your last visit (${new Date(lastVisitedAt).toLocaleString()})`
+                        : "We'll start tracking from this visit — come back to use this filter."
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={onlyNewSinceVisit}
+                      onChange={(e) => setOnlyNewSinceVisit(e.target.checked)}
+                      disabled={!lastVisitedAt}
+                      className="rounded"
+                    />
+                    Only new since last visit
+                  </label>
                   {flaggedCount > 0 && (
                     <label
                       className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer"
@@ -1557,12 +1660,22 @@ export default function ListingsPage() {
 
       {/* Results count */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
           {filtered.length > 0 ? (
             <>Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, filtered.length)} of {filtered.length.toLocaleString()} results</>
           ) : (
             <>No results</>
           )}
+          {/* Keyboard hint — only shown on viewports with a real
+              keyboard (skipped on mobile/touch). Tooltip enumerates
+              the full set so it stays a quiet discovery affordance
+              rather than nagging real estate. */}
+          <span
+            className="hidden md:inline-flex items-center gap-1 text-[11px] text-slate-400 italic"
+            title="Keyboard shortcuts:&#10;j / k — next / previous listing&#10;a — flag Applied&#10;s — flag Incorrect (skip)"
+          >
+            · keys: <kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">j</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">k</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">a</kbd><kbd className="px-1 py-0 bg-slate-100 rounded text-[10px] font-mono">s</kbd>
+          </span>
         </p>
         {refreshing && (
           <span className="flex items-center gap-1.5 text-xs text-blue-600">
