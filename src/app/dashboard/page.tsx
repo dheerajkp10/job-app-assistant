@@ -3,12 +3,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   User, Briefcase, MapPin, DollarSign, FileText, Target, Building2,
   Loader2, BarChart3,
   CheckCircle2, AlertTriangle, Star, Zap, Sparkles, Download, X, Check,
-  ArrowUpRight, AlertCircle,
+  AlertCircle,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
 import { filterByUserPreferences } from '@/lib/role-filter';
@@ -65,53 +64,89 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
 }
 
 /**
- * Per-category fix catalog. Each entry is one opt-in suggestion the
- * user can check / uncheck before sending themselves into the tailor
- * workflow. The fix titles are kept short + concrete (action-y) so
- * the popover reads like a punch list rather than coaching prose.
+ * Per-category fix catalog. Each category has one or more GROUPS;
+ * each group is a heading + a list of ATOMIC keyword pills. The
+ * keyword is the actual token the tailor will inject into the
+ * resume — same shape as the per-listing missing-keyword cloud.
+ *
+ * Atomic = one checkbox toggles one specific keyword. The user can
+ * accept/reject at the finest grain rather than committing to a
+ * whole-paragraph suggestion. Group headers let them flip a whole
+ * theme on/off in one click when they want speed.
+ *
+ * The keyword strings match the scorer taxonomy in
+ * `src/lib/ats-scorer.ts` so injecting them actually moves the score.
  */
 type CatKey = 'technical' | 'management' | 'domain' | 'soft';
-interface CategoryFix {
+interface FixGroup {
   id: string;
   title: string;
-  detail: string;
+  /** One-liner that explains the THEME — not a detailed how-to. The
+   *  atomic items below speak for themselves. */
+  blurb: string;
+  /** Atomic keywords. Each becomes one checkbox/pill the user can
+   *  toggle independently. */
+  items: string[];
 }
-const FIXES_BY_CATEGORY: Record<CatKey, CategoryFix[]> = {
+const FIXES_BY_CATEGORY: Record<CatKey, FixGroup[]> = {
   technical: [
-    { id: 'tech-stack-list', title: 'Add a Skills section with hands-on stacks',
-      detail: 'List languages (Python, Go, TypeScript), frameworks (React, FastAPI, Django), and clouds (AWS, GCP, k8s) you\'ve actually shipped with — these are the highest-weight tokens in the scorer.' },
-    { id: 'tech-bullets-frameworks', title: 'Name specific frameworks in bullets',
-      detail: 'Replace "built backend services" with "built FastAPI services on Kubernetes" — concrete tool names match JD vocabulary far better than abstract verbs.' },
-    { id: 'tech-data-pipelines', title: 'Call out data infrastructure',
-      detail: 'If you\'ve touched Spark, Kafka, Airflow, dbt, BigQuery, etc., name them. Even tangential exposure helps when JDs filter for these terms.' },
-    { id: 'tech-observability', title: 'Mention observability + reliability tooling',
-      detail: 'Datadog, Grafana, Prometheus, Sentry, PagerDuty — single-line mentions in bullet outcomes ("reduced p99 latency via Datadog tracing") read as senior signal.' },
+    { id: 'tech-langs', title: 'Languages',
+      blurb: 'Add to Skills section.',
+      items: ['Python', 'TypeScript', 'Go', 'Rust', 'Java', 'Kotlin', 'Swift', 'SQL'] },
+    { id: 'tech-cloud', title: 'Cloud + infra',
+      blurb: 'Name the clouds + orchestration you\'ve shipped with.',
+      items: ['AWS', 'GCP', 'Azure', 'Kubernetes', 'Docker', 'Terraform', 'Lambda', 'EKS'] },
+    { id: 'tech-frameworks', title: 'Frameworks',
+      blurb: 'Replace abstract verbs in bullets with specific tools.',
+      items: ['React', 'Next.js', 'FastAPI', 'Django', 'Spring Boot', 'Node.js', 'GraphQL', 'REST API'] },
+    { id: 'tech-data', title: 'Data infrastructure',
+      blurb: 'Even tangential exposure unlocks data-platform JDs.',
+      items: ['Spark', 'Kafka', 'Airflow', 'Snowflake', 'BigQuery', 'Postgres', 'Redis', 'Elasticsearch'] },
+    { id: 'tech-obs', title: 'Observability + reliability',
+      blurb: 'Pair with outcome bullets for senior signal.',
+      items: ['Datadog', 'Grafana', 'Prometheus', 'Sentry', 'PagerDuty', 'SRE'] },
   ],
   management: [
-    { id: 'mgmt-team-size', title: 'State your team size and scope',
-      detail: 'Add "Led a team of 8 engineers across 2 squads" to your Summary. JDs filter on size/scope language; "managed a team" alone is too generic.' },
-    { id: 'mgmt-outcomes', title: 'Quantify business outcomes',
-      detail: 'Pair each bullet with a number: cycle-time cut, revenue lifted, latency reduced, retention improved. Outcomes weigh higher than activities.' },
-    { id: 'mgmt-hiring', title: 'Mention hiring + performance work',
-      detail: 'Add a bullet about hiring rate, calibration / perf review ownership, or coaching outcomes — these are explicit management-track signals.' },
-    { id: 'mgmt-cross-fn', title: 'Show cross-functional partnership',
-      detail: 'Name the PM / Design / Data partners you led with. JDs often weight collaboration phrases as much as the technical ones.' },
+    { id: 'mgmt-leadership', title: 'Leadership',
+      blurb: 'Surface scope + team-building language.',
+      items: ['engineering management', 'people management', 'team management', 'technical leadership', 'mentoring', 'coaching'] },
+    { id: 'mgmt-process', title: 'Process + delivery',
+      blurb: 'Match JDs that filter for agile/program signal.',
+      items: ['agile', 'scrum', 'sprint planning', 'roadmap', 'OKRs', 'KPIs', 'incident management', 'on-call'] },
+    { id: 'mgmt-people', title: 'Hiring + performance',
+      blurb: 'Explicit management-track tokens.',
+      items: ['hiring', 'recruiting', 'performance review', 'career development', 'feedback'] },
+    { id: 'mgmt-cross-fn', title: 'Cross-functional partnership',
+      blurb: 'Collaboration phrases often weigh as much as technical ones.',
+      items: ['cross-functional', 'stakeholder management', 'one-on-one', 'organizational design'] },
   ],
   domain: [
-    { id: 'domain-verticals', title: 'Name the verticals you\'ve shipped in',
-      detail: 'Fintech, healthtech, e-commerce, ads, gaming, identity — even one keyword unlocks domain-match in 30+% of JDs you\'d otherwise miss.' },
-    { id: 'domain-products', title: 'List the product surfaces you\'ve owned',
-      detail: 'Marketplace, payments, search, recommendations, growth — these are the same words ATS keyword scrapers look for.' },
-    { id: 'domain-compliance', title: 'Add regulatory / compliance context',
-      detail: 'SOC2, HIPAA, GDPR, PCI — even passing involvement is worth a line if your background touched it.' },
+    { id: 'domain-industry', title: 'Industry verticals',
+      blurb: 'One keyword unlocks 30%+ of JDs you\'d otherwise miss.',
+      items: ['fintech', 'healthcare', 'e-commerce', 'marketplace', 'advertising', 'gaming', 'biotech', 'enterprise'] },
+    { id: 'domain-surfaces', title: 'Product surfaces',
+      blurb: 'Same words ATS keyword scrapers look for.',
+      items: ['payments', 'search', 'ranking', 'recommendation', 'personalization', 'identity', 'authentication'] },
+    { id: 'domain-platform', title: 'Platform + infrastructure',
+      blurb: 'Differentiate "I built features" from "I built platforms".',
+      items: ['developer tools', 'developer experience', 'developer platform', 'cloud infrastructure', 'observability'] },
+    { id: 'domain-compliance', title: 'Trust + compliance',
+      blurb: 'Worth a line if your background touched any of these.',
+      items: ['privacy', 'data protection', 'compliance', 'fraud', 'security'] },
   ],
   soft: [
-    { id: 'soft-summary-line', title: 'Add a leadership-flavored Summary line',
-      detail: 'A single line at the top of the resume: "Engineering leader with a focus on customer-driven team building and cross-org influence." Hits 3-4 soft-skill tokens at once.' },
-    { id: 'soft-collab', title: 'Use "collaboration" / "partnership" verbs',
-      detail: 'Replace "worked with" with "partnered with" or "co-led" in bullets where you didn\'t own the work outright.' },
-    { id: 'soft-decision-making', title: 'Surface decision-making + judgment',
-      detail: 'Mention trade-offs you made ("prioritized X over Y to ship under deadline") — JDs treat decision-making language as senior signal.' },
+    { id: 'soft-leadership', title: 'Leadership voice',
+      blurb: 'Add to Summary line.',
+      items: ['leadership', 'influence', 'vision', 'strategic thinking', 'systems thinking'] },
+    { id: 'soft-collab', title: 'Collaboration',
+      blurb: 'Replace "worked with" → "partnered with" / "co-led".',
+      items: ['collaboration', 'teamwork', 'partnership', 'communication', 'presentation'] },
+    { id: 'soft-ownership', title: 'Ownership + judgment',
+      blurb: 'JDs treat decision-making language as senior signal.',
+      items: ['ownership', 'accountability', 'decision-making', 'problem-solving', 'initiative', 'bias for action'] },
+    { id: 'soft-customer', title: 'Customer + data orientation',
+      blurb: 'Hits multiple soft-skill tokens at once.',
+      items: ['customer obsession', 'customer focus', 'data-driven', 'analytical'] },
   ],
 };
 
@@ -131,19 +166,25 @@ function CategoryBar({
   label,
   score,
   categoryKey,
+  tailorListingIds,
 }: {
   label: string;
   score: number;
   categoryKey?: CatKey;
+  /** Listing-IDs cohort the popover should tailor against. The
+   *  dashboard passes its scored listings; CategoryBar is purely
+   *  presentational about them. Optional so other usages of the
+   *  component (per-listing detail) aren't broken. */
+  tailorListingIds?: string[];
 }) {
   const color =
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
     : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
     : 'bg-gradient-to-r from-rose-400 to-pink-400';
   // Showing the coach button is gated on BOTH the score threshold
-  // and the presence of categoryKey — that keeps the per-listing
-  // detail panel from getting a button it can't act on.
-  const showCoach = !!categoryKey && score < 80;
+  // and the presence of categoryKey + listing cohort — without
+  // either the popover wouldn't have an action to take.
+  const showCoach = !!categoryKey && !!tailorListingIds && tailorListingIds.length > 0 && score < 80;
   const [popoverOpen, setPopoverOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   return (
@@ -171,6 +212,7 @@ function CategoryBar({
               label={label}
               score={score}
               categoryKey={categoryKey!}
+              tailorListingIds={tailorListingIds!}
               onClose={() => setPopoverOpen(false)}
             />
           )}
@@ -181,36 +223,60 @@ function CategoryBar({
 }
 
 /**
- * Portaled popover anchored to an AlertCircle button. Renders the
- * fix catalog with opt-in checkboxes (default checked) and an
- * "Apply via tailor" CTA that:
- *   1. Stashes the checked fix IDs in sessionStorage so the listings
- *      page can echo them back to the user.
- *   2. Navigates to /listings?weakCategory=<key>, which already has
- *      a handler that auto-expands the top-match listing.
+ * Portaled popover anchored to an AlertCircle button. Three-stage
+ * inline flow — NO page redirect:
  *
- * Each fix is opt-in — checkbox toggles whether it gets carried over.
- * "Apply" is disabled if zero fixes are checked so we don't ship the
- * user to /listings with an empty memo.
+ *   1. \`select\` — atomic keyword pills grouped under theme headers.
+ *      Each pill is one toggleable opt-in. Group headers have an
+ *      all/none toggle so users can flip a theme in one click.
+ *
+ *   2. \`tailoring\` — calls /api/tailor-resume/multi with the
+ *      selected keywords + the listing cohort, returns a docx blob.
+ *      Spinner + progress copy keep the user oriented.
+ *
+ *   3. \`done\` — confirmation, download button, and back-to-select
+ *      so the user can iterate without re-opening the popover.
+ *
+ * The tailor fires immediately when the user clicks "Tailor now" —
+ * no redirect, no extra step. The flow lives entirely inside the
+ * popover so users stay in their current context (dashboard).
  */
 function CategoryFixPopover({
   anchor,
   label,
   score,
   categoryKey,
+  tailorListingIds,
   onClose,
 }: {
   anchor: HTMLButtonElement | null;
   label: string;
   score: number;
   categoryKey: CatKey;
+  tailorListingIds: string[];
   onClose: () => void;
 }) {
-  const router = useRouter();
-  const fixes = FIXES_BY_CATEGORY[categoryKey] ?? [];
-  // Default every fix to checked — most users will skim and apply
-  // most of them; uncheck is the cheaper interaction than re-check.
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(fixes.map((f) => f.id)));
+  const groups = FIXES_BY_CATEGORY[categoryKey] ?? [];
+  // Flat list of every atomic keyword across all groups — used for
+  // "select all in this category" semantics and for tracking what's
+  // currently checked. Memoized so the array identity is stable.
+  const allKeywords = useMemo(
+    () => groups.flatMap((g) => g.items),
+    [groups],
+  );
+  // Default state: all atomic items selected. Toggling a group's
+  // header flips everything in that group; toggling a pill flips
+  // just that one.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(allKeywords));
+
+  // Three-stage state machine. The popover never unmounts during a
+  // stage transition — same DOM node, just different rendered body.
+  type Stage =
+    | { kind: 'select' }
+    | { kind: 'tailoring'; startedAt: number }
+    | { kind: 'done'; blob: Blob; filename: string; tailoredCount: number }
+    | { kind: 'error'; message: string };
+  const [stage, setStage] = useState<Stage>({ kind: 'select' });
 
   // Anchor position. Mirrors the flag-dropdown / contact-popover
   // patterns already used elsewhere — fixed to the document body so
@@ -219,12 +285,13 @@ function CategoryFixPopover({
   const recompute = useCallback(() => {
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
-    setPos({
-      // Position popover BELOW the icon with a small gap. If it
-      // wouldn't fit (small viewport), drop the CSS to clamp width.
-      top: r.bottom + 6,
-      left: Math.max(8, r.right - 360), // right-align with 360px width
-    });
+    // Popover is wider now (440px) because atomic pills need room.
+    // Clamp left to keep it on-screen at narrow viewports.
+    const width = 440;
+    const margin = 8;
+    const right = r.right;
+    const left = Math.max(margin, Math.min(right - width, window.innerWidth - width - margin));
+    setPos({ top: r.bottom + 6, left });
   }, [anchor]);
   useEffect(() => {
     recompute();
@@ -238,57 +305,94 @@ function CategoryFixPopover({
   }, [recompute]);
 
   // Close on Escape, matching the keyboard convention for modals.
+  // Disabled during the tailoring stage so the user doesn't
+  // accidentally abandon an in-flight request.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && stage.kind !== 'tailoring') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, stage.kind]);
 
   if (typeof document === 'undefined' || !pos) return null;
 
-  function toggle(id: string) {
+  function togglePill(kw: string) {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(kw)) next.delete(kw); else next.add(kw);
       return next;
     });
   }
 
-  function apply() {
-    // Persist the chosen fix titles for the listings page banner to
-    // surface. sessionStorage scopes to the tab so the reminder
-    // doesn't leak across browsing sessions.
-    const chosen = fixes.filter((f) => selected.has(f.id));
+  function toggleGroup(group: FixGroup) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allOn = group.items.every((k) => next.has(k));
+      if (allOn) group.items.forEach((k) => next.delete(k));
+      else group.items.forEach((k) => next.add(k));
+      return next;
+    });
+  }
+
+  async function runTailor() {
+    if (selected.size === 0 || tailorListingIds.length === 0) return;
+    setStage({ kind: 'tailoring', startedAt: Date.now() });
     try {
-      sessionStorage.setItem(
-        'weakCategoryFixes',
-        JSON.stringify({
-          category: categoryKey,
-          label,
-          fixes: chosen.map((f) => ({ id: f.id, title: f.title })),
+      // Reuse the master-resume multi endpoint — it already accepts
+      // a free-form selectedKeywords list and tailors against the
+      // listing cohort. No new endpoint needed.
+      const res = await fetch('/api/tailor-resume/multi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          listingIds: tailorListingIds,
+          selectedKeywords: Array.from(selected),
+          format: 'docx',
+          mode: 'mandatory',
         }),
-      );
-    } catch {
-      // localStorage / sessionStorage may be disabled. Falls through
-      // to the URL param which carries the category at minimum.
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Tailor failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      // Server returns a filename in Content-Disposition; fall back
+      // to a sensible default if it's missing.
+      const cd = res.headers.get('Content-Disposition') ?? '';
+      const m = /filename="?([^";]+)"?/i.exec(cd);
+      const filename = m?.[1] ?? `tailored_${categoryKey}_resume.docx`;
+      setStage({ kind: 'done', blob, filename, tailoredCount: selected.size });
+    } catch (e) {
+      setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to tailor resume' });
     }
-    router.push(`/listings?weakCategory=${categoryKey}`);
-    onClose();
+  }
+
+  function downloadDocx() {
+    if (stage.kind !== 'done') return;
+    const url = URL.createObjectURL(stage.blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = stage.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   return createPortal(
     <>
       <div
         className="fixed inset-0 z-[60]"
-        onClick={onClose}
+        onClick={() => stage.kind !== 'tailoring' && onClose()}
       />
       <div
-        className="fixed w-[360px] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-2xl shadow-modal z-[70] overflow-hidden"
+        className="fixed w-[440px] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-2xl shadow-modal z-[70] overflow-hidden"
         style={{ top: pos.top, left: pos.left }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Header is constant across stages — keeps the popover
+            anchored visually as the body content swaps. */}
         <div className="flex items-start justify-between gap-2 p-4 border-b border-slate-100">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
@@ -296,65 +400,168 @@ function CategoryFixPopover({
               Improve {label}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Currently <span className="font-semibold text-slate-700">{score}%</span> across your scored listings. Pick the fixes that read accurate to your background.
+              {stage.kind === 'select' && (
+                <>
+                  Currently <span className="font-semibold text-slate-700">{score}%</span>.
+                  Pick the keywords you actually have backing — each is one atomic edit.
+                </>
+              )}
+              {stage.kind === 'tailoring' && 'Generating a tailored resume against your top listings…'}
+              {stage.kind === 'done' && (
+                <>
+                  Tailored resume ready with{' '}
+                  <span className="font-semibold text-slate-700">{stage.tailoredCount}</span>{' '}
+                  keyword{stage.tailoredCount === 1 ? '' : 's'} applied.
+                </>
+              )}
+              {stage.kind === 'error' && (
+                <span className="text-rose-600">Something went wrong — try again.</span>
+              )}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            disabled={stage.kind === 'tailoring'}
+            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <ul className="max-h-[360px] overflow-y-auto divide-y divide-slate-100">
-          {fixes.map((f) => {
-            const isOn = selected.has(f.id);
-            return (
-              <li key={f.id} className="px-4 py-3">
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isOn}
-                    onChange={() => toggle(f.id)}
-                    className="mt-0.5 rounded border-slate-300 text-indigo-500 focus:ring-indigo-200"
-                  />
-                  <div className="min-w-0">
-                    <div className={`text-xs font-semibold ${isOn ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
-                      {f.title}
+
+        {/* ─── Stage: select ─────────────────────────────────────── */}
+        {stage.kind === 'select' && (
+          <>
+            <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+              {groups.map((g) => {
+                const onCount = g.items.filter((k) => selected.has(k)).length;
+                const allOn = onCount === g.items.length;
+                return (
+                  <div key={g.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold text-slate-800">{g.title}</div>
+                        <div className="text-[10px] text-slate-500 leading-snug">{g.blurb}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(g)}
+                        className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
+                        title={allOn ? 'Deselect all in this group' : 'Select all in this group'}
+                      >
+                        {allOn ? 'None' : 'All'} ({onCount}/{g.items.length})
+                      </button>
                     </div>
-                    <div className={`text-[11px] mt-0.5 leading-snug ${isOn ? 'text-slate-600' : 'text-slate-400'}`}>
-                      {f.detail}
+                    <div className="flex flex-wrap gap-1">
+                      {g.items.map((kw) => {
+                        const isOn = selected.has(kw);
+                        return (
+                          <button
+                            key={kw}
+                            type="button"
+                            onClick={() => togglePill(kw)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
+                              isOn
+                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
+                                : 'bg-white text-slate-400 border-slate-200 line-through hover:bg-slate-50'
+                            }`}
+                            title={isOn ? 'Click to exclude' : 'Click to include'}
+                          >
+                            {isOn && <Check className="w-2.5 h-2.5" />}
+                            {kw}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-        <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
-          <span className="text-[11px] text-slate-500">
-            {selected.size} of {fixes.length} fixes selected
-          </span>
-          <div className="flex items-center gap-2">
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
+              <span className="text-[11px] text-slate-500">
+                {selected.size} keyword{selected.size === 1 ? '' : 's'} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={runTailor}
+                  disabled={selected.size === 0}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  <Sparkles className="w-3 h-3" /> Tailor now
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ─── Stage: tailoring ──────────────────────────────────── */}
+        {stage.kind === 'tailoring' && (
+          <div className="p-6 flex flex-col items-center gap-3 text-center">
+            <Loader2 className="w-7 h-7 text-indigo-500 animate-spin" />
+            <div className="text-sm font-semibold text-slate-700">
+              Applying {selected.size} edit{selected.size === 1 ? '' : 's'} to your resume…
+            </div>
+            <div className="text-[11px] text-slate-500 max-w-[280px]">
+              Running against your top {Math.min(tailorListingIds.length, 20)} scored listings to keep wording
+              natural across job descriptions. Usually 10–25 seconds.
+            </div>
+          </div>
+        )}
+
+        {/* ─── Stage: done ───────────────────────────────────────── */}
+        {stage.kind === 'done' && (
+          <div className="p-5 flex flex-col items-center gap-3 text-center">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Resume tailored</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Download the .docx and review the changes locally.
+              </div>
+            </div>
+            <div className="flex flex-col w-full gap-2 mt-1">
+              <button
+                type="button"
+                onClick={downloadDocx}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" /> Download .docx
+              </button>
+              <button
+                type="button"
+                onClick={() => setStage({ kind: 'select' })}
+                className="text-[11px] text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline"
+              >
+                Adjust keywords + retailor
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Stage: error ──────────────────────────────────────── */}
+        {stage.kind === 'error' && (
+          <div className="p-5 flex flex-col items-center gap-3 text-center">
+            <AlertTriangle className="w-8 h-8 text-rose-500" />
+            <div className="text-xs text-rose-700 max-w-[320px]">
+              {stage.message}
+            </div>
             <button
               type="button"
-              onClick={onClose}
-              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
+              onClick={() => setStage({ kind: 'select' })}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
             >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={apply}
-              disabled={selected.size === 0}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            >
-              Apply via tailor <ArrowUpRight className="w-3 h-3" />
+              Back
             </button>
           </div>
-        </div>
+        )}
       </div>
     </>,
     document.body,
@@ -566,6 +773,13 @@ export default function DashboardPage() {
   // listing matching prefs, stratified-sampled) so this slice is now
   // purely a display preview.
   const topListings = useMemo(() => rankedListings.slice(0, 20), [rankedListings]);
+  // Stable id-only slice used by the per-category Improve popover.
+  // Identity is stable across renders so React doesn't re-mount the
+  // popover when the parent re-renders unrelated state.
+  const tailorListingIds = useMemo(
+    () => topListings.map((l) => l.id),
+    [topListings],
+  );
 
   // "Generate Master Resume" — replaces the prior Top-N / Optimize-for-
   // applied-set buttons. One unified flow that pulls every listing
@@ -641,28 +855,34 @@ export default function DashboardPage() {
 
           {/* Per-category bars with click-to-open coaching. Weak bars
               grow an AlertCircle icon next to the score; clicking it
-              opens a popover with the per-category fix catalog
-              (opt-in checkboxes) and a CTA into the tailor workflow. */}
+              opens a popover with atomic keyword pills + a "Tailor
+              now" CTA that runs the resume tailor inline. No page
+              redirect — result lands as a downloadable .docx in the
+              same popover. */}
           <div className="space-y-3">
             <CategoryBar
               label="Technical"
               score={stats.avgTechnical}
               categoryKey="technical"
+              tailorListingIds={tailorListingIds}
             />
             <CategoryBar
               label="Management"
               score={stats.avgManagement}
               categoryKey="management"
+              tailorListingIds={tailorListingIds}
             />
             <CategoryBar
               label="Domain"
               score={stats.avgDomain}
               categoryKey="domain"
+              tailorListingIds={tailorListingIds}
             />
             <CategoryBar
               label="Soft Skills"
               score={stats.avgSoft}
               categoryKey="soft"
+              tailorListingIds={tailorListingIds}
             />
           </div>
 
