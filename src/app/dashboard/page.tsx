@@ -271,10 +271,19 @@ function CategoryFixPopover({
 
   // Three-stage state machine. The popover never unmounts during a
   // stage transition — same DOM node, just different rendered body.
+  // The 'done' stage caches whichever artifacts the user has fetched
+  // so far. The initial Tailor-now run produces a docx; clicking
+  // Download .pdf later triggers a separate fetch and adds the pdf
+  // blob to the cache. Subsequent clicks of either format use the
+  // cached blob — no redundant tailoring.
+  type Artifacts = {
+    docx?: { blob: Blob; filename: string };
+    pdf?: { blob: Blob; filename: string };
+  };
   type Stage =
     | { kind: 'select' }
-    | { kind: 'tailoring'; startedAt: number }
-    | { kind: 'done'; blob: Blob; filename: string; tailoredCount: number }
+    | { kind: 'tailoring'; startedAt: number; targetFormat: 'docx' | 'pdf' }
+    | { kind: 'done'; artifacts: Artifacts; tailoredCount: number; fetchingFormat: 'pdf' | null }
     | { kind: 'error'; message: string };
   const [stage, setStage] = useState<Stage>({ kind: 'select' });
 
@@ -335,49 +344,100 @@ function CategoryFixPopover({
     });
   }
 
+  /** Shared fetcher used by both the initial Tailor-now run and the
+   *  on-demand PDF fetch. Returns the response blob + filename, or
+   *  throws on failure. */
+  async function fetchTailored(format: 'docx' | 'pdf'): Promise<{ blob: Blob; filename: string }> {
+    const res = await fetch('/api/tailor-resume/multi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        listingIds: tailorListingIds,
+        selectedKeywords: Array.from(selected),
+        format,
+        mode: 'mandatory',
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Tailor failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    // Server returns a filename in Content-Disposition; fall back to
+    // a sensible default if it's missing.
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    const m = /filename="?([^";]+)"?/i.exec(cd);
+    const filename = m?.[1] ?? `tailored_${categoryKey}_resume.${format}`;
+    return { blob, filename };
+  }
+
   async function runTailor() {
     if (selected.size === 0 || tailorListingIds.length === 0) return;
-    setStage({ kind: 'tailoring', startedAt: Date.now() });
+    setStage({ kind: 'tailoring', startedAt: Date.now(), targetFormat: 'docx' });
     try {
-      // Reuse the master-resume multi endpoint — it already accepts
-      // a free-form selectedKeywords list and tailors against the
-      // listing cohort. No new endpoint needed.
-      const res = await fetch('/api/tailor-resume/multi', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          listingIds: tailorListingIds,
-          selectedKeywords: Array.from(selected),
-          format: 'docx',
-          mode: 'mandatory',
-        }),
+      // First run produces a docx — fast path, most users want this.
+      // PDF is offered as an opt-in in the 'done' stage and triggers
+      // its own fetch (see fetchPdfOnDemand below).
+      const { blob, filename } = await fetchTailored('docx');
+      setStage({
+        kind: 'done',
+        artifacts: { docx: { blob, filename } },
+        tailoredCount: selected.size,
+        fetchingFormat: null,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Tailor failed (${res.status})`);
-      }
-      const blob = await res.blob();
-      // Server returns a filename in Content-Disposition; fall back
-      // to a sensible default if it's missing.
-      const cd = res.headers.get('Content-Disposition') ?? '';
-      const m = /filename="?([^";]+)"?/i.exec(cd);
-      const filename = m?.[1] ?? `tailored_${categoryKey}_resume.docx`;
-      setStage({ kind: 'done', blob, filename, tailoredCount: selected.size });
     } catch (e) {
       setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to tailor resume' });
     }
   }
 
-  function downloadDocx() {
+  /** Fetches the PDF version of the current selection. Called when
+   *  the user clicks "Download .pdf" on a done stage that doesn't
+   *  yet have a pdf blob cached. Result is stored alongside the
+   *  docx in the artifacts cache so a re-click is instant. */
+  async function fetchPdfOnDemand() {
     if (stage.kind !== 'done') return;
-    const url = URL.createObjectURL(stage.blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = stage.filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    if (stage.artifacts.pdf) {
+      // Already cached — just trigger the download path below.
+      triggerDownload('pdf');
+      return;
+    }
+    setStage({ ...stage, fetchingFormat: 'pdf' });
+    try {
+      const { blob, filename } = await fetchTailored('pdf');
+      setStage((cur) => {
+        if (cur.kind !== 'done') return cur;
+        return {
+          ...cur,
+          artifacts: { ...cur.artifacts, pdf: { blob, filename } },
+          fetchingFormat: null,
+        };
+      });
+      // Trigger the download once the cache is updated. setTimeout
+      // pushes this after the state commit so triggerDownload can
+      // see the new blob via the closure.
+      setTimeout(() => triggerDownload('pdf'), 0);
+    } catch (e) {
+      setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to render PDF' });
+    }
+  }
+
+  /** Download a cached artifact by format. Pulls the latest stage
+   *  state at call time so the closure can't see a stale snapshot. */
+  function triggerDownload(format: 'docx' | 'pdf') {
+    setStage((cur) => {
+      if (cur.kind !== 'done') return cur;
+      const art = cur.artifacts[format];
+      if (!art) return cur;
+      const url = URL.createObjectURL(art.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = art.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return cur;
+    });
   }
 
   return createPortal(
@@ -524,25 +584,54 @@ function CategoryFixPopover({
             <div>
               <div className="text-sm font-semibold text-slate-800">Resume tailored</div>
               <div className="text-[11px] text-slate-500 mt-0.5">
-                Download the .docx and review the changes locally.
+                Pick a format and review the changes locally.
               </div>
             </div>
-            <div className="flex flex-col w-full gap-2 mt-1">
+            {/* Two download options side-by-side. .docx is ready
+                immediately (already fetched). .pdf is lazy: clicking
+                triggers a separate /multi call with format=pdf and
+                shows an inline spinner on the button until the blob
+                arrives, then auto-starts the download. Subsequent
+                clicks of either format reuse the cached blob. */}
+            <div className="grid grid-cols-2 w-full gap-2 mt-1">
               <button
                 type="button"
-                onClick={downloadDocx}
+                onClick={() => triggerDownload('docx')}
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 transition-all"
               >
-                <Download className="w-3.5 h-3.5" /> Download .docx
+                <Download className="w-3.5 h-3.5" /> .docx
               </button>
               <button
                 type="button"
-                onClick={() => setStage({ kind: 'select' })}
-                className="text-[11px] text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline"
+                onClick={fetchPdfOnDemand}
+                disabled={stage.fetchingFormat === 'pdf'}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-60 disabled:cursor-wait transition-all"
+                title={stage.artifacts.pdf
+                  ? 'Download the cached PDF'
+                  : 'Render and download as PDF — separate request, ~10–25s the first time'}
               >
-                Adjust keywords + retailor
+                {stage.fetchingFormat === 'pdf' ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Rendering…
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" /> .pdf
+                    {stage.artifacts.pdf && (
+                      <Check className="w-3 h-3 text-emerald-500" />
+                    )}
+                  </>
+                )}
               </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setStage({ kind: 'select' })}
+              disabled={stage.fetchingFormat === 'pdf'}
+              className="text-[11px] text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              Adjust keywords + retailor
+            </button>
           </div>
         )}
 
