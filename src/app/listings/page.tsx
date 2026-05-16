@@ -4282,6 +4282,7 @@ function SalaryIntelInline({
     p75: number;
     confidence: 'low' | 'medium' | 'high';
     scope: string;
+    targetPercentile?: number | null;
   } | null>(null);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
@@ -4298,6 +4299,17 @@ function SalaryIntelInline({
     medium: 'text-amber-700 bg-amber-100',
     low: 'text-slate-600 bg-slate-100',
   };
+  // Percentile badge — answers "where does this offer sit?" at a
+  // glance. Color-coded so a glance tells the user whether to
+  // negotiate up (low) or take it (high). The badge appears only
+  // when the listing actually has a posted salary AND the cohort
+  // had enough samples to compute a meaningful percentile.
+  const pct = stats.targetPercentile;
+  const pctMeta = pct == null ? null
+    : pct >= 75 ? { label: `${pct}th percentile`, color: 'text-emerald-700 bg-emerald-100 border-emerald-200', hint: 'Top quartile — strong offer' }
+    : pct >= 50 ? { label: `${pct}th percentile`, color: 'text-indigo-700 bg-indigo-100 border-indigo-200', hint: 'Above the cohort median' }
+    : pct >= 25 ? { label: `${pct}th percentile`, color: 'text-amber-700 bg-amber-100 border-amber-200', hint: 'Below median — room to negotiate' }
+    : { label: `${pct}th percentile`, color: 'text-rose-700 bg-rose-100 border-rose-200', hint: 'Bottom quartile — significant negotiation room' };
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-100 rounded-lg text-xs">
       <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -4313,6 +4325,14 @@ function SalaryIntelInline({
           <span className="text-slate-500">· This posting: {listingSalary}</span>
         )}
       </div>
+      {pctMeta && (
+        <span
+          className={`px-2 py-0.5 rounded-full font-semibold border ${pctMeta.color}`}
+          title={pctMeta.hint}
+        >
+          {pctMeta.label}
+        </span>
+      )}
       <span
         className={`px-2 py-0.5 rounded-full font-medium ${confidenceStyle[stats.confidence]}`}
         title={`${stats.n} comparable postings in your listings cache`}

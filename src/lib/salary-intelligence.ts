@@ -27,6 +27,10 @@ export interface SalaryStats {
   confidence: 'low' | 'medium' | 'high';
   /** Where the cohort came from — purely for display. */
   scope: string;
+  /** Percentile of the TARGET listing's midpoint within this cohort.
+   *  0-100. Surfaces "where does this offer sit?" as a single number.
+   *  Null when the target listing has no salary to compare. */
+  targetPercentile?: number | null;
 }
 
 /** Title → role family bucket. Same idea as the level matcher; we
@@ -131,7 +135,16 @@ export function computeSalaryStats(
   const scope = tightSamples.length >= 5
     ? `${family} in ${targetBucket}`
     : `${family ?? 'Similar roles'} (any location)`;
-  return { n, median, p25, p75, confidence, scope };
+  // Where does THIS listing sit in the cohort? We use the count-below
+  // method (number of peers strictly below the target, divided by n)
+  // which is the same definition Levels.fyi and Glassdoor use for
+  // their "percentile" labels — straightforward and stable when the
+  // target sits exactly on a tied value.
+  const targetMid = midpoint(target);
+  const targetPercentile = targetMid != null && sorted.length > 0
+    ? Math.round((sorted.filter((s) => s < targetMid).length / sorted.length) * 100)
+    : null;
+  return { n, median, p25, p75, confidence, scope, targetPercentile };
 }
 
 function midpoint(l: JobListing): number | null {
