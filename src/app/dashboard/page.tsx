@@ -167,45 +167,69 @@ function CategoryBar({
   label,
   score,
   categoryKey,
-  tailorListingIds,
+  stagedKeywords,
+  onToggleStaged,
 }: {
   label: string;
   score: number;
   categoryKey?: CatKey;
-  /** Listing-IDs cohort the popover should tailor against. The
-   *  dashboard passes its scored listings; CategoryBar is purely
-   *  presentational about them. Optional so other usages of the
-   *  component (per-listing detail) aren't broken. */
-  tailorListingIds?: string[];
+  /** Live reference to the dashboard's stagedMasterKeywords set.
+   *  When provided alongside onToggleStaged, the ⚠ button opens a
+   *  picker that toggles entries in this set. Optional so per-
+   *  listing usages stay unaffected. */
+  stagedKeywords?: Set<string>;
+  onToggleStaged?: (kw: string) => void;
 }) {
   const color =
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
     : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
     : 'bg-gradient-to-r from-rose-400 to-pink-400';
-  // Showing the coach button is gated on BOTH the score threshold
-  // and the presence of categoryKey + listing cohort — without
-  // either the popover wouldn't have an action to take.
-  const showCoach = !!categoryKey && !!tailorListingIds && tailorListingIds.length > 0 && score < 80;
+  // ⚠ shows when (a) the category is weak, (b) we have a staged-set
+  // + toggle function plumbed (i.e. we're in master-tailor context),
+  // (c) score < 80 (the "already strong" threshold).
+  const showCoach = !!categoryKey && !!stagedKeywords && !!onToggleStaged && score < 80;
   const [popoverOpen, setPopoverOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  // How many keywords in this category's atomic catalog the user has
+  // already staged. Lets us flip the ⚠ to a quiet ✓ N pill when the
+  // user has picked items from this category — quiet confirmation.
+  const stagedInCat = useMemo(() => {
+    if (!stagedKeywords || !categoryKey) return 0;
+    const items = (FIXES_BY_CATEGORY[categoryKey] ?? []).flatMap((g) => g.items);
+    return items.filter((k) => stagedKeywords.has(k)).length;
+  }, [stagedKeywords, categoryKey]);
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
       <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
+      <span className="text-xs font-semibold text-slate-700 w-10 text-right">{score}%</span>
       {showCoach && (
         <>
           <button
             ref={buttonRef}
             type="button"
             onClick={() => setPopoverOpen(true)}
-            className="p-0.5 rounded-full text-amber-500 hover:bg-amber-100 hover:text-amber-700 transition-colors"
-            title={`See suggestions to improve ${label}`}
+            className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+              stagedInCat > 0
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
+            }`}
+            title={
+              stagedInCat > 0
+                ? `${stagedInCat} ${label} keyword${stagedInCat === 1 ? '' : 's'} staged for master tailor — click to edit`
+                : `Pick ${label} keywords for the next Master Resume`
+            }
             aria-label={`Show fixes for ${label}`}
           >
-            <AlertCircle className="w-4 h-4" />
+            {stagedInCat > 0 ? (
+              <>
+                <Check className="w-3 h-3" /> {stagedInCat}
+              </>
+            ) : (
+              <AlertCircle className="w-3 h-3" />
+            )}
           </button>
           {popoverOpen && (
             <CategoryFixPopover
@@ -213,7 +237,8 @@ function CategoryBar({
               label={label}
               score={score}
               categoryKey={categoryKey!}
-              tailorListingIds={tailorListingIds!}
+              stagedKeywords={stagedKeywords!}
+              onToggle={onToggleStaged!}
               onClose={() => setPopoverOpen(false)}
             />
           )}
@@ -224,69 +249,40 @@ function CategoryBar({
 }
 
 /**
- * Portaled popover anchored to an AlertCircle button. Three-stage
- * inline flow — NO page redirect:
+ * Portaled popover anchored to an AlertCircle button — PICKER ONLY.
  *
- *   1. \`select\` — atomic keyword pills grouped under theme headers.
- *      Each pill is one toggleable opt-in. Group headers have an
- *      all/none toggle so users can flip a theme in one click.
+ * Previously this component owned its own selection state AND ran
+ * the tailor inline (multi-stage state machine, embedded download
+ * UI). That made the dashboard read like two parallel master-tailor
+ * features: this popover's "Tailor now" + the separate "Generate
+ * Master Resume" button on Top Matching Jobs.
  *
- *   2. \`tailoring\` — calls /api/tailor-resume/multi with the
- *      selected keywords + the listing cohort, returns a docx blob.
- *      Spinner + progress copy keep the user oriented.
- *
- *   3. \`done\` — confirmation, download button, and back-to-select
- *      so the user can iterate without re-opening the popover.
- *
- * The tailor fires immediately when the user clicks "Tailor now" —
- * no redirect, no extra step. The flow lives entirely inside the
- * popover so users stay in their current context (dashboard).
+ * Now it's the master analog of the per-listing fix popover: pure
+ * picker that writes into a parent-owned \`stagedKeywords\` Set via
+ * \`onToggle\`. The actual tailor fires from the existing Generate
+ * Master Resume button, which consumes the staged set. One entry
+ * point per scope (master / single listing), not two.
  */
 function CategoryFixPopover({
   anchor,
   label,
   score,
   categoryKey,
-  tailorListingIds,
+  stagedKeywords,
+  onToggle,
   onClose,
 }: {
   anchor: HTMLButtonElement | null;
   label: string;
   score: number;
   categoryKey: CatKey;
-  tailorListingIds: string[];
+  /** Live reference to the dashboard's stagedMasterKeywords set.
+   *  Read-only here; toggles dispatched via onToggle. */
+  stagedKeywords: Set<string>;
+  onToggle: (kw: string) => void;
   onClose: () => void;
 }) {
   const groups = FIXES_BY_CATEGORY[categoryKey] ?? [];
-  // Flat list of every atomic keyword across all groups — used for
-  // "select all in this category" semantics and for tracking what's
-  // currently checked. Memoized so the array identity is stable.
-  const allKeywords = useMemo(
-    () => groups.flatMap((g) => g.items),
-    [groups],
-  );
-  // Default state: all atomic items selected. Toggling a group's
-  // header flips everything in that group; toggling a pill flips
-  // just that one.
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(allKeywords));
-
-  // Three-stage state machine. The popover never unmounts during a
-  // stage transition — same DOM node, just different rendered body.
-  // The 'done' stage caches whichever artifacts the user has fetched
-  // so far. The initial Tailor-now run produces a docx; clicking
-  // Download .pdf later triggers a separate fetch and adds the pdf
-  // blob to the cache. Subsequent clicks of either format use the
-  // cached blob — no redundant tailoring.
-  type Artifacts = {
-    docx?: { blob: Blob; filename: string };
-    pdf?: { blob: Blob; filename: string };
-  };
-  type Stage =
-    | { kind: 'select' }
-    | { kind: 'tailoring'; startedAt: number; targetFormat: 'docx' | 'pdf' }
-    | { kind: 'done'; artifacts: Artifacts; tailoredCount: number; fetchingFormat: 'pdf' | null }
-    | { kind: 'error'; message: string };
-  const [stage, setStage] = useState<Stage>({ kind: 'select' });
 
   // Anchor position. Mirrors the flag-dropdown / contact-popover
   // patterns already used elsewhere — fixed to the document body so
@@ -295,12 +291,9 @@ function CategoryFixPopover({
   const recompute = useCallback(() => {
     if (!anchor) return;
     const r = anchor.getBoundingClientRect();
-    // Popover is wider now (440px) because atomic pills need room.
-    // Clamp left to keep it on-screen at narrow viewports.
     const width = 440;
     const margin = 8;
-    const right = r.right;
-    const left = Math.max(margin, Math.min(right - width, window.innerWidth - width - margin));
+    const left = Math.max(margin, Math.min(r.right - width, window.innerWidth - width - margin));
     setPos({ top: r.bottom + 6, left });
   }, [anchor]);
   useEffect(() => {
@@ -314,154 +307,47 @@ function CategoryFixPopover({
     };
   }, [recompute]);
 
-  // Close on Escape, matching the keyboard convention for modals.
-  // Disabled during the tailoring stage so the user doesn't
-  // accidentally abandon an in-flight request.
+  // Escape closes — convention for modals + popovers across the app.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && stage.kind !== 'tailoring') onClose();
+      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, stage.kind]);
+  }, [onClose]);
 
   if (typeof document === 'undefined' || !pos) return null;
 
-  function togglePill(kw: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(kw)) next.delete(kw); else next.add(kw);
-      return next;
-    });
-  }
-
   function toggleGroup(group: FixGroup) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      const allOn = group.items.every((k) => next.has(k));
-      if (allOn) group.items.forEach((k) => next.delete(k));
-      else group.items.forEach((k) => next.add(k));
-      return next;
-    });
-  }
-
-  /** Shared fetcher used by both the initial Tailor-now run and the
-   *  on-demand PDF fetch. Returns the response blob + filename, or
-   *  throws on failure. */
-  async function fetchTailored(format: 'docx' | 'pdf'): Promise<{ blob: Blob; filename: string }> {
-    const res = await fetch('/api/tailor-resume/multi', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        listingIds: tailorListingIds,
-        selectedKeywords: Array.from(selected),
-        format,
-        mode: 'mandatory',
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Tailor failed (${res.status})`);
-    }
-    const blob = await res.blob();
-    // Server returns a filename in Content-Disposition; fall back to
-    // a sensible default if it's missing.
-    const cd = res.headers.get('Content-Disposition') ?? '';
-    const m = /filename="?([^";]+)"?/i.exec(cd);
-    const filename = m?.[1] ?? `tailored_${categoryKey}_resume.${format}`;
-    return { blob, filename };
-  }
-
-  async function runTailor() {
-    if (selected.size === 0 || tailorListingIds.length === 0) return;
-    setStage({ kind: 'tailoring', startedAt: Date.now(), targetFormat: 'docx' });
-    try {
-      // First run produces a docx — fast path, most users want this.
-      // PDF is offered as an opt-in in the 'done' stage and triggers
-      // its own fetch (see fetchPdfOnDemand below).
-      const { blob, filename } = await fetchTailored('docx');
-      setStage({
-        kind: 'done',
-        artifacts: { docx: { blob, filename } },
-        tailoredCount: selected.size,
-        fetchingFormat: null,
-      });
-    } catch (e) {
-      setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to tailor resume' });
+    // Bulk: if every item is already staged, deselect all; otherwise
+    // stage all. Same convention as the per-listing popover's All/None.
+    const allOn = group.items.every((k) => stagedKeywords.has(k));
+    for (const kw of group.items) {
+      const isOn = stagedKeywords.has(kw);
+      if (allOn) {
+        if (isOn) onToggle(kw);
+      } else {
+        if (!isOn) onToggle(kw);
+      }
     }
   }
 
-  /** Pure side-effect: writes a temporary <a> + clicks it to start a
-   *  browser download. Takes the blob and filename DIRECTLY so the
-   *  caller can pass either a cached artifact or a freshly-fetched
-   *  one without going through React state first. */
-  function downloadBlob(blob: Blob, filename: string) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  /** Download a cached artifact by format. Pure function — reads
-   *  current \`stage\` via closure (recreated every render). Earlier
-   *  version wrapped this in setStage((cur) => ...) which fires
-   *  twice in React strict / dev mode, triggering a duplicate
-   *  download. */
-  function triggerDownload(format: 'docx' | 'pdf') {
-    if (stage.kind !== 'done') return;
-    const art = stage.artifacts[format];
-    if (!art) return;
-    downloadBlob(art.blob, art.filename);
-  }
-
-  /** Fetches the PDF version of the current selection. Called when
-   *  the user clicks "Download .pdf" on a done stage that doesn't
-   *  yet have a pdf blob cached. Result is stored alongside the
-   *  docx in the artifacts cache AND directly downloaded — no
-   *  setTimeout-after-setState dance. */
-  async function fetchPdfOnDemand() {
-    if (stage.kind !== 'done') return;
-    if (stage.artifacts.pdf) {
-      // Already cached — straight to the download path.
-      downloadBlob(stage.artifacts.pdf.blob, stage.artifacts.pdf.filename);
-      return;
-    }
-    setStage({ ...stage, fetchingFormat: 'pdf' });
-    try {
-      const { blob, filename } = await fetchTailored('pdf');
-      // Update the cache and trigger the download. Side effects
-      // OUTSIDE the setState updater — updater stays pure.
-      setStage((cur) => {
-        if (cur.kind !== 'done') return cur;
-        return {
-          ...cur,
-          artifacts: { ...cur.artifacts, pdf: { blob, filename } },
-          fetchingFormat: null,
-        };
-      });
-      downloadBlob(blob, filename);
-    } catch (e) {
-      setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to render PDF' });
-    }
-  }
+  const totalStagedInCat = groups.reduce(
+    (acc, g) => acc + g.items.filter((k) => stagedKeywords.has(k)).length,
+    0,
+  );
 
   return createPortal(
     <>
       <div
         className="fixed inset-0 z-[60]"
-        onClick={() => stage.kind !== 'tailoring' && onClose()}
+        onClick={onClose}
       />
       <div
         className="fixed w-[440px] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-2xl shadow-modal z-[70] overflow-hidden"
         style={{ top: pos.top, left: pos.left }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header is constant across stages — keeps the popover
-            anchored visually as the body content swaps. */}
         <div className="flex items-start justify-between gap-2 p-4 border-b border-slate-100">
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
@@ -469,197 +355,77 @@ function CategoryFixPopover({
               Improve {label}
             </h3>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {stage.kind === 'select' && (
-                <>
-                  Currently <span className="font-semibold text-slate-700">{score}%</span>.
-                  Pick the keywords you actually have backing — each is one atomic edit.
-                </>
-              )}
-              {stage.kind === 'tailoring' && 'Generating a tailored resume against your top listings…'}
-              {stage.kind === 'done' && (
-                <>
-                  Tailored resume ready with{' '}
-                  <span className="font-semibold text-slate-700">{stage.tailoredCount}</span>{' '}
-                  keyword{stage.tailoredCount === 1 ? '' : 's'} applied.
-                </>
-              )}
-              {stage.kind === 'error' && (
-                <span className="text-rose-600">Something went wrong — try again.</span>
-              )}
+              Currently <span className="font-semibold text-slate-700">{score}%</span>. Pick
+              the keywords you have backing for — they&apos;ll be staged for the
+              next Generate Master Resume run.
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            disabled={stage.kind === 'tailoring'}
-            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-
-        {/* ─── Stage: select ─────────────────────────────────────── */}
-        {stage.kind === 'select' && (
-          <>
-            <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
-              {groups.map((g) => {
-                const onCount = g.items.filter((k) => selected.has(k)).length;
-                const allOn = onCount === g.items.length;
-                return (
-                  <div key={g.id} className="px-4 py-3">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-800">{g.title}</div>
-                        <div className="text-[10px] text-slate-500 leading-snug">{g.blurb}</div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(g)}
-                        className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
-                        title={allOn ? 'Deselect all in this group' : 'Select all in this group'}
-                      >
-                        {allOn ? 'None' : 'All'} ({onCount}/{g.items.length})
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {g.items.map((kw) => {
-                        const isOn = selected.has(kw);
-                        return (
-                          <button
-                            key={kw}
-                            type="button"
-                            onClick={() => togglePill(kw)}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
-                              isOn
-                                ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
-                                : 'bg-white text-slate-400 border-slate-200 line-through hover:bg-slate-50'
-                            }`}
-                            title={isOn ? 'Click to exclude' : 'Click to include'}
-                          >
-                            {isOn && <Check className="w-2.5 h-2.5" />}
-                            {kw}
-                          </button>
-                        );
-                      })}
-                    </div>
+        <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+          {groups.map((g) => {
+            const onCount = g.items.filter((k) => stagedKeywords.has(k)).length;
+            const allOn = onCount === g.items.length;
+            return (
+              <div key={g.id} className="px-4 py-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-800">{g.title}</div>
+                    <div className="text-[10px] text-slate-500 leading-snug">{g.blurb}</div>
                   </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
-              <span className="text-[11px] text-slate-500">
-                {selected.size} keyword{selected.size === 1 ? '' : 's'} selected
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={runTailor}
-                  disabled={selected.size === 0}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                >
-                  <Sparkles className="w-3 h-3" /> Tailor now
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(g)}
+                    className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
+                    title={allOn ? 'Deselect all in this group' : 'Select all in this group'}
+                  >
+                    {allOn ? 'None' : 'All'} ({onCount}/{g.items.length})
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {g.items.map((kw) => {
+                    const isOn = stagedKeywords.has(kw);
+                    return (
+                      <button
+                        key={kw}
+                        type="button"
+                        onClick={() => onToggle(kw)}
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
+                          isOn
+                            ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
+                            : 'bg-white text-slate-400 border-slate-200 line-through hover:bg-slate-50'
+                        }`}
+                        title={isOn ? 'Click to exclude' : 'Click to include'}
+                      >
+                        {isOn && <Check className="w-2.5 h-2.5" />}
+                        {kw}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </>
-        )}
-
-        {/* ─── Stage: tailoring ──────────────────────────────────── */}
-        {stage.kind === 'tailoring' && (
-          <div className="p-6 flex flex-col items-center gap-3 text-center">
-            <Loader2 className="w-7 h-7 text-indigo-500 animate-spin" />
-            <div className="text-sm font-semibold text-slate-700">
-              Applying {selected.size} edit{selected.size === 1 ? '' : 's'} to your resume…
-            </div>
-            <div className="text-[11px] text-slate-500 max-w-[280px]">
-              Running against your top {Math.min(tailorListingIds.length, 20)} scored listings to keep wording
-              natural across job descriptions. Usually 10–25 seconds.
-            </div>
-          </div>
-        )}
-
-        {/* ─── Stage: done ───────────────────────────────────────── */}
-        {stage.kind === 'done' && (
-          <div className="p-5 flex flex-col items-center gap-3 text-center">
-            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
-            <div>
-              <div className="text-sm font-semibold text-slate-800">Resume tailored</div>
-              <div className="text-[11px] text-slate-500 mt-0.5">
-                Pick a format and review the changes locally.
-              </div>
-            </div>
-            {/* Two download options side-by-side. .docx is ready
-                immediately (already fetched). .pdf is lazy: clicking
-                triggers a separate /multi call with format=pdf and
-                shows an inline spinner on the button until the blob
-                arrives, then auto-starts the download. Subsequent
-                clicks of either format reuse the cached blob. */}
-            <div className="grid grid-cols-2 w-full gap-2 mt-1">
-              <button
-                type="button"
-                onClick={() => triggerDownload('docx')}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 transition-all"
-              >
-                <Download className="w-3.5 h-3.5" /> .docx
-              </button>
-              <button
-                type="button"
-                onClick={fetchPdfOnDemand}
-                disabled={stage.fetchingFormat === 'pdf'}
-                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-60 disabled:cursor-wait transition-all"
-                title={stage.artifacts.pdf
-                  ? 'Download the cached PDF'
-                  : 'Render and download as PDF — separate request, ~10–25s the first time'}
-              >
-                {stage.fetchingFormat === 'pdf' ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Rendering…
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-3.5 h-3.5" /> .pdf
-                    {stage.artifacts.pdf && (
-                      <Check className="w-3 h-3 text-emerald-500" />
-                    )}
-                  </>
-                )}
-              </button>
-            </div>
-            <button
-              type="button"
-              onClick={() => setStage({ kind: 'select' })}
-              disabled={stage.fetchingFormat === 'pdf'}
-              className="text-[11px] text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline disabled:opacity-50"
-            >
-              Adjust keywords + retailor
-            </button>
-          </div>
-        )}
-
-        {/* ─── Stage: error ──────────────────────────────────────── */}
-        {stage.kind === 'error' && (
-          <div className="p-5 flex flex-col items-center gap-3 text-center">
-            <AlertTriangle className="w-8 h-8 text-rose-500" />
-            <div className="text-xs text-rose-700 max-w-[320px]">
-              {stage.message}
-            </div>
-            <button
-              type="button"
-              onClick={() => setStage({ kind: 'select' })}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
-            >
-              Back
-            </button>
-          </div>
-        )}
+            );
+          })}
+        </div>
+        <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
+          <span className="text-[11px] text-slate-500">
+            {totalStagedInCat} {label.toLowerCase()} staged
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </>,
     document.body,
@@ -871,13 +637,10 @@ export default function DashboardPage() {
   // listing matching prefs, stratified-sampled) so this slice is now
   // purely a display preview.
   const topListings = useMemo(() => rankedListings.slice(0, 20), [rankedListings]);
-  // Stable id-only slice used by the per-category Improve popover.
-  // Identity is stable across renders so React doesn't re-mount the
-  // popover when the parent re-renders unrelated state.
-  const tailorListingIds = useMemo(
-    () => topListings.map((l) => l.id),
-    [topListings],
-  );
+  // (tailorListingIds was used when the ⚠ popover ran its own
+  // tailor inline. Now removed — the popover is a pure picker
+  // writing into stagedMasterKeywords; the Master Resume modal
+  // owns the listing cohort selection via /api/tailor-resume/general.)
 
   // "Generate Master Resume" — replaces the prior Top-N / Optimize-for-
   // applied-set buttons. One unified flow that pulls every listing
@@ -887,6 +650,23 @@ export default function DashboardPage() {
   // broad ATS coverage across what the user would actually apply to.
   // Server endpoint: /api/tailor-resume/general.
   const [masterModalOpen, setMasterModalOpen] = useState(false);
+
+  // ─── Master-tailor staging ─────────────────────────────────────────
+  // Atomic keywords the user has picked via the per-category ⚠
+  // popovers on Resume Performance. These live at the dashboard scope
+  // so they survive across popover open/close cycles and flow into
+  // the Generate Master Resume modal as the initial selection. Mirrors
+  // the per-listing flow (popovers stage → outside button consumes),
+  // making the master and single-listing tailor pipelines look + feel
+  // identical to the user.
+  const [stagedMasterKeywords, setStagedMasterKeywords] = useState<Set<string>>(new Set());
+  const toggleStagedMasterKeyword = useCallback((kw: string) => {
+    setStagedMasterKeywords((prev) => {
+      const next = new Set(prev);
+      if (next.has(kw)) next.delete(kw); else next.add(kw);
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -953,36 +733,68 @@ export default function DashboardPage() {
 
           {/* Per-category bars with click-to-open coaching. Weak bars
               grow an AlertCircle icon next to the score; clicking it
-              opens a popover with atomic keyword pills + a "Tailor
-              now" CTA that runs the resume tailor inline. No page
-              redirect — result lands as a downloadable .docx in the
-              same popover. */}
+              opens a PICKER popover with atomic keyword pills. The
+              popover writes into the dashboard-level stagedMasterKeywords
+              set — the actual tailor fires from the existing
+              Generate Master Resume button below (Top Matching Jobs
+              section). Mirrors the per-listing flow exactly:
+              popovers stage → outside button consumes. */}
           <div className="space-y-3">
             <CategoryBar
               label="Technical"
               score={stats.avgTechnical}
               categoryKey="technical"
-              tailorListingIds={tailorListingIds}
+              stagedKeywords={stagedMasterKeywords}
+              onToggleStaged={toggleStagedMasterKeyword}
             />
             <CategoryBar
               label="Management"
               score={stats.avgManagement}
               categoryKey="management"
-              tailorListingIds={tailorListingIds}
+              stagedKeywords={stagedMasterKeywords}
+              onToggleStaged={toggleStagedMasterKeyword}
             />
             <CategoryBar
               label="Domain"
               score={stats.avgDomain}
               categoryKey="domain"
-              tailorListingIds={tailorListingIds}
+              stagedKeywords={stagedMasterKeywords}
+              onToggleStaged={toggleStagedMasterKeyword}
             />
             <CategoryBar
               label="Soft Skills"
               score={stats.avgSoft}
               categoryKey="soft"
-              tailorListingIds={tailorListingIds}
+              stagedKeywords={stagedMasterKeywords}
+              onToggleStaged={toggleStagedMasterKeyword}
             />
           </div>
+
+          {/* Staged-status row + Master Resume shortcut.
+              Mirrors the per-listing "N staged for tailor" indicator,
+              with a same-card shortcut to open the modal so users
+              don't have to scroll to the Top Matching Jobs section
+              to commit. The Top Matching Jobs button still works —
+              both open the same modal which pre-fills with whatever's
+              staged here. */}
+          {stagedMasterKeywords.size > 0 && (
+            <div className="mt-4 pt-4 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5">
+                <Check className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="text-slate-700">
+                  <span className="font-semibold">{stagedMasterKeywords.size}</span> keyword
+                  {stagedMasterKeywords.size === 1 ? '' : 's'} staged for master tailor
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setMasterModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 transition-all"
+              >
+                <Sparkles className="w-3 h-3" /> Generate
+              </button>
+            </div>
+          )}
 
           <div className="mt-5 pt-4 border-t border-slate-100">
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -1233,6 +1045,11 @@ export default function DashboardPage() {
       {masterModalOpen && (
         <MasterResumeModal
           onClose={() => setMasterModalOpen(false)}
+          // Seed the modal's keyword picker with whatever the user
+          // staged via the Resume Performance ⚠ popovers. Empty set
+          // means no pre-stage and the modal falls back to its own
+          // default selection logic (top-20 by frequency).
+          initialStagedKeywords={stagedMasterKeywords}
         />
       )}
     </div>
@@ -1651,12 +1468,22 @@ interface CohortMeta {
   byFamily: Record<string, number>;
 }
 
-function MasterResumeModal({ onClose }: { onClose: () => void }) {
+function MasterResumeModal({
+  onClose,
+  initialStagedKeywords,
+}: {
+  onClose: () => void;
+  /** Keywords staged via the Resume Performance ⚠ popovers BEFORE
+   *  the modal opened. When non-empty, the modal uses these as the
+   *  initial selection instead of the auto-top-N fallback — so the
+   *  user's atomic picks survive the modal boundary. */
+  initialStagedKeywords?: Set<string>;
+}) {
   const [analysis, setAnalysis] = useState<MultiAnalyzeResponse | null>(null);
   const [cohort, setCohort] = useState<CohortMeta | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(initialStagedKeywords ?? []));
   const [downloadingFormat, setDownloadingFormat] = useState<'pdf' | 'docx' | null>(null);
   // Mandatory-mode toggle — same semantics as the legacy modal.
   // Default-on so the master resume gets the compression cascade.
@@ -1685,9 +1512,13 @@ function MasterResumeModal({ onClose }: { onClose: () => void }) {
         } else {
           setAnalysis(data);
           if (data.cohort) setCohort(data.cohort);
-          // Auto-select the top N by frequency. /multi already
-          // sorts missingKeywords by frequency desc + category prio.
-          setSelected(new Set(data.missingKeywords.slice(0, DEFAULT_TOP_N).map((k) => k.keyword)));
+          // If the dashboard handed us a pre-staged set, keep it
+          // (already wired via useState initializer). Otherwise
+          // fall back to auto-top-N — /multi sorts missingKeywords
+          // by frequency desc + category prio.
+          if (!initialStagedKeywords || initialStagedKeywords.size === 0) {
+            setSelected(new Set(data.missingKeywords.slice(0, DEFAULT_TOP_N).map((k) => k.keyword)));
+          }
         }
       })
       .catch(() => !cancelled && setError('Failed to analyze listings'))

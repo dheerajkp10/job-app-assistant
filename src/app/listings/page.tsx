@@ -2280,15 +2280,22 @@ function ListingCard({
   // selected IDs ride along on the tailor request.
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set());
   const [suggestionsInitialized, setSuggestionsInitialized] = useState(false);
+  // Strategic-edits drawer in the Resume Tailor section. Collapsed
+  // by default so the section's primary affordance (Tailor button +
+  // staged-status row) stays uncluttered; opt-in opens the edits.
+  const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
 
   // Initialize selected keywords + suggestions when score loads.
   useEffect(() => {
+    // Note: we deliberately DON'T auto-select missing keywords or
+    // suggestions anymore. The new flow is "open ⚠ → pick what you
+    // have backing for". Auto-seeding everything led to users firing
+    // tailors with default selections they hadn't actually reviewed
+    // (matchedKeywords includes long-tail terms they wouldn't endorse).
     if (detailScore && !keywordsInitialized) {
-      setSelectedKeywords(new Set(detailScore.missingKeywords));
       setKeywordsInitialized(true);
     }
     if (detailScore && !suggestionsInitialized) {
-      setSelectedSuggestions(new Set((detailScore.suggestions ?? []).map((s) => s.id)));
       setSuggestionsInitialized(true);
     }
   }, [detailScore, keywordsInitialized, suggestionsInitialized]);
@@ -3047,65 +3054,10 @@ function ListingCard({
                     were here. Both removed — the per-category ⚠
                     popovers above cover the actionable picking. */}
 
-                {/* Resume tailoring suggestions. Each suggestion is a
-                    concrete, opt-in edit — mirror JD title, fill a
-                    skills gap, mirror a niche phrase, etc. The accepted
-                    IDs round-trip to the tailor route as
-                    `selectedSuggestions` and dispatch by `kind`
-                    (replace-text, append-summary, append-skills).
-                    Implemented with native checkbox <label>s so the
-                    toggle is unambiguous — clicking either the box or
-                    the label text flips state, and stopPropagation
-                    prevents any parent expand/collapse handler from
-                    swallowing the click. */}
-                {detailScore.suggestions && detailScore.suggestions.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Sparkles className="w-3.5 h-3.5 text-violet-500" />
-                      <span className="font-medium text-slate-700 text-xs">
-                        Tailoring Suggestions ({selectedSuggestions.size}/{detailScore.suggestions.length} selected)
-                      </span>
-                    </div>
-                    <div className="space-y-1.5">
-                      {detailScore.suggestions.map((s) => {
-                        const isSelected = selectedSuggestions.has(s.id);
-                        const checkboxId = `suggestion-${listing.id}-${s.id}`;
-                        return (
-                          <label
-                            key={s.id}
-                            htmlFor={checkboxId}
-                            onClick={(e) => e.stopPropagation()}
-                            className={`flex gap-2 items-start p-2 rounded-lg text-xs transition-all border ${
-                              tailorResult
-                                ? 'bg-violet-50 border-violet-200 cursor-default'
-                                : isSelected
-                                  ? 'bg-violet-100 border-violet-300 cursor-pointer hover:bg-violet-100'
-                                  : 'bg-white border-slate-200 cursor-pointer hover:bg-slate-50'
-                            }`}
-                          >
-                            <input
-                              id={checkboxId}
-                              type="checkbox"
-                              checked={isSelected}
-                              disabled={!!tailorResult}
-                              onChange={() => toggleSuggestion(s.id)}
-                              onClick={(e) => e.stopPropagation()}
-                              className="mt-0.5 w-3.5 h-3.5 accent-purple-600 cursor-pointer"
-                            />
-                            <span className="flex-1 min-w-0">
-                              <span className={`block font-semibold ${isSelected ? 'text-slate-800' : 'text-slate-700'}`}>
-                                {s.label}
-                              </span>
-                              <span className={`block mt-0.5 text-[11px] leading-snug ${isSelected ? 'text-slate-600' : 'text-slate-500'}`}>
-                                {s.description}
-                              </span>
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+                {/* Tailoring Suggestions used to live here; moved
+                    into the Resume Tailor section below so all
+                    tailor-bound pickers (keywords + strategic edits)
+                    sit next to the Tailor button. */}
               </div>
               );
             })()}
@@ -3134,10 +3086,101 @@ function ListingCard({
               <p className="text-xs text-slate-400">Waiting for score analysis...</p>
             )}
 
-            {detailScore && !tailorResult && !tailoring && !tailorError && (
-              <p className="text-xs text-slate-500">
-                Click &ldquo;Tailor My Resume&rdquo; to optimize keywords for this role. No false info added.
-              </p>
+            {/* Pre-tailor staging summary. Mirrors the per-category
+                "✓ N staged" pill in the score panel above, but here
+                surfaces the TOTAL alongside any strategic edits the
+                user opted into. Tightens the visual loop between
+                picking (in popovers) and committing (Tailor button). */}
+            {detailScore && !tailorResult && !tailoring && (
+              <div className="mb-3 px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs flex items-center justify-between gap-2">
+                <span className="text-slate-600">
+                  {selectedKeywords.size === 0 && selectedSuggestions.size === 0 ? (
+                    <span className="italic text-slate-500">
+                      Nothing staged yet — open <AlertCircle className="inline w-3 h-3 text-amber-500 mx-0.5" /> on a weak category above to pick keywords.
+                    </span>
+                  ) : (
+                    <>
+                      <span className="font-semibold text-slate-800">{selectedKeywords.size}</span> keyword{selectedKeywords.size === 1 ? '' : 's'}
+                      {selectedSuggestions.size > 0 && (
+                        <>
+                          {' + '}
+                          <span className="font-semibold text-slate-800">{selectedSuggestions.size}</span> strategic edit{selectedSuggestions.size === 1 ? '' : 's'}
+                        </>
+                      )}
+                      {' staged for tailor'}
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {/* Strategic edits — moved here from inside the Score
+                panel. Whole-line edits the scorer suggests (mirror
+                JD title, append a skills group, etc.). Collapsible
+                and opt-in: nothing is selected until the user
+                explicitly checks a box. The header acts as the
+                toggle; chevron mirrors the Notes section pattern. */}
+            {detailScore && !tailorResult && detailScore.suggestions && detailScore.suggestions.length > 0 && (
+              <div className="mb-3 rounded-lg border border-slate-200 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setSuggestionsExpanded((v) => !v)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
+                  aria-expanded={suggestionsExpanded}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Sparkles className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                    <span className="text-xs font-semibold text-slate-700">
+                      Strategic edits
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      ({selectedSuggestions.size}/{detailScore.suggestions.length} selected)
+                    </span>
+                  </div>
+                  {suggestionsExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  )}
+                </button>
+                {suggestionsExpanded && (
+                  <div className="px-3 pb-3 space-y-1.5 border-t border-slate-100 pt-2">
+                    {detailScore.suggestions.map((s) => {
+                      const isSelected = selectedSuggestions.has(s.id);
+                      const checkboxId = `suggestion-${listing.id}-${s.id}`;
+                      return (
+                        <label
+                          key={s.id}
+                          htmlFor={checkboxId}
+                          onClick={(e) => e.stopPropagation()}
+                          className={`flex gap-2 items-start p-2 rounded-lg text-xs transition-all border cursor-pointer ${
+                            isSelected
+                              ? 'bg-violet-50 border-violet-200 hover:bg-violet-100'
+                              : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          <input
+                            id={checkboxId}
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSuggestion(s.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-0.5 w-3.5 h-3.5 accent-violet-600 cursor-pointer"
+                          />
+                          <span className="flex-1 min-w-0">
+                            <span className={`block font-semibold ${isSelected ? 'text-slate-800' : 'text-slate-700'}`}>
+                              {s.label}
+                            </span>
+                            <span className={`block mt-0.5 text-[11px] leading-snug ${isSelected ? 'text-slate-600' : 'text-slate-500'}`}>
+                              {s.description}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
 
             {tailorError && (
