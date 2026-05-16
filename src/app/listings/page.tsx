@@ -3381,9 +3381,9 @@ function ListingCard({
           </section>
 
           {/* Hiring & Recruiting Contacts — no scraping; just pre-built
-              LinkedIn / Google deep-search URLs that the user clicks
-              through. Avoids ToS issues and stays robust against
-              LinkedIn UI changes. */}
+              LinkedIn deep-search URLs that the user clicks through.
+              Avoids ToS issues and stays robust against LinkedIn UI
+              changes. */}
           <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -3392,7 +3392,7 @@ function ListingCard({
               </div>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              Pre-built searches across LinkedIn + Google site-restricted searches. Each opens in a new tab.
+              Pre-built LinkedIn people-searches. Each opens in a new tab.
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {(() => {
@@ -3415,12 +3415,6 @@ function ListingCard({
                 // matches via full-text search).
                 const linkedinUrl = (q: string) =>
                   `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
-                // Google site-restricted search for LinkedIn
-                // profiles — often surfaces the right person faster
-                // than LinkedIn's own search because Google indexes
-                // profile titles + summaries.
-                const googleUrl = (q: string) =>
-                  `https://www.google.com/search?q=${encodeURIComponent(`site:linkedin.com/in ${q}`)}`;
                 const cards = [
                   {
                     label: 'Recruiters on LinkedIn',
@@ -3431,16 +3425,6 @@ function ListingCard({
                     label: 'Hiring managers on LinkedIn',
                     desc: `"${mgrKeyword}" at ${company}`,
                     href: linkedinUrl(`${mgrKeyword} ${company}`),
-                  },
-                  {
-                    label: 'Recruiters via Google',
-                    desc: `site:linkedin.com/in "${company}" "recruiter"`,
-                    href: googleUrl(`"${company}" recruiter`),
-                  },
-                  {
-                    label: 'Hiring managers via Google',
-                    desc: `site:linkedin.com/in "${company}" "${mgrKeyword}"`,
-                    href: googleUrl(`"${company}" "${mgrKeyword}"`),
                   },
                 ];
                 return cards.map((c) => (
@@ -3460,9 +3444,6 @@ function ListingCard({
                 ));
               })()}
             </div>
-            <p className="text-[11px] text-slate-400 mt-3">
-              Tip: the Google site-restricted searches often surface the right person faster than LinkedIn&apos;s own filtered search.
-            </p>
           </section>
 
           {/* Cover Letter section. Deterministic 3-paragraph generator
