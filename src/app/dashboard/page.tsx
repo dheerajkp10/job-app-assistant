@@ -6,6 +6,7 @@ import {
   User, Briefcase, MapPin, DollarSign, FileText, Target, Building2,
   Loader2, BarChart3,
   CheckCircle2, AlertTriangle, Star, Zap, Sparkles, Download, X, Check,
+  ArrowUpRight,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
 import { filterByUserPreferences } from '@/lib/role-filter';
@@ -61,19 +62,77 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
   );
 }
 
-function CategoryBar({ label, score }: { label: string; score: number }) {
+/**
+ * Score bar with optional inline coaching. When `tip` is provided, the
+ * bar grows a hoverable affordance: hovering reveals a one-line
+ * suggestion AND a small Improve → button that links to /listings
+ * with a `weakCategory=<key>` query param. The listings page reads
+ * that param, opens the highest-match listing's expanded card, and
+ * the per-listing Quick Wins panel already ranks missing keywords
+ * by category weight — so the user lands one click away from the
+ * tailoring workflow scoped to their weakest area.
+ *
+ * Falls back to the original quiet bar when `tip` is omitted so the
+ * component stays usable in contexts (per-listing detail) where the
+ * action wouldn't make sense.
+ */
+function CategoryBar({
+  label,
+  score,
+  tip,
+  categoryKey,
+}: {
+  label: string;
+  score: number;
+  tip?: string;
+  categoryKey?: 'technical' | 'management' | 'domain' | 'soft';
+}) {
+  const [hovered, setHovered] = useState(false);
   // Match the new score-tier palette used by ScoreRing.
   const color =
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
     : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
     : 'bg-gradient-to-r from-rose-400 to-pink-400';
+  const showCoach = !!tip && score < 80;
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
-      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
+    <div
+      className="group relative"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
+        <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
+        </div>
+        <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
+        {/* Improve button — only renders when (a) a tip exists, and
+            (b) the category is below the "already strong" threshold.
+            Hover-revealed via opacity so the row stays clean at rest. */}
+        {showCoach && (
+          <Link
+            href={`/listings?weakCategory=${categoryKey ?? ''}`}
+            className={`absolute right-0 -translate-y-1/2 top-1/2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-opacity ${
+              hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
+            title={tip}
+          >
+            Improve <ArrowUpRight className="w-2.5 h-2.5" />
+          </Link>
+        )}
       </div>
-      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
+      {/* Hover tip — slides in below the bar. Pure CSS opacity
+          transition so there's no layout shift; it occupies absolute
+          space and the parent's bottom padding accounts for it. */}
+      {showCoach && (
+        <div
+          className={`absolute left-[5.75rem] right-0 top-full mt-1 z-10 text-[11px] text-slate-600 italic leading-snug transition-opacity ${
+            hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          {tip}
+        </div>
+      )}
     </div>
   );
 }
@@ -356,11 +415,37 @@ export default function DashboardPage() {
             <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
           </div>
 
-          <div className="space-y-3">
-            <CategoryBar label="Technical" score={stats.avgTechnical} />
-            <CategoryBar label="Management" score={stats.avgManagement} />
-            <CategoryBar label="Domain" score={stats.avgDomain} />
-            <CategoryBar label="Soft Skills" score={stats.avgSoft} />
+          {/* Per-category bars with inline coaching. Hovering a weak
+              category surfaces a one-line tip + Improve → button that
+              deep-links into /listings with the category as context.
+              Replaces the separate "Where to focus next" panel that
+              used to live below the tier counts — keeps the card
+              compact without losing the actionable hint. */}
+          <div className="space-y-3 pb-4">
+            <CategoryBar
+              label="Technical"
+              score={stats.avgTechnical}
+              categoryKey="technical"
+              tip="Add hands-on stacks / cloud / language mentions to your Skills + bullets."
+            />
+            <CategoryBar
+              label="Management"
+              score={stats.avgManagement}
+              categoryKey="management"
+              tip="Mention team size, scope, and outcomes in your Summary / Experience."
+            />
+            <CategoryBar
+              label="Domain"
+              score={stats.avgDomain}
+              categoryKey="domain"
+              tip="Name the industry verticals (fintech, healthcare, etc.) you've shipped in."
+            />
+            <CategoryBar
+              label="Soft Skills"
+              score={stats.avgSoft}
+              categoryKey="soft"
+              tip="Add leadership / collab / customer-focus phrases in your Summary line."
+            />
           </div>
 
           <div className="mt-5 pt-4 border-t border-slate-100">
@@ -380,53 +465,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Portfolio "where to focus" hint. Surfaces the weakest
-              category across all scored listings + the lift that
-              would unlock if it moved up — the answer to
-              "if I have time for one improvement, what is it?".
-              Hidden when nothing is scored or the user's already
-              at par across the board. */}
-          {stats.scoredCount >= 5 && (() => {
-            const cats: { label: string; score: number; weight: number; tip: string }[] = [
-              { label: 'Technical', score: stats.avgTechnical, weight: 0.40,
-                tip: 'Add hands-on stacks / cloud / language mentions to your Skills + bullets.' },
-              { label: 'Management', score: stats.avgManagement, weight: 0.20,
-                tip: 'Mention team size, scope, and outcomes in your Summary / Experience.' },
-              { label: 'Domain', score: stats.avgDomain, weight: 0.15,
-                tip: 'Name the industry verticals (fintech, healthcare, etc.) you\'ve shipped in.' },
-              { label: 'Soft Skills', score: stats.avgSoft, weight: 0.10,
-                tip: 'Add leadership / collab / customer-focus phrases in your Summary line.' },
-            ];
-            // Rank by impact: a 10pt lift in a 40%-weight category
-            // moves overall more than a 30pt lift in a 10%-weight one.
-            // Estimated lift = (100 - score) × weight, capped to keep
-            // the number realistic.
-            cats.sort((a, b) => (100 - b.score) * b.weight - (100 - a.score) * a.weight);
-            const focus = cats[0];
-            if (focus.score >= 80) return null; // already strong across the board
-            const lift = Math.min(8, Math.round((100 - focus.score) * focus.weight * 0.3));
-            return (
-              <div className="mt-4 pt-4 border-t border-slate-100">
-                <div className="flex items-start gap-2">
-                  <Target className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-700">
-                      Where to focus next
-                    </div>
-                    <div className="text-xs text-slate-600 mt-0.5">
-                      <span className="font-medium text-indigo-700">{focus.label}</span> is your
-                      weakest category ({focus.score}%). Lifting it could add{' '}
-                      <span className="font-semibold text-emerald-600">~{lift} pts</span> to
-                      your portfolio average.
-                    </div>
-                    <div className="text-[11px] text-slate-500 mt-1 italic">
-                      {focus.tip}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
+          {/* "Where to focus next" panel was removed — the same hint
+              is now surfaced inline on each CategoryBar above (hover
+              reveals the tip + Improve → action). Keeps the card
+              compact while preserving the actionable coaching. */}
         </div>
 
         {/* Top Companies. List scrolls within a fixed-height pane so

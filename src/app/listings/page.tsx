@@ -8,7 +8,7 @@ import {
   DollarSign, Filter, ChevronDown, ChevronUp, ChevronRight, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
   Tag, EyeOff, Eye, Globe, Sparkles, Check, Users, NotebookPen,
-  Mic, MicOff,
+  Mic, MicOff, X,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
@@ -372,6 +372,27 @@ export default function ListingsPage() {
 
   // Expanded card
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Dashboard → listings deep link. When the user clicks "Improve" on
+  // a CategoryBar in the Resume Performance card, the dashboard sends
+  // them here with ?weakCategory=technical|management|domain|soft.
+  // We surface a small banner and, on first paint with listings in
+  // hand, auto-expand the highest-scoring listing so the user lands
+  // one click away from its per-listing Quick Wins panel (which
+  // already ranks missing keywords by category weight).
+  const [weakCategory, setWeakCategory] = useState<string | null>(null);
+  const [autoExpandedForWeakCat, setAutoExpandedForWeakCat] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const wc = params.get('weakCategory');
+    if (wc && ['technical', 'management', 'domain', 'soft'].includes(wc)) {
+      setWeakCategory(wc);
+      // Clean the URL so a reload doesn't re-fire the banner — same
+      // pattern the share-target prefill on /jobs/add uses.
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -934,6 +955,19 @@ export default function ListingsPage() {
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+  // Deep-link auto-expand. When the dashboard sent us here with a
+  // weakCategory query param, expand the highest-scoring listing on
+  // the first page so the user lands inside that listing's Score
+  // panel — the per-listing Quick Wins panel ranks missing keywords
+  // by category weight, completing the dashboard → tailor handoff.
+  useEffect(() => {
+    if (!weakCategory) return;
+    if (autoExpandedForWeakCat) return;
+    if (paginated.length === 0) return;
+    const top = paginated[0];
+    setExpandedId(top.id);
+    setAutoExpandedForWeakCat(true);
+  }, [weakCategory, autoExpandedForWeakCat, paginated]);
 
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
@@ -1116,6 +1150,37 @@ export default function ListingsPage() {
           {refreshing ? 'Refreshing...' : 'Refresh All'}
         </Button>
       </div>
+
+      {/* Dashboard → listings deep-link banner. Tells the user we're
+          focusing them on a specific category and points to the
+          per-listing Quick Wins panel that does the actual coaching. */}
+      {weakCategory && (() => {
+        const labels: Record<string, string> = {
+          technical: 'Technical', management: 'Management',
+          domain: 'Domain', soft: 'Soft Skills',
+        };
+        return (
+          <div className="mb-4 px-4 py-2.5 rounded-lg border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between gap-3 animate-fade-in-up">
+            <div className="flex items-center gap-2 text-sm min-w-0">
+              <Target className="w-4 h-4 text-indigo-600 shrink-0" />
+              <span className="text-indigo-900 truncate">
+                Improving <strong>{labels[weakCategory] ?? weakCategory}</strong>.{' '}
+                <span className="text-indigo-700/80">
+                  Open any listing&apos;s <span className="font-medium">Quick wins</span> panel to target this category in the next tailor.
+                </span>
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setWeakCategory(null)}
+              className="shrink-0 p-1 rounded text-indigo-400 hover:bg-indigo-100 hover:text-indigo-700"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Streaming refresh progress card. Mirrors the onboarding wizard:
           discovers all companies, then walks each one to pull listings,
