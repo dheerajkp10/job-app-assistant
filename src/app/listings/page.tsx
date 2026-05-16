@@ -172,19 +172,22 @@ function CategoryBar({
   // actionable to pick. Threshold mirrors the dashboard (< 80).
   const showCoach = !!onAlertClick && score < 80 && missingCount > 0;
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
+    <div className="flex items-center gap-2">
+      {/* Tightened from w-24 → w-20: the longest label ("Soft Skills")
+          fits in ~70px at text-xs, w-20 (80px) is enough with breathing
+          room. Gives the bar +16px per row. */}
+      <span className="text-xs text-slate-500 w-20 text-right shrink-0">{label}</span>
       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-slate-700 w-10 text-right">{score}%</span>
-      {/* Fixed-width trailing slot so the bar's flex-1 column is
-          consistent across rows regardless of whether the ⚠ button
-          renders, and regardless of how many digits the count has.
-          Without this, rows like "Technical ⚠ 12" pushed the bar
-          ~24px narrower than "Management" with no ⚠ — the visual
-          jitter the user reported. */}
-      <div className="w-14 shrink-0 flex justify-end">
+      <span className="text-xs font-semibold text-slate-700 w-10 text-right shrink-0">{score}%</span>
+      {/* Trigger slot tightened from w-14 → w-9 (36px). The at-rest
+          ⚠ no longer carries a count (the matched/missing summary
+          below the bars already reports totals), so the icon-only
+          button is ~28px and fits cleanly. When the user has staged
+          items the button shows "✓ N" and may bleed a few px past
+          the slot — acceptable for staged counts ≤9. */}
+      <div className="w-9 shrink-0 flex justify-end">
         {showCoach && (
           <button
             ref={buttonRef}
@@ -207,9 +210,7 @@ function CategoryBar({
                 <Check className="w-3 h-3" /> {selectedCount}
               </>
             ) : (
-              <>
-                <AlertCircle className="w-3 h-3" /> {missingCount}
-              </>
+              <AlertCircle className="w-3 h-3" />
             )}
           </button>
         )}
@@ -3015,27 +3016,22 @@ function ListingCard({
                   </div>
                 </div>
 
-                {/* Compact aggregate status. Replaces the matched +
-                    missing 2-col cloud — the cloud's role (browse
-                    every missing keyword inline) is now subsumed by
-                    the per-category popovers, and the matched count
-                    matters less than the next-step affordance: how
-                    many you've staged for the tailor. */}
+                {/* Compact aggregate status. The "staged for tailor"
+                    pill that used to live here is gone — the cart
+                    in the Resume Tailor card is now the single
+                    source of truth for what's queued. This row just
+                    keeps the at-a-glance matched/missing count. */}
                 <div className="mb-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between gap-3 text-xs">
                   <span className="text-slate-600">
                     <span className="font-semibold text-slate-800">{detailScore.totalMatched}</span> matched
                     {' · '}
                     <span className="font-semibold text-slate-800">{totalMissingTaxonomy}</span> missing across 4 categories
                   </span>
-                  {totalSelected > 0 ? (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
-                      <Check className="w-3 h-3" /> {totalSelected} staged for tailor
-                    </span>
-                  ) : totalMissingTaxonomy > 0 ? (
-                    <span className="text-slate-500 italic">
+                  {totalMissingTaxonomy > 0 && totalSelected === 0 && (
+                    <span className="text-slate-500 italic shrink-0">
                       Click <AlertCircle className="inline w-3 h-3 text-amber-500" /> to pick fixes
                     </span>
-                  ) : null}
+                  )}
                 </div>
 
                 {/* Per-category fix popovers — only one open at a time.
@@ -3167,16 +3163,24 @@ function ListingCard({
                           edit{totalChips === 1 ? '' : 's'} queued
                         </div>
                       </div>
-                      <div className="space-y-1.5">
+                      {/* Stacked category groups: small uppercase
+                          label, then the chip row on the line below.
+                          The earlier side-by-side layout (label on
+                          left, chips on right) collided in the
+                          narrow 3-col layout when a long label like
+                          "MANAGEMENT" sat next to a chip and looked
+                          ragged. Stacking gives chips the full row
+                          width to wrap cleanly. */}
+                      <div className="space-y-2">
                         {(['technical', 'management', 'domain', 'soft', 'other'] as const).map((cat) => {
                           const items = grouped[cat];
                           if (!items || items.length === 0) return null;
                           return (
-                            <div key={cat} className="flex items-start gap-2">
-                              <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold w-16 shrink-0 pt-0.5 text-right">
+                            <div key={cat}>
+                              <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">
                                 {CAT_LABEL[cat]}
-                              </span>
-                              <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                              </div>
+                              <div className="flex flex-wrap gap-1">
                                 {items.map((kw) => (
                                   <span
                                     key={kw}
@@ -3199,11 +3203,11 @@ function ListingCard({
                           );
                         })}
                         {selectedSuggestions.size > 0 && (
-                          <div className="flex items-start gap-2 pt-1.5 border-t border-slate-100">
-                            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold w-16 shrink-0 pt-0.5 text-right">
+                          <div className="pt-2 border-t border-slate-100">
+                            <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">
                               Strategy
-                            </span>
-                            <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                            </div>
+                            <div className="flex flex-wrap gap-1">
                               {(detailScore.suggestions ?? [])
                                 .filter((s) => selectedSuggestions.has(s.id))
                                 .map((s) => (
