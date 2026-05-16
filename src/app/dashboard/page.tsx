@@ -654,6 +654,14 @@ export default function DashboardPage() {
   // broad ATS coverage across what the user would actually apply to.
   // Server endpoint: /api/tailor-resume/general.
   const [masterModalOpen, setMasterModalOpen] = useState(false);
+  // Quick-tailor overlay — fired by the "Generate" button on the
+  // Resume Performance card when the user has staged keywords via
+  // the ⚠ popovers. Skips the analyze step entirely and goes
+  // straight to tailoring → download. The full pick-and-choose
+  // MasterResumeModal still exists for the "Generate Master Resume"
+  // button on Top Matching Jobs (where the user hasn't staged
+  // anything yet and needs to see the cohort missing-keyword list).
+  const [quickTailorOpen, setQuickTailorOpen] = useState(false);
 
   // ─── Master-tailor staging ─────────────────────────────────────────
   // Atomic keywords the user has picked via the per-category ⚠
@@ -792,8 +800,9 @@ export default function DashboardPage() {
               </span>
               <button
                 type="button"
-                onClick={() => setMasterModalOpen(true)}
+                onClick={() => setQuickTailorOpen(true)}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white hover:from-indigo-600 hover:to-violet-600 transition-all"
+                title="Generate the resume directly with your staged picks — no further review"
               >
                 <Sparkles className="w-3 h-3" /> Generate
               </button>
@@ -1054,6 +1063,13 @@ export default function DashboardPage() {
           // means no pre-stage and the modal falls back to its own
           // default selection logic (top-20 by frequency).
           initialStagedKeywords={stagedMasterKeywords}
+        />
+      )}
+
+      {quickTailorOpen && (
+        <QuickTailorOverlay
+          stagedKeywords={stagedMasterKeywords}
+          onClose={() => setQuickTailorOpen(false)}
         />
       )}
     </div>
@@ -1485,6 +1501,221 @@ interface CohortMeta {
   sampled: number;
   cap: number;
   byFamily: Record<string, number>;
+}
+
+/**
+ * QuickTailorOverlay — fast-path master tailor for the "Generate"
+ * button on the Resume Performance card. Skips the analyze step
+ * the full MasterResumeModal does (cohort + missing-keywords +
+ * picker grid) because the user has ALREADY committed their pick
+ * list via the ⚠ popovers. We just need to ship those picks to
+ * /api/tailor-resume/general and hand back the file.
+ *
+ * Lifecycle mirrors the per-listing CategoryFixPopover's done-stage:
+ *   tailoring → done(docx ready, pdf lazy) → error fallback.
+ * No keyword grid, no slider, no analyze copy. The intent of this
+ * overlay is "you decided, I'm executing — here's the file".
+ */
+function QuickTailorOverlay({
+  stagedKeywords,
+  onClose,
+}: {
+  stagedKeywords: Set<string>;
+  onClose: () => void;
+}) {
+  type Artifacts = {
+    docx?: { blob: Blob; filename: string };
+    pdf?: { blob: Blob; filename: string };
+  };
+  type Stage =
+    | { kind: 'tailoring' }
+    | { kind: 'done'; artifacts: Artifacts; fetchingPdf: boolean }
+    | { kind: 'error'; message: string };
+  const [stage, setStage] = useState<Stage>({ kind: 'tailoring' });
+
+  /** Shared fetcher — same wire format as the per-listing tailor
+   *  flow. Returns blob + Content-Disposition filename. */
+  const runTailor = useCallback(async (format: 'docx' | 'pdf') => {
+    const res = await fetch('/api/tailor-resume/general', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        format,
+        selectedKeywords: Array.from(stagedKeywords),
+        mode: 'mandatory',
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Tailor failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    const m = /filename="?([^";]+)"?/i.exec(cd);
+    const filename = m?.[1] ?? `master_resume.${format}`;
+    return { blob, filename };
+  }, [stagedKeywords]);
+
+  // Fire the docx tailor immediately on mount. PDF is lazy (opt-in
+  // via the download button so we don't make the user wait twice).
+  // useRef guard so React strict mode double-mount doesn't fire the
+  // tailor twice.
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    runTailor('docx')
+      .then((art) => setStage({ kind: 'done', artifacts: { docx: art }, fetchingPdf: false }))
+      .catch((e) => setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to tailor resume' }));
+  }, [runTailor]);
+
+  /** Pure side-effect: <a>.click() to start a download. Takes blob
+   *  + filename directly so callers can pass either a cached
+   *  artifact or a freshly-fetched one without funneling through
+   *  setState (where strict-mode double-invocation would fire it
+   *  twice — same bug we hit on the per-listing flow). */
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function downloadDocx() {
+    if (stage.kind !== 'done' || !stage.artifacts.docx) return;
+    downloadBlob(stage.artifacts.docx.blob, stage.artifacts.docx.filename);
+  }
+
+  async function downloadPdf() {
+    if (stage.kind !== 'done') return;
+    if (stage.artifacts.pdf) {
+      downloadBlob(stage.artifacts.pdf.blob, stage.artifacts.pdf.filename);
+      return;
+    }
+    setStage({ ...stage, fetchingPdf: true });
+    try {
+      const art = await runTailor('pdf');
+      setStage((cur) => {
+        if (cur.kind !== 'done') return cur;
+        return { ...cur, artifacts: { ...cur.artifacts, pdf: art }, fetchingPdf: false };
+      });
+      downloadBlob(art.blob, art.filename);
+    } catch (e) {
+      setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to render PDF' });
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 backdrop-blur-sm p-4"
+      onClick={() => stage.kind !== 'tailoring' && onClose()}
+    >
+      <div
+        className="bg-white w-full max-w-md rounded-2xl shadow-modal border border-slate-100 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 p-5 border-b border-slate-100">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              Tailoring your master resume
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Using your {stagedKeywords.size} staged keyword{stagedKeywords.size === 1 ? '' : 's'} — no further review needed.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={stage.kind === 'tailoring'}
+            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {stage.kind === 'tailoring' && (
+          <div className="p-6 flex flex-col items-center gap-3 text-center">
+            <Loader2 className="w-7 h-7 text-indigo-500 animate-spin" />
+            <div className="text-sm font-semibold text-slate-700">
+              Applying your edits…
+            </div>
+            <div className="text-[11px] text-slate-500 max-w-[280px]">
+              Running the keyword injection + compression cascade against the cohort. Usually 10–25 seconds.
+            </div>
+          </div>
+        )}
+
+        {stage.kind === 'done' && (
+          <div className="p-5 flex flex-col items-center gap-3 text-center">
+            <CheckCircle2 className="w-10 h-10 text-emerald-500" />
+            <div>
+              <div className="text-sm font-semibold text-slate-800">Resume ready</div>
+              <div className="text-[11px] text-slate-500 mt-0.5">
+                Pick a format and review the changes locally.
+              </div>
+            </div>
+            <div className="grid grid-cols-2 w-full gap-2 mt-1">
+              <button
+                type="button"
+                onClick={downloadDocx}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" /> .docx
+              </button>
+              <button
+                type="button"
+                onClick={downloadPdf}
+                disabled={stage.fetchingPdf}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-60 disabled:cursor-wait transition-all"
+                title={stage.artifacts.pdf ? 'Download the cached PDF' : 'Render and download as PDF — ~10–25s the first time'}
+              >
+                {stage.fetchingPdf ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Rendering…
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-3.5 h-3.5" /> .pdf
+                    {stage.artifacts.pdf && <Check className="w-3 h-3 text-emerald-500" />}
+                  </>
+                )}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={stage.fetchingPdf}
+              className="text-[11px] text-slate-500 hover:text-slate-700 underline-offset-2 hover:underline disabled:opacity-50"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
+        {stage.kind === 'error' && (
+          <div className="p-5 flex flex-col items-center gap-3 text-center">
+            <AlertTriangle className="w-8 h-8 text-rose-500" />
+            <div className="text-xs text-rose-700 max-w-[320px]">
+              {stage.message}
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white border border-slate-200 text-slate-700 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MasterResumeModal({
