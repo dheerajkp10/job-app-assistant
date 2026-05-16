@@ -131,15 +131,85 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
   );
 }
 
-function CategoryBar({ label, score }: { label: string; score: number }) {
+/**
+ * Score-category bar. Used in the per-listing ATS Match Score panel.
+ *
+ * Optional coaching affordance — when (a) the category is weak, (b)
+ * there ARE missing keywords for it in this listing's JD, and (c) the
+ * caller wires an `onAlertClick`, the bar grows a small amber ⚠ button
+ * to the right of the score that opens a per-category fix popover.
+ *
+ * When the user has already selected ≥1 keyword from this category
+ * for the next tailor, the ⚠ flips to a check pill showing the count
+ * — quiet confirmation that the picks landed without re-opening the
+ * popover.
+ */
+function CategoryBar({
+  label,
+  score,
+  missingCount = 0,
+  selectedCount = 0,
+  onAlertClick,
+  buttonRef,
+}: {
+  label: string;
+  score: number;
+  /** Total missing keywords for this category in the listing's JD.
+   *  When 0, the ⚠ is hidden — there's nothing to pick. */
+  missingCount?: number;
+  /** How many of those missing keywords the user has staged for the
+   *  next tailor (across all popovers). Renders a small badge so the
+   *  caller doesn't have to expose another row. */
+  selectedCount?: number;
+  /** Click handler for the ⚠ icon. When omitted, the icon doesn't
+   *  render at all (legacy callers stay unchanged). */
+  onAlertClick?: () => void;
+  /** Forwarded so the popover can anchor itself to the icon. */
+  buttonRef?: React.RefObject<HTMLButtonElement | null>;
+}) {
   const color = score >= 75 ? "bg-gradient-to-r from-emerald-500 to-teal-500" : score >= 50 ? "bg-gradient-to-r from-amber-400 to-orange-400" : "bg-gradient-to-r from-rose-400 to-pink-400";
+  // Show coaching trigger when the bar is weak and there's something
+  // actionable to pick. Threshold mirrors the dashboard (< 80).
+  const showCoach = !!onAlertClick && score < 80 && missingCount > 0;
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-24 text-right">{label}</span>
       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
+      <span className="text-xs font-semibold text-slate-700 w-10 text-right">{score}%</span>
+      {showCoach ? (
+        <button
+          ref={buttonRef}
+          type="button"
+          onClick={onAlertClick}
+          className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+            selectedCount > 0
+              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+              : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
+          }`}
+          title={
+            selectedCount > 0
+              ? `${selectedCount} of ${missingCount} ${label} keyword${missingCount === 1 ? '' : 's'} staged for tailor — click to edit`
+              : `${missingCount} missing ${label} keyword${missingCount === 1 ? '' : 's'} — click to pick`
+          }
+          aria-label={`Fix ${label}`}
+        >
+          {selectedCount > 0 ? (
+            <>
+              <Check className="w-3 h-3" /> {selectedCount}
+            </>
+          ) : (
+            <>
+              <AlertCircle className="w-3 h-3" /> {missingCount}
+            </>
+          )}
+        </button>
+      ) : (
+        // Reserve the same horizontal slot when no ⚠ to avoid the
+        // score column shifting between bars.
+        <span className="w-12 shrink-0" />
+      )}
     </div>
   );
 }
@@ -2186,6 +2256,17 @@ function ListingCard({
 
   // Keyword selection state — all selected by default
   const [selectedKeywords, setSelectedKeywords] = useState<Set<string>>(new Set());
+  // Which per-category popover (if any) is currently open. Each
+  // category's ⚠ button toggles it. The popover writes back into
+  // `selectedKeywords` directly so the Tailor button below the
+  // score panel consumes the aggregate selection across categories.
+  // Cleared on Tailor click so the user lands in the result strip
+  // without leftover overlays.
+  const [openScoreCategory, setOpenScoreCategory] = useState<'technical' | 'management' | 'domain' | 'soft' | null>(null);
+  const techBtnRef = useRef<HTMLButtonElement | null>(null);
+  const mgmtBtnRef = useRef<HTMLButtonElement | null>(null);
+  const domainBtnRef = useRef<HTMLButtonElement | null>(null);
+  const softBtnRef = useRef<HTMLButtonElement | null>(null);
   // Keywords the user has REJECTED after seeing the first tailored
   // result — they were originally selected and accepted, but on review
   // the user decided they don't want them. Subtracted from selected
@@ -2296,6 +2377,9 @@ function ListingCard({
   }
 
   async function handleTailor() {
+    // Close any open per-category fix popover so the user lands in
+    // the result strip without overlays leftover from the picking flow.
+    setOpenScoreCategory(null);
     setTailoring(true);
     setTailorError(null);
     try {
@@ -2827,182 +2911,141 @@ function ListingCard({
               </div>
             )}
 
-            {detailScore && (
+            {detailScore && (() => {
+              // Build missing-keyword lists per category from
+              // keywordDetails. Bigram phrases live outside the
+              // category taxonomy (they don't have a category field)
+              // so the popovers cover only the 4 taxonomy buckets.
+              // That's the entire actionable surface for tailor —
+              // phrases get strategic-edit treatment via the
+              // Tailoring Suggestions block below.
+              const details = detailScore.keywordDetails ?? [];
+              const missingByCat = {
+                technical: details.filter((d) => d.category === 'technical' && !d.found).map((d) => d.keyword),
+                management: details.filter((d) => d.category === 'management' && !d.found).map((d) => d.keyword),
+                domain: details.filter((d) => d.category === 'domain' && !d.found).map((d) => d.keyword),
+                soft: details.filter((d) => d.category === 'soft' && !d.found).map((d) => d.keyword),
+              };
+              const selCountFor = (kws: string[]) => kws.filter((k) => selectedKeywords.has(k)).length;
+              const totalSelected = selectedKeywords.size;
+              const totalMissingTaxonomy =
+                missingByCat.technical.length + missingByCat.management.length +
+                missingByCat.domain.length + missingByCat.soft.length;
+              return (
               <div>
                 <div className="flex items-start gap-6 mb-4">
                   <ScoreRing score={detailScore.overall} size={90} label="Overall" />
                   <div className="flex-1 space-y-2 pt-1">
-                    <CategoryBar label="Technical" score={detailScore.technical} />
-                    <CategoryBar label="Management" score={detailScore.management} />
-                    <CategoryBar label="Domain" score={detailScore.domain} />
-                    <CategoryBar label="Soft Skills" score={detailScore.soft} />
+                    <CategoryBar
+                      label="Technical"
+                      score={detailScore.technical}
+                      missingCount={missingByCat.technical.length}
+                      selectedCount={selCountFor(missingByCat.technical)}
+                      onAlertClick={tailorResult ? undefined : () => setOpenScoreCategory(openScoreCategory === 'technical' ? null : 'technical')}
+                      buttonRef={techBtnRef}
+                    />
+                    <CategoryBar
+                      label="Management"
+                      score={detailScore.management}
+                      missingCount={missingByCat.management.length}
+                      selectedCount={selCountFor(missingByCat.management)}
+                      onAlertClick={tailorResult ? undefined : () => setOpenScoreCategory(openScoreCategory === 'management' ? null : 'management')}
+                      buttonRef={mgmtBtnRef}
+                    />
+                    <CategoryBar
+                      label="Domain"
+                      score={detailScore.domain}
+                      missingCount={missingByCat.domain.length}
+                      selectedCount={selCountFor(missingByCat.domain)}
+                      onAlertClick={tailorResult ? undefined : () => setOpenScoreCategory(openScoreCategory === 'domain' ? null : 'domain')}
+                      buttonRef={domainBtnRef}
+                    />
+                    <CategoryBar
+                      label="Soft Skills"
+                      score={detailScore.soft}
+                      missingCount={missingByCat.soft.length}
+                      selectedCount={selCountFor(missingByCat.soft)}
+                      onAlertClick={tailorResult ? undefined : () => setOpenScoreCategory(openScoreCategory === 'soft' ? null : 'soft')}
+                      buttonRef={softBtnRef}
+                    />
                   </div>
                 </div>
 
-                {/* Quick-wins panel. The "Missing" pill cloud below
-                    answers WHAT's missing; this answers WHICH ONES
-                    matter most. Ranks the missing keywords by their
-                    JD category's weight in the overall score:
-                      Technical 40% → high impact
-                      Management 20% → medium
-                      Domain / phrases 15% → medium
-                      Soft 10% → low
-                    so the user spends their next round of tailoring
-                    on the keywords that actually move the needle. */}
-                {(() => {
-                  const CAT_WEIGHT: Record<string, number> = {
-                    technical: 0.40, management: 0.20, domain: 0.15, soft: 0.10,
-                  };
-                  const CAT_IMPACT_LABEL = (w: number) => w >= 0.30 ? 'high' : w >= 0.15 ? 'medium' : 'low';
-                  const missing = (detailScore.keywordDetails ?? [])
-                    .filter((k) => !k.found)
-                    .map((k) => ({ ...k, weight: CAT_WEIGHT[k.category] ?? 0 }))
-                    .sort((a, b) => b.weight - a.weight)
-                    .slice(0, 3);
-                  if (missing.length === 0 || detailScore.overall >= 90) return null;
-                  const nextTier = detailScore.overall < 60 ? 60 : detailScore.overall < 75 ? 75 : 90;
-                  return (
-                    <div className="mb-4 p-3 rounded-lg border border-indigo-100 bg-gradient-to-r from-indigo-50 to-violet-50">
-                      <div className="flex items-center justify-between mb-2">
-                        <h5 className="text-xs font-semibold text-indigo-900">
-                          Quick wins → {nextTier}%
-                        </h5>
-                        <span className="text-[10px] text-indigo-500 uppercase tracking-wide">
-                          Top 3 by impact
-                        </span>
-                      </div>
-                      <ul className="space-y-1.5">
-                        {missing.map((m) => {
-                          const impact = CAT_IMPACT_LABEL(m.weight);
-                          const impactColor =
-                            impact === 'high' ? 'bg-rose-100 text-rose-700' :
-                            impact === 'medium' ? 'bg-amber-100 text-amber-700' :
-                            'bg-slate-100 text-slate-600';
-                          const alreadySelected = selectedKeywords.has(m.keyword);
-                          return (
-                            <li key={m.keyword} className="flex items-center justify-between gap-2 text-xs">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className={`shrink-0 px-1.5 py-0 rounded text-[10px] font-bold uppercase tracking-wide ${impactColor}`}>
-                                  {impact}
-                                </span>
-                                <span className="font-medium text-slate-800 truncate">{m.keyword}</span>
-                                <span className="text-[10px] text-slate-500 shrink-0">· {m.category}</span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => toggleKeyword(m.keyword)}
-                                className={`shrink-0 inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold transition-colors ${
-                                  alreadySelected
-                                    ? 'bg-indigo-500 text-white'
-                                    : 'bg-white text-indigo-700 border border-indigo-200 hover:bg-indigo-50'
-                                }`}
-                                title={
-                                  alreadySelected
-                                    ? 'Already selected for next tailor — click to deselect'
-                                    : 'Add to keywords for next tailor'
-                                }
-                              >
-                                {alreadySelected ? '✓ Selected' : 'Target'}
-                              </button>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  );
-                })()}
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="p-3 bg-green-50 rounded-lg border border-green-100">
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                      <span className="font-medium text-green-800 text-xs">Matched ({detailScore.totalMatched})</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {/* Defensive dedupe: old cached scores (written
-                          before the scorer dedupe fix) can repeat the
-                          same keyword between the taxonomy and bigram
-                          passes ("distributed systems" was the common
-                          case). Without this, React warns about
-                          duplicate keys until the cache rolls over. */}
-                      {Array.from(new Set(detailScore.matchedKeywords)).slice(0, 15).map((k) => (
-                        <span key={k} className="px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs">{k}</span>
-                      ))}
-                      {detailScore.matchedKeywords.length > 15 && (
-                        <span className="text-xs text-green-600">+{detailScore.matchedKeywords.length - 15} more</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="p-3 bg-red-50 rounded-lg border border-red-100">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <XCircle className="w-3.5 h-3.5 text-red-400" />
-                        <span className="font-medium text-red-800 text-xs">Missing ({detailScore.missingKeywords.length})</span>
-                      </div>
-                      {!tailorResult && (
-                        <span className="text-xs text-slate-400">Click to select/deselect</span>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {/* Same dedupe as matched (above) — cached scores
-                          can repeat keywords across taxonomy + bigram
-                          passes. */}
-                      {Array.from(new Set(detailScore.missingKeywords)).map((k) => {
-                        const isSelected = selectedKeywords.has(k);
-                        return (
-                          <span
-                            key={k}
-                            className={`inline-flex items-center rounded text-xs transition-colors ${
-                              tailorResult
-                                ? 'bg-red-100 text-red-700'
-                                : isSelected
-                                  ? 'bg-red-200 text-red-800 ring-1 ring-red-400 font-medium'
-                                  : 'bg-slate-100 text-slate-400'
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => !tailorResult && toggleKeyword(k)}
-                              disabled={!!tailorResult}
-                              className={`px-1.5 py-0.5 ${
-                                tailorResult
-                                  ? 'cursor-default'
-                                  : isSelected
-                                    ? 'cursor-pointer hover:bg-red-300 rounded-l'
-                                    : 'line-through cursor-pointer hover:bg-gray-200 rounded-l'
-                              }`}
-                              title={
-                                tailorResult
-                                  ? k
-                                  : isSelected
-                                    ? `Click to deselect — won't be added to the tailored resume`
-                                    : `Click to select — will be added to the tailored resume`
-                              }
-                            >
-                              {k}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openKeywordContext(k, e.currentTarget);
-                              }}
-                              className="px-1 py-0.5 border-l border-current/20 hover:bg-slate-200 rounded-r opacity-70 hover:opacity-100"
-                              title="Show JD sentences mentioning this keyword"
-                            >
-                              <Search className="w-2.5 h-2.5" />
-                            </button>
-                          </span>
-                        );
-                      })}
-                    </div>
-                    {!tailorResult && selectedKeywords.size < detailScore.missingKeywords.length && (
-                      <p className="text-xs text-slate-400 mt-1.5">
-                        {selectedKeywords.size} of {detailScore.missingKeywords.length} keywords selected for tailoring
-                      </p>
-                    )}
-                  </div>
+                {/* Compact aggregate status. Replaces the matched +
+                    missing 2-col cloud — the cloud's role (browse
+                    every missing keyword inline) is now subsumed by
+                    the per-category popovers, and the matched count
+                    matters less than the next-step affordance: how
+                    many you've staged for the tailor. */}
+                <div className="mb-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-between gap-3 text-xs">
+                  <span className="text-slate-600">
+                    <span className="font-semibold text-slate-800">{detailScore.totalMatched}</span> matched
+                    {' · '}
+                    <span className="font-semibold text-slate-800">{totalMissingTaxonomy}</span> missing across 4 categories
+                  </span>
+                  {totalSelected > 0 ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 font-semibold">
+                      <Check className="w-3 h-3" /> {totalSelected} staged for tailor
+                    </span>
+                  ) : totalMissingTaxonomy > 0 ? (
+                    <span className="text-slate-500 italic">
+                      Click <AlertCircle className="inline w-3 h-3 text-amber-500" /> to pick fixes
+                    </span>
+                  ) : null}
                 </div>
+
+                {/* Per-category fix popovers — only one open at a time.
+                    Each writes into the shared selectedKeywords set;
+                    the Tailor button in the Resume Tailor section
+                    below consumes the aggregate. */}
+                {openScoreCategory === 'technical' && (
+                  <ListingScoreFixPopover
+                    anchor={techBtnRef.current}
+                    label="Technical"
+                    categoryKey="Technical"
+                    missingKeywords={missingByCat.technical}
+                    selectedKeywords={selectedKeywords}
+                    onToggle={toggleKeyword}
+                    onClose={() => setOpenScoreCategory(null)}
+                  />
+                )}
+                {openScoreCategory === 'management' && (
+                  <ListingScoreFixPopover
+                    anchor={mgmtBtnRef.current}
+                    label="Management"
+                    categoryKey="Management"
+                    missingKeywords={missingByCat.management}
+                    selectedKeywords={selectedKeywords}
+                    onToggle={toggleKeyword}
+                    onClose={() => setOpenScoreCategory(null)}
+                  />
+                )}
+                {openScoreCategory === 'domain' && (
+                  <ListingScoreFixPopover
+                    anchor={domainBtnRef.current}
+                    label="Domain"
+                    categoryKey="Domain"
+                    missingKeywords={missingByCat.domain}
+                    selectedKeywords={selectedKeywords}
+                    onToggle={toggleKeyword}
+                    onClose={() => setOpenScoreCategory(null)}
+                  />
+                )}
+                {openScoreCategory === 'soft' && (
+                  <ListingScoreFixPopover
+                    anchor={softBtnRef.current}
+                    label="Soft Skills"
+                    categoryKey="Soft"
+                    missingKeywords={missingByCat.soft}
+                    selectedKeywords={selectedKeywords}
+                    onToggle={toggleKeyword}
+                    onClose={() => setOpenScoreCategory(null)}
+                  />
+                )}
+
+                {/* Quick-wins panel + matched/missing 2-col cloud
+                    were here. Both removed — the per-category ⚠
+                    popovers above cover the actionable picking. */}
 
                 {/* Resume tailoring suggestions. Each suggestion is a
                     concrete, opt-in edit — mirror JD title, fill a
@@ -3064,7 +3107,8 @@ function ListingCard({
                   </div>
                 )}
               </div>
-            )}
+              );
+            })()}
           </section>
           {/* Resume Tailor section */}
           <section className="bg-slate-50 rounded-lg p-4">
@@ -4884,5 +4928,180 @@ function VoiceNoteButton({ onTranscript }: { onTranscript: (text: string) => voi
         </>
       )}
     </button>
+  );
+}
+
+// ─── Per-listing score-fix popover ──────────────────────────────────
+//
+// Opened from the ⚠ button on each CategoryBar in the listing's ATS
+// Match Score panel. Shows the missing keywords for ONE category as
+// atomic toggle pills; clicking a pill flips its membership in the
+// shared `selectedKeywords` set the listing card already maintains.
+//
+// Unlike the dashboard's CategoryFixPopover, this popover doesn't
+// run the tailor itself. The Tailor button lives outside (in the
+// Resume Tailor sub-section below the score) and consumes the
+// aggregate selection from across every category's popover. That
+// matches the user's mental model: open ⚠ on each weak category in
+// sequence, pick what you have backing for, then commit once.
+//
+// Closes on overlay click or Escape. The PARENT also closes it on
+// Tailor click so the user lands in the result strip without
+// leftover overlays.
+
+function ListingScoreFixPopover({
+  anchor,
+  label,
+  categoryKey,
+  missingKeywords,
+  selectedKeywords,
+  onToggle,
+  onClose,
+}: {
+  anchor: HTMLElement | null;
+  label: string;
+  categoryKey: string;
+  /** Listing-scoped missing keywords for this category. Already
+   *  filtered to "in JD but not in resume" by the caller. */
+  missingKeywords: string[];
+  /** Live reference to the listing card's selectedKeywords set. The
+   *  popover doesn't own this state — it just reads + dispatches
+   *  toggles back up to the parent. */
+  selectedKeywords: Set<string>;
+  onToggle: (kw: string) => void;
+  onClose: () => void;
+}) {
+  // Anchor position. Mirrors the flag-dropdown + network-badge +
+  // dashboard-popover patterns. Fixed to document.body so card
+  // overflow / transform ancestors can't clip us.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const recompute = useCallback(() => {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    const width = 360;
+    const margin = 8;
+    const left = Math.max(margin, Math.min(r.right - width, window.innerWidth - width - margin));
+    setPos({ top: r.bottom + 6, left });
+  }, [anchor]);
+  useEffect(() => {
+    recompute();
+    const onChange = () => recompute();
+    window.addEventListener('scroll', onChange, true);
+    window.addEventListener('resize', onChange);
+    return () => {
+      window.removeEventListener('scroll', onChange, true);
+      window.removeEventListener('resize', onChange);
+    };
+  }, [recompute]);
+
+  // Escape closes — convention for modals + popovers across the app.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (typeof document === 'undefined' || !pos) return null;
+
+  const selectedInCat = missingKeywords.filter((k) => selectedKeywords.has(k)).length;
+  const allOn = selectedInCat === missingKeywords.length && missingKeywords.length > 0;
+
+  function toggleAll() {
+    // Bulk operation: if everything is already on, deselect all;
+    // otherwise select all. Mirrors the dashboard popover's group
+    // All/None convention.
+    for (const kw of missingKeywords) {
+      const isOn = selectedKeywords.has(kw);
+      if (allOn) {
+        if (isOn) onToggle(kw);
+      } else {
+        if (!isOn) onToggle(kw);
+      }
+    }
+  }
+
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[60]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed w-[360px] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-2xl shadow-modal z-[70] overflow-hidden"
+        style={{ top: pos.top, left: pos.left }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 p-4 border-b border-slate-100">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              Improve {label}
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              {missingKeywords.length} keyword{missingKeywords.length === 1 ? '' : 's'} in this JD missing from your resume. Pick the ones you have backing for; they&apos;ll be staged for the next tailor.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="max-h-[340px] overflow-y-auto p-4">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-[10px] uppercase font-semibold tracking-wide text-slate-500">
+              {categoryKey} keywords
+            </span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
+              title={allOn ? 'Deselect all' : 'Select all'}
+            >
+              {allOn ? 'None' : 'All'} ({selectedInCat}/{missingKeywords.length})
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {missingKeywords.map((kw) => {
+              const isOn = selectedKeywords.has(kw);
+              return (
+                <button
+                  key={kw}
+                  type="button"
+                  onClick={() => onToggle(kw)}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border transition-colors ${
+                    isOn
+                      ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
+                      : 'bg-white text-slate-400 border-slate-200 line-through hover:bg-slate-50'
+                  }`}
+                  title={isOn ? 'Click to exclude' : 'Click to include'}
+                >
+                  {isOn && <Check className="w-2.5 h-2.5" />}
+                  {kw}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
+          <span className="text-[11px] text-slate-500">
+            {selectedInCat} selected in {label}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body,
   );
 }
