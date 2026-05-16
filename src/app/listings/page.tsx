@@ -3491,13 +3491,22 @@ function ListingCard({
             )}
           </section>
 
-          {/* ─── Group divider: Cover letter ─── */}
+          {/* ─── Group divider: Materials & outreach ─── */}
           <div className="flex items-center gap-2 pt-1">
             <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
-              Cover letter
+              Materials & outreach
             </span>
             <div className="flex-1 h-px bg-slate-200" />
           </div>
+
+          {/* 2-col grid wrapping Cover Letter + Find Hiring Contacts.
+              Stacks on mobile, side-by-side on md+ so the expanded
+              card stops being a 2000px vertical wall. Cover Letter
+              gets the left column (it's the bigger of the two — has
+              a textarea + template picker); Contacts on the right
+              renders 2-4 short cards. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
           {/* Cover Letter section. Deterministic 3-paragraph generator
               using the resume's most-recent role title, a quantified
               achievement (when present), the JD's mission sentence,
@@ -3646,13 +3655,9 @@ function ListingCard({
             )}
           </section>
 
-          {/* ─── Group divider: Outreach ─── */}
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
-              Outreach
-            </span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
+          {/* (No separate Outreach divider — the "Materials &
+              outreach" group label above covers both columns of
+              the 2-col grid.) */}
           {/* Hiring & Recruiting Contacts — no scraping; just pre-built
               LinkedIn deep-search URLs that the user clicks through.
               Avoids ToS issues and stays robust against LinkedIn UI
@@ -3718,6 +3723,9 @@ function ListingCard({
               })()}
             </div>
           </section>
+
+          </div>
+          {/* /grid Materials & outreach */}
 
           {/* ─── Group divider: Notes ─── */}
           <div className="flex items-center gap-2 pt-1">
