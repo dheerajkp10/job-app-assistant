@@ -2798,6 +2798,14 @@ function ListingCard({
 
           <SalaryIntelInline listingId={listing.id} listingSalary={listing.salary} />
 
+
+          {/* ─── Group divider: Resume tailoring ─── */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
+              Resume tailoring
+            </span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
           {/* ATS Score Detail */}
           <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center gap-2 mb-3">
@@ -3058,103 +3066,6 @@ function ListingCard({
               </div>
             )}
           </section>
-
-          {/* Notes section — collapsed by default. The Notes feature
-              is power-user-only (most listings never get one); keeping
-              it collapsed keeps the card header tidy. Auto-opens when
-              an existing note is loaded so users never think their
-              note disappeared. Click the header to toggle.
-
-              Auto-saves on a 800ms debounce when expanded; empty text
-              deletes the note server-side. Voice-note button on
-              supported browsers streams Web Speech API transcription
-              straight into the textarea. */}
-          <section className="bg-slate-50 rounded-lg p-4">
-            {/* Header row. Structured as a flex strip rather than a
-                single big <button> because we need to nest a separate
-                <button> (Voice) on the right side, and HTML doesn't
-                allow button-in-button. Left side (icon + label + hint
-                pill) AND the chevron pill on the right both call the
-                toggle; the Voice button sits between save-indicator
-                and chevron WITHOUT being a toggle target. */}
-            <div className="flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => setNotesExpanded((v) => !v)}
-                className="flex items-center gap-2 text-left flex-1 min-w-0"
-                aria-expanded={notesExpanded}
-              >
-                <NotebookPen className="w-4 h-4 text-amber-500 shrink-0" />
-                <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
-                {/* Hint pill when collapsed — surfaces whether a note
-                    already exists (with a char count) so the user knows
-                    there's content underneath without opening it. */}
-                {!notesExpanded && noteText.trim() && (
-                  <span className="px-1.5 py-0 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700">
-                    {noteText.trim().length} chars
-                  </span>
-                )}
-                {!notesExpanded && !noteText.trim() && (
-                  <span className="text-[11px] text-slate-400 italic">
-                    Click to add
-                  </span>
-                )}
-              </button>
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Voice button — only visible when expanded; would
-                    otherwise be a confusing always-on control. Sits
-                    inline with the save indicator + chevron so the
-                    header row has a single, tidy right-edge. */}
-                {notesExpanded && (
-                  <VoiceNoteButton
-                    onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
-                  />
-                )}
-                {/* Save indicator. Stays visible even when collapsed
-                    so a debounced save kicked off from a long voice
-                    session still surfaces persistence feedback. */}
-                <div className="text-[11px] text-slate-400">
-                  {noteSaving ? (
-                    <span className="flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" /> Saving…
-                    </span>
-                  ) : noteSavedAt && notesExpanded ? (
-                    <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
-                      Saved {formatPostedDate(noteSavedAt) ?? ''}
-                    </span>
-                  ) : null}
-                </div>
-                {/* Chevron — secondary toggle target so the user can
-                    click the icon directly without aiming at the label. */}
-                <button
-                  type="button"
-                  onClick={() => setNotesExpanded((v) => !v)}
-                  aria-label={notesExpanded ? 'Collapse notes' : 'Expand notes'}
-                  className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200"
-                >
-                  {notesExpanded ? (
-                    <ChevronUp className="w-4 h-4" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4" />
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {notesExpanded && (
-              <div className="mt-3">
-                <textarea
-                  value={noteText}
-                  onChange={(e) => handleNoteChange(e.target.value)}
-                  placeholder="Research, contacts, why this job, why you passed — anything you want attached to this listing. Saves automatically."
-                  rows={Math.max(3, Math.min(10, noteText.split('\n').length + 1))}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all resize-y"
-                  spellCheck
-                />
-              </div>
-            )}
-          </section>
-
           {/* Resume Tailor section */}
           <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
@@ -3493,72 +3404,13 @@ function ListingCard({
             )}
           </section>
 
-          {/* Hiring & Recruiting Contacts — no scraping; just pre-built
-              LinkedIn deep-search URLs that the user clicks through.
-              Avoids ToS issues and stays robust against LinkedIn UI
-              changes. */}
-          <section className="bg-slate-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Users className="w-4 h-4 text-indigo-500" />
-                <h4 className="text-sm font-semibold text-slate-800">Find hiring contacts</h4>
-              </div>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Pre-built LinkedIn people-searches. Each opens in a new tab.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {(() => {
-                // Build a smart role keyword based on the listing's
-                // title. For an EM listing → 'engineering manager';
-                // for a Staff IC → 'staff engineer'. Falls back to
-                // the listing title itself if no obvious match.
-                const t = (listing.title || '').toLowerCase();
-                let mgrKeyword = 'engineering manager';
-                if (/director/.test(t)) mgrKeyword = 'director engineering';
-                else if (/vp|vice president/.test(t)) mgrKeyword = 'VP engineering';
-                else if (/staff|principal/.test(t)) mgrKeyword = 'engineering manager';
-                else if (/product manager/.test(t)) mgrKeyword = 'director product';
-                else if (/design/.test(t)) mgrKeyword = 'head of design';
-                const company = listing.company;
-                // LinkedIn people-search keyword query string. We
-                // can't pass company-id without scraping LinkedIn's
-                // typeahead, so we put the company name into the
-                // keywords field (LinkedIn returns close-enough
-                // matches via full-text search).
-                const linkedinUrl = (q: string) =>
-                  `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
-                const cards = [
-                  {
-                    label: 'Recruiters on LinkedIn',
-                    desc: `"recruiter" at ${company}`,
-                    href: linkedinUrl(`recruiter ${company}`),
-                  },
-                  {
-                    label: 'Hiring managers on LinkedIn',
-                    desc: `"${mgrKeyword}" at ${company}`,
-                    href: linkedinUrl(`${mgrKeyword} ${company}`),
-                  },
-                ];
-                return cards.map((c) => (
-                  <a
-                    key={c.label}
-                    href={c.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-200 hover:bg-indigo-50/40 hover:shadow-sm transition-all"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-800">{c.label}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{c.desc}</div>
-                    </div>
-                  </a>
-                ));
-              })()}
-            </div>
-          </section>
-
+          {/* ─── Group divider: Cover letter ─── */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
+              Cover letter
+            </span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
           {/* Cover Letter section. Deterministic 3-paragraph generator
               using the resume's most-recent role title, a quantified
               achievement (when present), the JD's mission sentence,
@@ -3703,6 +3555,182 @@ function ListingCard({
                     )}
                   </button>
                 </div>
+              </div>
+            )}
+          </section>
+
+          {/* ─── Group divider: Outreach ─── */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
+              Outreach
+            </span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+          {/* Hiring & Recruiting Contacts — no scraping; just pre-built
+              LinkedIn deep-search URLs that the user clicks through.
+              Avoids ToS issues and stays robust against LinkedIn UI
+              changes. */}
+          <section className="bg-slate-50 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-indigo-500" />
+                <h4 className="text-sm font-semibold text-slate-800">Find hiring contacts</h4>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Pre-built LinkedIn people-searches. Each opens in a new tab.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(() => {
+                // Build a smart role keyword based on the listing's
+                // title. For an EM listing → 'engineering manager';
+                // for a Staff IC → 'staff engineer'. Falls back to
+                // the listing title itself if no obvious match.
+                const t = (listing.title || '').toLowerCase();
+                let mgrKeyword = 'engineering manager';
+                if (/director/.test(t)) mgrKeyword = 'director engineering';
+                else if (/vp|vice president/.test(t)) mgrKeyword = 'VP engineering';
+                else if (/staff|principal/.test(t)) mgrKeyword = 'engineering manager';
+                else if (/product manager/.test(t)) mgrKeyword = 'director product';
+                else if (/design/.test(t)) mgrKeyword = 'head of design';
+                const company = listing.company;
+                // LinkedIn people-search keyword query string. We
+                // can't pass company-id without scraping LinkedIn's
+                // typeahead, so we put the company name into the
+                // keywords field (LinkedIn returns close-enough
+                // matches via full-text search).
+                const linkedinUrl = (q: string) =>
+                  `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(q)}`;
+                const cards = [
+                  {
+                    label: 'Recruiters on LinkedIn',
+                    desc: `"recruiter" at ${company}`,
+                    href: linkedinUrl(`recruiter ${company}`),
+                  },
+                  {
+                    label: 'Hiring managers on LinkedIn',
+                    desc: `"${mgrKeyword}" at ${company}`,
+                    href: linkedinUrl(`${mgrKeyword} ${company}`),
+                  },
+                ];
+                return cards.map((c) => (
+                  <a
+                    key={c.label}
+                    href={c.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2 p-3 bg-white border border-slate-200 rounded-lg hover:border-indigo-200 hover:bg-indigo-50/40 hover:shadow-sm transition-all"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-slate-800">{c.label}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{c.desc}</div>
+                    </div>
+                  </a>
+                ));
+              })()}
+            </div>
+          </section>
+
+          {/* ─── Group divider: Notes ─── */}
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 shrink-0">
+              Notes
+            </span>
+            <div className="flex-1 h-px bg-slate-200" />
+          </div>
+          {/* Notes section — collapsed by default. The Notes feature
+              is power-user-only (most listings never get one); keeping
+              it collapsed keeps the card header tidy. Auto-opens when
+              an existing note is loaded so users never think their
+              note disappeared. Click the header to toggle.
+
+              Auto-saves on a 800ms debounce when expanded; empty text
+              deletes the note server-side. Voice-note button on
+              supported browsers streams Web Speech API transcription
+              straight into the textarea. */}
+          <section className="bg-slate-50 rounded-lg p-4">
+            {/* Header row. Structured as a flex strip rather than a
+                single big <button> because we need to nest a separate
+                <button> (Voice) on the right side, and HTML doesn't
+                allow button-in-button. Left side (icon + label + hint
+                pill) AND the chevron pill on the right both call the
+                toggle; the Voice button sits between save-indicator
+                and chevron WITHOUT being a toggle target. */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setNotesExpanded((v) => !v)}
+                className="flex items-center gap-2 text-left flex-1 min-w-0"
+                aria-expanded={notesExpanded}
+              >
+                <NotebookPen className="w-4 h-4 text-amber-500 shrink-0" />
+                <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
+                {/* Hint pill when collapsed — surfaces whether a note
+                    already exists (with a char count) so the user knows
+                    there's content underneath without opening it. */}
+                {!notesExpanded && noteText.trim() && (
+                  <span className="px-1.5 py-0 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700">
+                    {noteText.trim().length} chars
+                  </span>
+                )}
+                {!notesExpanded && !noteText.trim() && (
+                  <span className="text-[11px] text-slate-400 italic">
+                    Click to add
+                  </span>
+                )}
+              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Voice button — only visible when expanded; would
+                    otherwise be a confusing always-on control. Sits
+                    inline with the save indicator + chevron so the
+                    header row has a single, tidy right-edge. */}
+                {notesExpanded && (
+                  <VoiceNoteButton
+                    onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
+                  />
+                )}
+                {/* Save indicator. Stays visible even when collapsed
+                    so a debounced save kicked off from a long voice
+                    session still surfaces persistence feedback. */}
+                <div className="text-[11px] text-slate-400">
+                  {noteSaving ? (
+                    <span className="flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                    </span>
+                  ) : noteSavedAt && notesExpanded ? (
+                    <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
+                      Saved {formatPostedDate(noteSavedAt) ?? ''}
+                    </span>
+                  ) : null}
+                </div>
+                {/* Chevron — secondary toggle target so the user can
+                    click the icon directly without aiming at the label. */}
+                <button
+                  type="button"
+                  onClick={() => setNotesExpanded((v) => !v)}
+                  aria-label={notesExpanded ? 'Collapse notes' : 'Expand notes'}
+                  className="p-0.5 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-200"
+                >
+                  {notesExpanded ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {notesExpanded && (
+              <div className="mt-3">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => handleNoteChange(e.target.value)}
+                  placeholder="Research, contacts, why this job, why you passed — anything you want attached to this listing. Saves automatically."
+                  rows={Math.max(3, Math.min(10, noteText.split('\n').length + 1))}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all resize-y"
+                  spellCheck
+                />
               </div>
             )}
           </section>
