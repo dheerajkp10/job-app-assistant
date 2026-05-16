@@ -390,20 +390,50 @@ function CategoryFixPopover({
     }
   }
 
+  /** Pure side-effect: writes a temporary <a> + clicks it to start a
+   *  browser download. Takes the blob and filename DIRECTLY so the
+   *  caller can pass either a cached artifact or a freshly-fetched
+   *  one without going through React state first. */
+  function downloadBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** Download a cached artifact by format. Pure function — reads
+   *  current \`stage\` via closure (recreated every render). Earlier
+   *  version wrapped this in setStage((cur) => ...) which fires
+   *  twice in React strict / dev mode, triggering a duplicate
+   *  download. */
+  function triggerDownload(format: 'docx' | 'pdf') {
+    if (stage.kind !== 'done') return;
+    const art = stage.artifacts[format];
+    if (!art) return;
+    downloadBlob(art.blob, art.filename);
+  }
+
   /** Fetches the PDF version of the current selection. Called when
    *  the user clicks "Download .pdf" on a done stage that doesn't
    *  yet have a pdf blob cached. Result is stored alongside the
-   *  docx in the artifacts cache so a re-click is instant. */
+   *  docx in the artifacts cache AND directly downloaded — no
+   *  setTimeout-after-setState dance. */
   async function fetchPdfOnDemand() {
     if (stage.kind !== 'done') return;
     if (stage.artifacts.pdf) {
-      // Already cached — just trigger the download path below.
-      triggerDownload('pdf');
+      // Already cached — straight to the download path.
+      downloadBlob(stage.artifacts.pdf.blob, stage.artifacts.pdf.filename);
       return;
     }
     setStage({ ...stage, fetchingFormat: 'pdf' });
     try {
       const { blob, filename } = await fetchTailored('pdf');
+      // Update the cache and trigger the download. Side effects
+      // OUTSIDE the setState updater — updater stays pure.
       setStage((cur) => {
         if (cur.kind !== 'done') return cur;
         return {
@@ -412,32 +442,10 @@ function CategoryFixPopover({
           fetchingFormat: null,
         };
       });
-      // Trigger the download once the cache is updated. setTimeout
-      // pushes this after the state commit so triggerDownload can
-      // see the new blob via the closure.
-      setTimeout(() => triggerDownload('pdf'), 0);
+      downloadBlob(blob, filename);
     } catch (e) {
       setStage({ kind: 'error', message: e instanceof Error ? e.message : 'Failed to render PDF' });
     }
-  }
-
-  /** Download a cached artifact by format. Pulls the latest stage
-   *  state at call time so the closure can't see a stale snapshot. */
-  function triggerDownload(format: 'docx' | 'pdf') {
-    setStage((cur) => {
-      if (cur.kind !== 'done') return cur;
-      const art = cur.artifacts[format];
-      if (!art) return cur;
-      const url = URL.createObjectURL(art.blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = art.filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      return cur;
-    });
   }
 
   return createPortal(
