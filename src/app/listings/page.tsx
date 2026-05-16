@@ -178,38 +178,42 @@ function CategoryBar({
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
       <span className="text-xs font-semibold text-slate-700 w-10 text-right">{score}%</span>
-      {showCoach ? (
-        <button
-          ref={buttonRef}
-          type="button"
-          onClick={onAlertClick}
-          className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
-            selectedCount > 0
-              ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-              : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
-          }`}
-          title={
-            selectedCount > 0
-              ? `${selectedCount} of ${missingCount} ${label} keyword${missingCount === 1 ? '' : 's'} staged for tailor — click to edit`
-              : `${missingCount} missing ${label} keyword${missingCount === 1 ? '' : 's'} — click to pick`
-          }
-          aria-label={`Fix ${label}`}
-        >
-          {selectedCount > 0 ? (
-            <>
-              <Check className="w-3 h-3" /> {selectedCount}
-            </>
-          ) : (
-            <>
-              <AlertCircle className="w-3 h-3" /> {missingCount}
-            </>
-          )}
-        </button>
-      ) : (
-        // Reserve the same horizontal slot when no ⚠ to avoid the
-        // score column shifting between bars.
-        <span className="w-12 shrink-0" />
-      )}
+      {/* Fixed-width trailing slot so the bar's flex-1 column is
+          consistent across rows regardless of whether the ⚠ button
+          renders, and regardless of how many digits the count has.
+          Without this, rows like "Technical ⚠ 12" pushed the bar
+          ~24px narrower than "Management" with no ⚠ — the visual
+          jitter the user reported. */}
+      <div className="w-14 shrink-0 flex justify-end">
+        {showCoach && (
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={onAlertClick}
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+              selectedCount > 0
+                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
+            }`}
+            title={
+              selectedCount > 0
+                ? `${selectedCount} of ${missingCount} ${label} keyword${missingCount === 1 ? '' : 's'} staged for tailor — click to edit`
+                : `${missingCount} missing ${label} keyword${missingCount === 1 ? '' : 's'} — click to pick`
+            }
+            aria-label={`Fix ${label}`}
+          >
+            {selectedCount > 0 ? (
+              <>
+                <Check className="w-3 h-3" /> {selectedCount}
+              </>
+            ) : (
+              <>
+                <AlertCircle className="w-3 h-3" /> {missingCount}
+              </>
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -205,13 +205,17 @@ function CategoryBar({
         <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
       <span className="text-xs font-semibold text-slate-700 w-10 text-right">{score}%</span>
-      {showCoach && (
-        <>
+      {/* Fixed-width trailing slot so the bar's flex-1 column has
+          identical width across rows. Without this, a row with
+          "⚠" or "✓ 12" pushed the bar narrower than rows without
+          a trigger, making the bars look mis-aligned. */}
+      <div className="w-12 shrink-0 flex justify-end">
+        {showCoach && (
           <button
             ref={buttonRef}
             type="button"
             onClick={() => setPopoverOpen(true)}
-            className={`shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
+            className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold border transition-colors ${
               stagedInCat > 0
                 ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
                 : 'bg-amber-50 text-amber-700 border-amber-100 hover:bg-amber-100'
@@ -231,18 +235,18 @@ function CategoryBar({
               <AlertCircle className="w-3 h-3" />
             )}
           </button>
-          {popoverOpen && (
-            <CategoryFixPopover
-              anchor={buttonRef.current}
-              label={label}
-              score={score}
-              categoryKey={categoryKey!}
-              stagedKeywords={stagedKeywords!}
-              onToggle={onToggleStaged!}
-              onClose={() => setPopoverOpen(false)}
-            />
-          )}
-        </>
+        )}
+      </div>
+      {showCoach && popoverOpen && (
+        <CategoryFixPopover
+          anchor={buttonRef.current}
+          label={label}
+          score={score}
+          categoryKey={categoryKey!}
+          stagedKeywords={stagedKeywords!}
+          onToggle={onToggleStaged!}
+          onClose={() => setPopoverOpen(false)}
+        />
       )}
     </div>
   );
