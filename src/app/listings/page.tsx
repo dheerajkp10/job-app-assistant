@@ -2006,6 +2006,11 @@ function ListingCard({
   // text deletes the note server-side.
   const [noteText, setNoteText] = useState<string>('');
   const [noteLoaded, setNoteLoaded] = useState(false);
+  // Notes are collapsed by default — they're a power-user feature
+  // and most listings never get one. Auto-expand when we discover
+  // existing content on load (handled in the noteText fetch effect)
+  // so the user never thinks their note has disappeared.
+  const [notesExpanded, setNotesExpanded] = useState(false);
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSavedAt, setNoteSavedAt] = useState<string | null>(null);
   const noteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2205,6 +2210,9 @@ function ListingCard({
         if (d.note && typeof d.note.text === 'string') {
           setNoteText(d.note.text);
           setNoteSavedAt(d.note.updatedAt ?? null);
+          // Existing note → auto-open the collapsed Notes section so
+          // the content is visible without an extra click.
+          if (d.note.text.trim()) setNotesExpanded(true);
         }
         setNoteLoaded(true);
       })
@@ -2999,44 +3007,80 @@ function ListingCard({
             )}
           </section>
 
-          {/* Notes section — free-form per-listing notes. Auto-saves
-              on a 800ms debounce; empty text deletes the note
-              server-side. The textarea grows with content so short
-              notes don't waste space and long ones don't truncate.
-              Voice-note button on supported browsers streams Web
-              Speech API transcription straight into the textarea —
-              hands-free capture for thoughts after a recruiter call. */}
+          {/* Notes section — collapsed by default. The Notes feature
+              is power-user-only (most listings never get one); keeping
+              it collapsed keeps the card header tidy. Auto-opens when
+              an existing note is loaded so users never think their
+              note disappeared. Click the header to toggle.
+
+              Auto-saves on a 800ms debounce when expanded; empty text
+              deletes the note server-side. Voice-note button on
+              supported browsers streams Web Speech API transcription
+              straight into the textarea. */}
           <section className="bg-slate-50 rounded-lg p-4">
-            <div className="flex items-center justify-between mb-2">
+            <button
+              type="button"
+              onClick={() => setNotesExpanded((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 text-left"
+              aria-expanded={notesExpanded}
+            >
               <div className="flex items-center gap-2">
                 <NotebookPen className="w-4 h-4 text-amber-500" />
                 <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
+                {/* Hint pill when collapsed — surfaces whether a note
+                    already exists (with a char count) so the user knows
+                    there's content underneath without opening it. */}
+                {!notesExpanded && noteText.trim() && (
+                  <span className="px-1.5 py-0 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-100 text-amber-700">
+                    {noteText.trim().length} chars
+                  </span>
+                )}
+                {!notesExpanded && !noteText.trim() && (
+                  <span className="text-[11px] text-slate-400 italic">
+                    Click to add
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <VoiceNoteButton
-                  onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
-                />
+                {/* Save indicator stays visible in the header even
+                    when collapsed, so a long voice-recording session
+                    still surfaces persistence feedback. */}
                 <div className="text-[11px] text-slate-400">
                   {noteSaving ? (
                     <span className="flex items-center gap-1">
                       <Loader2 className="w-3 h-3 animate-spin" /> Saving…
                     </span>
-                  ) : noteSavedAt ? (
+                  ) : noteSavedAt && notesExpanded ? (
                     <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
                       Saved {formatPostedDate(noteSavedAt) ?? ''}
                     </span>
                   ) : null}
                 </div>
+                {notesExpanded ? (
+                  <ChevronUp className="w-4 h-4 text-slate-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-400" />
+                )}
               </div>
-            </div>
-            <textarea
-              value={noteText}
-              onChange={(e) => handleNoteChange(e.target.value)}
-              placeholder="Research, contacts, why this job, why you passed — anything you want attached to this listing. Saves automatically."
-              rows={Math.max(3, Math.min(10, noteText.split('\n').length + 1))}
-              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all resize-y"
-              spellCheck
-            />
+            </button>
+
+            {notesExpanded && (
+              <div className="mt-3 space-y-2">
+                <div className="flex justify-end">
+                  <VoiceNoteButton
+                    onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
+                  />
+                </div>
+                <textarea
+                  value={noteText}
+                  onChange={(e) => handleNoteChange(e.target.value)}
+                  placeholder="Research, contacts, why this job, why you passed — anything you want attached to this listing. Saves automatically."
+                  rows={Math.max(3, Math.min(10, noteText.split('\n').length + 1))}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-300 transition-all resize-y"
+                  spellCheck
+                />
+              </div>
+            )}
           </section>
 
           {/* Resume Tailor section */}
