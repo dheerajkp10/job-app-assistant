@@ -381,6 +381,11 @@ export default function ListingsPage() {
   // one click away from its per-listing Quick Wins panel (which
   // already ranks missing keywords by category weight).
   const [weakCategory, setWeakCategory] = useState<string | null>(null);
+  // Opt-in fix titles the user checked in the dashboard popover. Read
+  // from sessionStorage so the banner can echo them back — gives the
+  // user a visible reminder of their chosen punch list as they open
+  // the highest-match listing.
+  const [weakCategoryFixes, setWeakCategoryFixes] = useState<{ id: string; title: string }[]>([]);
   const [autoExpandedForWeakCat, setAutoExpandedForWeakCat] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -388,6 +393,22 @@ export default function ListingsPage() {
     const wc = params.get('weakCategory');
     if (wc && ['technical', 'management', 'domain', 'soft'].includes(wc)) {
       setWeakCategory(wc);
+      // Pull the chosen fix titles (if any) that the dashboard popover
+      // stashed. We DON'T clear the storage here so a page reload
+      // still surfaces the reminder until the user dismisses the
+      // banner explicitly.
+      try {
+        const raw = sessionStorage.getItem('weakCategoryFixes');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.category === wc && Array.isArray(parsed.fixes)) {
+            setWeakCategoryFixes(parsed.fixes);
+          }
+        }
+      } catch {
+        // sessionStorage may be unavailable — banner still works
+        // with the category-only fallback path.
+      }
       // Clean the URL so a reload doesn't re-fire the banner — same
       // pattern the share-target prefill on /jobs/add uses.
       window.history.replaceState({}, '', window.location.pathname);
@@ -1151,33 +1172,55 @@ export default function ListingsPage() {
         </Button>
       </div>
 
-      {/* Dashboard → listings deep-link banner. Tells the user we're
-          focusing them on a specific category and points to the
-          per-listing Quick Wins panel that does the actual coaching. */}
+      {/* Dashboard → listings deep-link banner. When the dashboard
+          popover handed off the user with checked fixes, surface them
+          as a punch list so the user has a visible reminder while
+          they triage. Otherwise falls back to the category-only
+          version. Dismissing clears both the banner state and the
+          sessionStorage so it doesn't re-appear on the next visit. */}
       {weakCategory && (() => {
         const labels: Record<string, string> = {
           technical: 'Technical', management: 'Management',
           domain: 'Domain', soft: 'Soft Skills',
         };
+        const dismiss = () => {
+          setWeakCategory(null);
+          setWeakCategoryFixes([]);
+          try { sessionStorage.removeItem('weakCategoryFixes'); } catch { /* noop */ }
+        };
         return (
-          <div className="mb-4 px-4 py-2.5 rounded-lg border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 flex items-center justify-between gap-3 animate-fade-in-up">
-            <div className="flex items-center gap-2 text-sm min-w-0">
-              <Target className="w-4 h-4 text-indigo-600 shrink-0" />
-              <span className="text-indigo-900 truncate">
-                Improving <strong>{labels[weakCategory] ?? weakCategory}</strong>.{' '}
-                <span className="text-indigo-700/80">
-                  Open any listing&apos;s <span className="font-medium">Quick wins</span> panel to target this category in the next tailor.
-                </span>
-              </span>
+          <div className="mb-4 px-4 py-3 rounded-lg border border-indigo-200/70 bg-gradient-to-r from-indigo-50 to-violet-50 animate-fade-in-up">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2 text-sm min-w-0">
+                <Target className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <div className="text-indigo-900">
+                    Improving <strong>{labels[weakCategory] ?? weakCategory}</strong>.
+                    <span className="text-indigo-700/80">
+                      {' '}Open any listing&apos;s <span className="font-medium">Quick wins</span> panel to target this category in the next tailor.
+                    </span>
+                  </div>
+                  {weakCategoryFixes.length > 0 && (
+                    <ul className="mt-2 space-y-0.5">
+                      {weakCategoryFixes.map((f) => (
+                        <li key={f.id} className="text-[12px] text-indigo-800/90 flex items-start gap-1.5">
+                          <Check className="w-3 h-3 mt-0.5 shrink-0 text-indigo-500" />
+                          <span>{f.title}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismiss}
+                className="shrink-0 p-1 rounded text-indigo-400 hover:bg-indigo-100 hover:text-indigo-700"
+                aria-label="Dismiss"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setWeakCategory(null)}
-              className="shrink-0 p-1 rounded text-indigo-400 hover:bg-indigo-100 hover:text-indigo-700"
-              aria-label="Dismiss"
-            >
-              <X className="w-4 h-4" />
-            </button>
           </div>
         );
       })()}

@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   User, Briefcase, MapPin, DollarSign, FileText, Target, Building2,
   Loader2, BarChart3,
   CheckCircle2, AlertTriangle, Star, Zap, Sparkles, Download, X, Check,
-  ArrowUpRight,
+  ArrowUpRight, AlertCircle,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
 import { filterByUserPreferences } from '@/lib/role-filter';
@@ -63,77 +65,299 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
 }
 
 /**
- * Score bar with optional inline coaching. When `tip` is provided, the
- * bar grows a hoverable affordance: hovering reveals a one-line
- * suggestion AND a small Improve → button that links to /listings
- * with a `weakCategory=<key>` query param. The listings page reads
- * that param, opens the highest-match listing's expanded card, and
- * the per-listing Quick Wins panel already ranks missing keywords
- * by category weight — so the user lands one click away from the
- * tailoring workflow scoped to their weakest area.
+ * Per-category fix catalog. Each entry is one opt-in suggestion the
+ * user can check / uncheck before sending themselves into the tailor
+ * workflow. The fix titles are kept short + concrete (action-y) so
+ * the popover reads like a punch list rather than coaching prose.
+ */
+type CatKey = 'technical' | 'management' | 'domain' | 'soft';
+interface CategoryFix {
+  id: string;
+  title: string;
+  detail: string;
+}
+const FIXES_BY_CATEGORY: Record<CatKey, CategoryFix[]> = {
+  technical: [
+    { id: 'tech-stack-list', title: 'Add a Skills section with hands-on stacks',
+      detail: 'List languages (Python, Go, TypeScript), frameworks (React, FastAPI, Django), and clouds (AWS, GCP, k8s) you\'ve actually shipped with — these are the highest-weight tokens in the scorer.' },
+    { id: 'tech-bullets-frameworks', title: 'Name specific frameworks in bullets',
+      detail: 'Replace "built backend services" with "built FastAPI services on Kubernetes" — concrete tool names match JD vocabulary far better than abstract verbs.' },
+    { id: 'tech-data-pipelines', title: 'Call out data infrastructure',
+      detail: 'If you\'ve touched Spark, Kafka, Airflow, dbt, BigQuery, etc., name them. Even tangential exposure helps when JDs filter for these terms.' },
+    { id: 'tech-observability', title: 'Mention observability + reliability tooling',
+      detail: 'Datadog, Grafana, Prometheus, Sentry, PagerDuty — single-line mentions in bullet outcomes ("reduced p99 latency via Datadog tracing") read as senior signal.' },
+  ],
+  management: [
+    { id: 'mgmt-team-size', title: 'State your team size and scope',
+      detail: 'Add "Led a team of 8 engineers across 2 squads" to your Summary. JDs filter on size/scope language; "managed a team" alone is too generic.' },
+    { id: 'mgmt-outcomes', title: 'Quantify business outcomes',
+      detail: 'Pair each bullet with a number: cycle-time cut, revenue lifted, latency reduced, retention improved. Outcomes weigh higher than activities.' },
+    { id: 'mgmt-hiring', title: 'Mention hiring + performance work',
+      detail: 'Add a bullet about hiring rate, calibration / perf review ownership, or coaching outcomes — these are explicit management-track signals.' },
+    { id: 'mgmt-cross-fn', title: 'Show cross-functional partnership',
+      detail: 'Name the PM / Design / Data partners you led with. JDs often weight collaboration phrases as much as the technical ones.' },
+  ],
+  domain: [
+    { id: 'domain-verticals', title: 'Name the verticals you\'ve shipped in',
+      detail: 'Fintech, healthtech, e-commerce, ads, gaming, identity — even one keyword unlocks domain-match in 30+% of JDs you\'d otherwise miss.' },
+    { id: 'domain-products', title: 'List the product surfaces you\'ve owned',
+      detail: 'Marketplace, payments, search, recommendations, growth — these are the same words ATS keyword scrapers look for.' },
+    { id: 'domain-compliance', title: 'Add regulatory / compliance context',
+      detail: 'SOC2, HIPAA, GDPR, PCI — even passing involvement is worth a line if your background touched it.' },
+  ],
+  soft: [
+    { id: 'soft-summary-line', title: 'Add a leadership-flavored Summary line',
+      detail: 'A single line at the top of the resume: "Engineering leader with a focus on customer-driven team building and cross-org influence." Hits 3-4 soft-skill tokens at once.' },
+    { id: 'soft-collab', title: 'Use "collaboration" / "partnership" verbs',
+      detail: 'Replace "worked with" with "partnered with" or "co-led" in bullets where you didn\'t own the work outright.' },
+    { id: 'soft-decision-making', title: 'Surface decision-making + judgment',
+      detail: 'Mention trade-offs you made ("prioritized X over Y to ship under deadline") — JDs treat decision-making language as senior signal.' },
+  ],
+};
+
+/**
+ * Score bar with optional click-to-open coaching popover. When
+ * `categoryKey` is set AND the score is below the "already strong"
+ * threshold, an AlertCircle icon appears next to the score. Clicking
+ * it opens a portaled popover with the per-category fix catalog
+ * (opt-in checkboxes) and a CTA that hands off to the tailoring
+ * workflow on /listings.
  *
- * Falls back to the original quiet bar when `tip` is omitted so the
- * component stays usable in contexts (per-listing detail) where the
- * action wouldn't make sense.
+ * Falls back to the original quiet bar when `categoryKey` is omitted
+ * so the component stays usable in contexts (per-listing detail)
+ * where the action wouldn't apply.
  */
 function CategoryBar({
   label,
   score,
-  tip,
   categoryKey,
 }: {
   label: string;
   score: number;
-  tip?: string;
-  categoryKey?: 'technical' | 'management' | 'domain' | 'soft';
+  categoryKey?: CatKey;
 }) {
-  const [hovered, setHovered] = useState(false);
-  // Match the new score-tier palette used by ScoreRing.
   const color =
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
     : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
     : 'bg-gradient-to-r from-rose-400 to-pink-400';
-  const showCoach = !!tip && score < 80;
+  // Showing the coach button is gated on BOTH the score threshold
+  // and the presence of categoryKey — that keeps the per-listing
+  // detail panel from getting a button it can't act on.
+  const showCoach = !!categoryKey && score < 80;
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
   return (
-    <div
-      className="group relative"
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
-        <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
-          <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
-        </div>
-        <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
-        {/* Improve button — only renders when (a) a tip exists, and
-            (b) the category is below the "already strong" threshold.
-            Hover-revealed via opacity so the row stays clean at rest. */}
-        {showCoach && (
-          <Link
-            href={`/listings?weakCategory=${categoryKey ?? ''}`}
-            className={`absolute right-0 -translate-y-1/2 top-1/2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-white border border-indigo-200 text-indigo-700 hover:bg-indigo-50 transition-opacity ${
-              hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-            }`}
-            title={tip}
-          >
-            Improve <ArrowUpRight className="w-2.5 h-2.5" />
-          </Link>
-        )}
+    <div className="flex items-center gap-3">
+      <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
+      <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
       </div>
-      {/* Hover tip — slides in below the bar. Pure CSS opacity
-          transition so there's no layout shift; it occupies absolute
-          space and the parent's bottom padding accounts for it. */}
+      <span className="text-xs font-semibold text-slate-700 w-10">{score}%</span>
       {showCoach && (
-        <div
-          className={`absolute left-[5.75rem] right-0 top-full mt-1 z-10 text-[11px] text-slate-600 italic leading-snug transition-opacity ${
-            hovered ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
-        >
-          {tip}
-        </div>
+        <>
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={() => setPopoverOpen(true)}
+            className="p-0.5 rounded-full text-amber-500 hover:bg-amber-100 hover:text-amber-700 transition-colors"
+            title={`See suggestions to improve ${label}`}
+            aria-label={`Show fixes for ${label}`}
+          >
+            <AlertCircle className="w-4 h-4" />
+          </button>
+          {popoverOpen && (
+            <CategoryFixPopover
+              anchor={buttonRef.current}
+              label={label}
+              score={score}
+              categoryKey={categoryKey!}
+              onClose={() => setPopoverOpen(false)}
+            />
+          )}
+        </>
       )}
     </div>
+  );
+}
+
+/**
+ * Portaled popover anchored to an AlertCircle button. Renders the
+ * fix catalog with opt-in checkboxes (default checked) and an
+ * "Apply via tailor" CTA that:
+ *   1. Stashes the checked fix IDs in sessionStorage so the listings
+ *      page can echo them back to the user.
+ *   2. Navigates to /listings?weakCategory=<key>, which already has
+ *      a handler that auto-expands the top-match listing.
+ *
+ * Each fix is opt-in — checkbox toggles whether it gets carried over.
+ * "Apply" is disabled if zero fixes are checked so we don't ship the
+ * user to /listings with an empty memo.
+ */
+function CategoryFixPopover({
+  anchor,
+  label,
+  score,
+  categoryKey,
+  onClose,
+}: {
+  anchor: HTMLButtonElement | null;
+  label: string;
+  score: number;
+  categoryKey: CatKey;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const fixes = FIXES_BY_CATEGORY[categoryKey] ?? [];
+  // Default every fix to checked — most users will skim and apply
+  // most of them; uncheck is the cheaper interaction than re-check.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(fixes.map((f) => f.id)));
+
+  // Anchor position. Mirrors the flag-dropdown / contact-popover
+  // patterns already used elsewhere — fixed to the document body so
+  // overflow/transform ancestors don't clip us.
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const recompute = useCallback(() => {
+    if (!anchor) return;
+    const r = anchor.getBoundingClientRect();
+    setPos({
+      // Position popover BELOW the icon with a small gap. If it
+      // wouldn't fit (small viewport), drop the CSS to clamp width.
+      top: r.bottom + 6,
+      left: Math.max(8, r.right - 360), // right-align with 360px width
+    });
+  }, [anchor]);
+  useEffect(() => {
+    recompute();
+    const handle = () => recompute();
+    window.addEventListener('scroll', handle, true);
+    window.addEventListener('resize', handle);
+    return () => {
+      window.removeEventListener('scroll', handle, true);
+      window.removeEventListener('resize', handle);
+    };
+  }, [recompute]);
+
+  // Close on Escape, matching the keyboard convention for modals.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (typeof document === 'undefined' || !pos) return null;
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function apply() {
+    // Persist the chosen fix titles for the listings page banner to
+    // surface. sessionStorage scopes to the tab so the reminder
+    // doesn't leak across browsing sessions.
+    const chosen = fixes.filter((f) => selected.has(f.id));
+    try {
+      sessionStorage.setItem(
+        'weakCategoryFixes',
+        JSON.stringify({
+          category: categoryKey,
+          label,
+          fixes: chosen.map((f) => ({ id: f.id, title: f.title })),
+        }),
+      );
+    } catch {
+      // localStorage / sessionStorage may be disabled. Falls through
+      // to the URL param which carries the category at minimum.
+    }
+    router.push(`/listings?weakCategory=${categoryKey}`);
+    onClose();
+  }
+
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 z-[60]"
+        onClick={onClose}
+      />
+      <div
+        className="fixed w-[360px] max-w-[calc(100vw-16px)] bg-white border border-slate-200 rounded-2xl shadow-modal z-[70] overflow-hidden"
+        style={{ top: pos.top, left: pos.left }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-2 p-4 border-b border-slate-100">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              Improve {label}
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Currently <span className="font-semibold text-slate-700">{score}%</span> across your scored listings. Pick the fixes that read accurate to your background.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <ul className="max-h-[360px] overflow-y-auto divide-y divide-slate-100">
+          {fixes.map((f) => {
+            const isOn = selected.has(f.id);
+            return (
+              <li key={f.id} className="px-4 py-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isOn}
+                    onChange={() => toggle(f.id)}
+                    className="mt-0.5 rounded border-slate-300 text-indigo-500 focus:ring-indigo-200"
+                  />
+                  <div className="min-w-0">
+                    <div className={`text-xs font-semibold ${isOn ? 'text-slate-800' : 'text-slate-400 line-through'}`}>
+                      {f.title}
+                    </div>
+                    <div className={`text-[11px] mt-0.5 leading-snug ${isOn ? 'text-slate-600' : 'text-slate-400'}`}>
+                      {f.detail}
+                    </div>
+                  </div>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="flex items-center justify-between gap-2 p-3 border-t border-slate-100 bg-slate-50/60">
+          <span className="text-[11px] text-slate-500">
+            {selected.size} of {fixes.length} fixes selected
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-800 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={apply}
+              disabled={selected.size === 0}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm hover:from-indigo-600 hover:to-violet-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              Apply via tailor <ArrowUpRight className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
   );
 }
 
@@ -415,36 +639,30 @@ export default function DashboardPage() {
             <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
           </div>
 
-          {/* Per-category bars with inline coaching. Hovering a weak
-              category surfaces a one-line tip + Improve → button that
-              deep-links into /listings with the category as context.
-              Replaces the separate "Where to focus next" panel that
-              used to live below the tier counts — keeps the card
-              compact without losing the actionable hint. */}
-          <div className="space-y-3 pb-4">
+          {/* Per-category bars with click-to-open coaching. Weak bars
+              grow an AlertCircle icon next to the score; clicking it
+              opens a popover with the per-category fix catalog
+              (opt-in checkboxes) and a CTA into the tailor workflow. */}
+          <div className="space-y-3">
             <CategoryBar
               label="Technical"
               score={stats.avgTechnical}
               categoryKey="technical"
-              tip="Add hands-on stacks / cloud / language mentions to your Skills + bullets."
             />
             <CategoryBar
               label="Management"
               score={stats.avgManagement}
               categoryKey="management"
-              tip="Mention team size, scope, and outcomes in your Summary / Experience."
             />
             <CategoryBar
               label="Domain"
               score={stats.avgDomain}
               categoryKey="domain"
-              tip="Name the industry verticals (fintech, healthcare, etc.) you've shipped in."
             />
             <CategoryBar
               label="Soft Skills"
               score={stats.avgSoft}
               categoryKey="soft"
-              tip="Add leadership / collab / customer-focus phrases in your Summary line."
             />
           </div>
 
