@@ -12,6 +12,7 @@ import {
 import { measurePdfTextBounds } from '@/lib/pdf-bounds';
 import { detectSuggestions } from '@/lib/resume-suggestions';
 import { extractKeywords, scoreResume } from '@/lib/ats-scorer';
+import { extractDocxText } from '@/lib/docx-text';
 import { execFile } from 'child_process';
 import { writeFile, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
@@ -713,22 +714,9 @@ async function replaceDocumentXml(docxBuffer: Buffer, newXml: string): Promise<B
   return Buffer.from(await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }));
 }
 
-async function extractDocxText(docxBuffer: Buffer): Promise<string> {
-  const JSZip = (await import('jszip')).default;
-  const zip = await JSZip.loadAsync(docxBuffer);
-  const docXml = await zip.file('word/document.xml')?.async('string');
-  if (!docXml) return '';
-  // Strip XML tags, decode entities
-  return docXml
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// (extractDocxText moved to @/lib/docx-text. Uses mammoth, same as
+// the resume upload route — keeps in-pipeline and post-upload scores
+// computed against identical text representation.)
 
 // ─── Helper: convert docx to PDF via LibreOffice headless ───────────
 

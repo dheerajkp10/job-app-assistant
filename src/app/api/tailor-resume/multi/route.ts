@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readDb, saveScore } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractKeywords, scoreResume } from '@/lib/ats-scorer';
+import { extractDocxText } from '@/lib/docx-text';
 import { buildSummaryPhrase } from '@/lib/resume-tailor';
 import {
   editDocxTemplate,
@@ -709,21 +710,9 @@ function serveDocx(
   });
 }
 
-async function extractDocxText(docxBuffer: Buffer): Promise<string> {
-  const JSZip = (await import('jszip')).default;
-  const zip = await JSZip.loadAsync(docxBuffer);
-  const docXml = await zip.file('word/document.xml')?.async('string');
-  if (!docXml) return '';
-  return docXml
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// (extractDocxText moved to @/lib/docx-text — see comment in the
+// sibling /tailor-resume route. Same rationale: keep in-pipeline +
+// post-upload scoring on identical text representation.)
 
 function countPdfPages(pdfBuffer: Buffer): number {
   const text = pdfBuffer.toString('latin1');
