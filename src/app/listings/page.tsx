@@ -13,7 +13,8 @@ import {
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
-import { Button, Card, Chip } from '@heroui/react';
+import { Card, Chip } from '@heroui/react';
+import { Button } from '@/components/ui/button';
 import { filterByUserPreferences } from '@/lib/role-filter';
 import { isWorkAuthorized } from '@/lib/work-auth-filter';
 import { matchesLevelPreference } from '@/lib/level-matcher';
@@ -1036,16 +1037,12 @@ export default function ListingsPage() {
           Click below to search across 40+ company career pages and populate your listings based on your preferences.
         </p>
         <Button
-          onPress={streamingRefresh}
-          isDisabled={refreshing}
           size="lg"
-          className="px-6 bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600"
+          onClick={streamingRefresh}
+          isLoading={refreshing}
+          leftIcon={!refreshing ? <RefreshCw className="w-4 h-4" /> : undefined}
         >
-          {refreshing ? (
-            <><Loader2 className="w-4 h-4 animate-spin" /> Fetching Jobs...</>
-          ) : (
-            <><RefreshCw className="w-4 h-4" /> Fetch Job Listings</>
-          )}
+          {refreshing ? 'Fetching Jobs…' : 'Fetch Job Listings'}
         </Button>
       </div>
     );
@@ -1163,12 +1160,13 @@ export default function ListingsPage() {
           </p>
         </div>
         <Button
-          onPress={streamingRefresh}
-          isDisabled={refreshing}
-          className="group bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-md data-[hovered=true]:shadow-lg data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600 self-start sm:self-auto"
+          size="md"
+          onClick={streamingRefresh}
+          isLoading={refreshing}
+          leftIcon={!refreshing ? <RefreshCw className="w-4 h-4" /> : undefined}
+          className="self-start sm:self-auto"
         >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : 'group-data-[hovered=true]:rotate-180 transition-transform duration-500'}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh All'}
+          {refreshing ? 'Refreshing…' : 'Refresh All'}
         </Button>
       </div>
 
@@ -3166,16 +3164,13 @@ function ListingCard({
               </div>
               {!tailorResult && (
                 <Button
-                  onPress={handleTailor}
-                  isDisabled={tailoring || !detailScore}
                   size="sm"
-                  className="bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-sm data-[hovered=true]:from-indigo-600 data-[hovered=true]:to-violet-600 data-[hovered=true]:shadow-md"
+                  onClick={handleTailor}
+                  disabled={!detailScore}
+                  isLoading={tailoring}
+                  leftIcon={!tailoring ? <FileText className="w-3.5 h-3.5" /> : undefined}
                 >
-                  {tailoring ? (
-                    <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Tailoring...</>
-                  ) : (
-                    <><FileText className="w-3.5 h-3.5" /> Tailor My Resume</>
-                  )}
+                  {tailoring ? 'Tailoring…' : 'Tailor My Resume'}
                 </Button>
               )}
             </div>

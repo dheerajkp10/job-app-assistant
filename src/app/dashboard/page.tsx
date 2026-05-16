@@ -10,6 +10,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 import { filterByUserPreferences } from '@/lib/role-filter';
 import { getCompanyAliases, isExcludedCompany } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
@@ -1074,14 +1075,14 @@ export default function DashboardPage() {
             <h2 className="text-base font-semibold text-slate-800">Top Matching Jobs</h2>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <button
+            <Button
+              size="md"
               onClick={() => setMasterModalOpen(true)}
               title="Generate one resume optimized for broad ATS coverage across every open listing matching your preferences."
-              className="inline-flex items-center gap-2 px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-500 text-white shadow-btn-primary hover:from-indigo-600 hover:to-violet-600 hover:shadow-btn-primary-hover hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+              leftIcon={<Sparkles className="w-4 h-4" />}
             >
-              <Sparkles className="w-3.5 h-3.5" />
               Generate Master Resume
-            </button>
+            </Button>
             <Link href="/listings" className="text-sm text-indigo-600 hover:text-indigo-700 font-medium">
               View all &rarr;
             </Link>
