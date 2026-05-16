@@ -1047,6 +1047,24 @@ export default function ListingsPage() {
     [listings, flags]
   );
 
+  // Salary midpoints across every Applied-flagged listing that has
+  // parseable salary data. Fed into each ListingCard's Pay Snapshot
+  // so the rank-among-applied comparison renders without each card
+  // having to re-scan the whole listings array. Stable identity
+  // across renders that don't change flags/listings.
+  const appliedSalaryMids = useMemo(() => {
+    const mids: number[] = [];
+    for (const l of listings) {
+      if (flags[l.id]?.flag !== 'applied') continue;
+      const min = l.salaryMin;
+      const max = l.salaryMax;
+      if (min != null && max != null) mids.push((min + max) / 2);
+      else if (min != null) mids.push(min);
+      else if (max != null) mids.push(max);
+    }
+    return mids;
+  }, [listings, flags]);
+
   // Paginate
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -1835,6 +1853,8 @@ export default function ListingsPage() {
               onCompareToggle={() => toggleCompare(listing.id)}
               isBulkSelected={bulkSelectedIds.has(listing.id)}
               onBulkToggle={() => toggleBulk(listing.id)}
+              userSalaryFloor={prefs.salaryMin ?? null}
+              appliedSalaryMids={appliedSalaryMids}
             />
           </div>
         ))}
@@ -2045,6 +2065,8 @@ function ListingCard({
   onCompareToggle,
   isBulkSelected,
   onBulkToggle,
+  userSalaryFloor,
+  appliedSalaryMids,
 }: {
   listing: JobListing;
   score?: ScoreCacheEntry;
@@ -2057,6 +2079,12 @@ function ListingCard({
   onCompareToggle: () => void;
   isBulkSelected: boolean;
   onBulkToggle: () => void;
+  /** settings.salaryMin, for the "vs your floor" badge in Pay
+   *  Snapshot. Null when the user hasn't set one. */
+  userSalaryFloor: number | null;
+  /** Midpoints of every Applied-flagged listing with parseable
+   *  salary. Used for the rank-among-applied comparison. */
+  appliedSalaryMids: number[];
 }) {
   const [flagMenuOpen, setFlagMenuOpen] = useState(false);
   const flagButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -2891,19 +2919,23 @@ function ListingCard({
             </Link>
           </div>
 
-          <SalaryIntelInline listingId={listing.id} listingSalary={listing.salary} />
+          <SalaryIntelInline
+            listing={listing}
+            userSalaryFloor={userSalaryFloor}
+            appliedSalaryMids={appliedSalaryMids}
+          />
 
 
           {/* 3-col grid wrapping the primary application-prep
               sections: ATS Match Score | Resume Tailor | Cover Letter.
-              Each card stays its natural height (items-start) so a
-              tall post-tailor result column doesn't stretch its
-              neighbors. Stacks below lg (≤1023px) so each section
-              still has room to breathe on tablet/mobile. */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+              `items-stretch` (default) + `h-full flex flex-col` on
+              each section makes every column the same visual height
+              regardless of content — the bg-slate-50 cards used to
+              look mismatched when one column was much taller. */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
           {/* ATS Score Detail */}
-          <section className="bg-slate-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4 h-full flex flex-col">
             <div className="flex items-center gap-2 mb-3">
               <Target className="w-4 h-4 text-blue-500" />
               <h4 className="text-sm font-semibold text-slate-800">ATS Match Score</h4>
@@ -2945,9 +2977,9 @@ function ListingCard({
                 missingByCat.domain.length + missingByCat.soft.length;
               return (
               <div>
-                <div className="flex items-start gap-6 mb-4">
+                <div className="flex items-start gap-3 mb-4">
                   <ScoreRing score={detailScore.overall} size={90} label="Overall" />
-                  <div className="flex-1 space-y-2 pt-1">
+                  <div className="flex-1 min-w-0 space-y-2 pt-1">
                     <CategoryBar
                       label="Technical"
                       score={detailScore.technical}
@@ -3068,7 +3100,7 @@ function ListingCard({
             })()}
           </section>
           {/* Resume Tailor section */}
-          <section className="bg-slate-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-violet-500" />
@@ -3091,31 +3123,114 @@ function ListingCard({
               <p className="text-xs text-slate-400">Waiting for score analysis...</p>
             )}
 
-            {/* Pre-tailor staging summary. Mirrors the per-category
-                "✓ N staged" pill in the score panel above, but here
-                surfaces the TOTAL alongside any strategic edits the
-                user opted into. Tightens the visual loop between
-                picking (in popovers) and committing (Tailor button). */}
+            {/* Pre-tailor staging "cart" — shows every selected
+                keyword + strategic edit as a removable chip grouped
+                by category. Replaces the text-only "N staged" line
+                so the user can see exactly what's queued and remove
+                items inline without re-opening the ⚠ popovers. */}
             {detailScore && !tailorResult && !tailoring && (
-              <div className="mb-3 px-3 py-2 rounded-lg bg-white border border-slate-200 text-xs flex items-center justify-between gap-2">
-                <span className="text-slate-600">
-                  {selectedKeywords.size === 0 && selectedSuggestions.size === 0 ? (
-                    <span className="italic text-slate-500">
-                      Nothing staged yet — open <AlertCircle className="inline w-3 h-3 text-amber-500 mx-0.5" /> on a weak category above to pick keywords.
-                    </span>
-                  ) : (
+              <div className="mb-3 rounded-lg bg-white border border-slate-200 p-3">
+                {selectedKeywords.size === 0 && selectedSuggestions.size === 0 ? (
+                  <div className="text-xs italic text-slate-500 flex items-center gap-1.5">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    Nothing staged. Open the ⚠ on a weak category above to pick keywords for this tailor.
+                  </div>
+                ) : (() => {
+                  // Group staged keywords by category for display.
+                  // Uses keywordDetails (when present) so we know which
+                  // bucket each pill belongs to; bigram phrases that
+                  // aren't in keywordDetails fall under "Other".
+                  const detailsByKw = new Map(
+                    (detailScore.keywordDetails ?? []).map((d) => [d.keyword, d.category]),
+                  );
+                  const grouped: Record<string, string[]> = {
+                    technical: [], management: [], domain: [], soft: [], other: [],
+                  };
+                  for (const kw of selectedKeywords) {
+                    const cat = detailsByKw.get(kw) ?? 'other';
+                    grouped[cat] = grouped[cat] ?? [];
+                    grouped[cat].push(kw);
+                  }
+                  const CAT_LABEL: Record<string, string> = {
+                    technical: 'Technical', management: 'Management',
+                    domain: 'Domain', soft: 'Soft', other: 'Other',
+                  };
+                  const totalChips = selectedKeywords.size + selectedSuggestions.size;
+                  return (
                     <>
-                      <span className="font-semibold text-slate-800">{selectedKeywords.size}</span> keyword{selectedKeywords.size === 1 ? '' : 's'}
-                      {selectedSuggestions.size > 0 && (
-                        <>
-                          {' + '}
-                          <span className="font-semibold text-slate-800">{selectedSuggestions.size}</span> strategic edit{selectedSuggestions.size === 1 ? '' : 's'}
-                        </>
-                      )}
-                      {' staged for tailor'}
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <div className="text-[11px] uppercase tracking-wide font-semibold text-slate-500">
+                          Staged for tailor
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          <span className="font-semibold text-slate-800">{totalChips}</span>{' '}
+                          edit{totalChips === 1 ? '' : 's'} queued
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {(['technical', 'management', 'domain', 'soft', 'other'] as const).map((cat) => {
+                          const items = grouped[cat];
+                          if (!items || items.length === 0) return null;
+                          return (
+                            <div key={cat} className="flex items-start gap-2">
+                              <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold w-16 shrink-0 pt-0.5 text-right">
+                                {CAT_LABEL[cat]}
+                              </span>
+                              <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                                {items.map((kw) => (
+                                  <span
+                                    key={kw}
+                                    className="inline-flex items-center gap-0.5 pl-2 pr-0.5 py-0.5 rounded-md text-[11px] font-medium bg-indigo-100 text-indigo-700 border border-indigo-200"
+                                  >
+                                    {kw}
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleKeyword(kw)}
+                                      className="ml-0.5 px-1 rounded-full text-indigo-500 hover:bg-indigo-200 hover:text-indigo-800 leading-none"
+                                      title={`Remove ${kw}`}
+                                      aria-label={`Remove ${kw}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {selectedSuggestions.size > 0 && (
+                          <div className="flex items-start gap-2 pt-1.5 border-t border-slate-100">
+                            <span className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold w-16 shrink-0 pt-0.5 text-right">
+                              Strategy
+                            </span>
+                            <div className="flex flex-wrap gap-1 flex-1 min-w-0">
+                              {(detailScore.suggestions ?? [])
+                                .filter((s) => selectedSuggestions.has(s.id))
+                                .map((s) => (
+                                  <span
+                                    key={s.id}
+                                    className="inline-flex items-center gap-0.5 pl-2 pr-0.5 py-0.5 rounded-md text-[11px] font-medium bg-violet-100 text-violet-700 border border-violet-200"
+                                    title={s.description}
+                                  >
+                                    {s.label}
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleSuggestion(s.id)}
+                                      className="ml-0.5 px-1 rounded-full text-violet-500 hover:bg-violet-200 hover:text-violet-800 leading-none"
+                                      title={`Remove ${s.label}`}
+                                      aria-label={`Remove ${s.label}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </>
-                  )}
-                </span>
+                  );
+                })()}
               </div>
             )}
 
@@ -3502,7 +3617,7 @@ function ListingCard({
               and the top matched JD keywords. Editable before
               download — the textarea is the source of truth for the
               final .txt file. */}
-          <section className="bg-slate-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
               <div className="flex items-center gap-2">
                 <FileText className="w-4 h-4 text-blue-500" />
@@ -3650,13 +3765,13 @@ function ListingCard({
           {/* 2-col grid wrapping Find Hiring Contacts + Notes — the
               two secondary concerns parallel to the resume-prep
               flow above. Stacks on mobile; side-by-side on md+. */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
           {/* Hiring & Recruiting Contacts — no scraping; just pre-built
               LinkedIn deep-search URLs that the user clicks through.
               Avoids ToS issues and stays robust against LinkedIn UI
               changes. */}
-          <section className="bg-slate-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4 h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-indigo-500" />
@@ -3728,7 +3843,7 @@ function ListingCard({
               deletes the note server-side. Voice-note button on
               supported browsers streams Web Speech API transcription
               straight into the textarea. */}
-          <section className="bg-slate-50 rounded-lg p-4">
+          <section className="bg-slate-50 rounded-lg p-4 h-full flex flex-col">
             {/* Header row. Structured as a flex strip rather than a
                 single big <button> because we need to nest a separate
                 <button> (Voice) on the right side, and HTML doesn't
@@ -4589,144 +4704,159 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
   );
 }
 
-// ─── Salary Intelligence (inline strip) ─────────────────────────────
-// Pulls a peer cohort from the user's own listings cache and shows
-// median + p25/p75 alongside the listing's posted salary. Lazy fetch
-// on expand; gracefully hides when the peer cohort is too small.
+// ─── Pay Snapshot (inline strip) ────────────────────────────────────
+// Three signals the user picked as actually useful (the old cohort
+// median + percentile + P25–P75 were dropped for false-precision):
+//
+//   1. vs your salary floor — compares posting against settings.salaryMin
+//   2. Pay structure detail — base / TC / equity (parser already
+//      extracts these; we promote them from a tooltip to first-class)
+//   3. vs your applied set — "highest among your N applied" /
+//      "below your typical apply"
+//
+// All three are computed client-side from props already in scope on
+// the listings page — no network fetch.
 
 function SalaryIntelInline({
-  listingId,
-  listingSalary,
+  listing,
+  userSalaryFloor,
+  appliedSalaryMids,
 }: {
-  listingId: string;
-  listingSalary: string | null;
+  listing: JobListing;
+  /** settings.salaryMin from the user's profile. When null, the "vs
+   *  your floor" badge hides — comparison needs a target. */
+  userSalaryFloor: number | null;
+  /** Midpoints (or single value) of every listing flagged Applied
+   *  that has parseable salary data. Used for the rank-among-applied
+   *  comparison. */
+  appliedSalaryMids: number[];
 }) {
-  const [stats, setStats] = useState<{
-    n: number;
-    median: number;
-    p25: number;
-    p75: number;
-    confidence: 'low' | 'medium' | 'high';
-    scope: string;
-    targetPercentile?: number | null;
-  } | null>(null);
-  const [loaded, setLoaded] = useState(false);
-  useEffect(() => {
-    fetch(`/api/salary-intel?listingId=${encodeURIComponent(listingId)}`)
-      .then((r) => r.json())
-      .then((d) => setStats(d.stats))
-      .catch(() => {})
-      .finally(() => setLoaded(true));
-  }, [listingId]);
-  if (!loaded || !stats) return null;
-  const fmt = (v: number) => `$${Math.round(v / 1000)}k`;
-  // Text-only confidence colors (no background). The stat cell renders
-  // value as inline text alongside other cells; a background pill
-  // would visually shout louder than its peers.
-  const confidenceStyle: Record<typeof stats.confidence, string> = {
-    high: 'text-emerald-700',
-    medium: 'text-amber-700',
-    low: 'text-slate-500',
-  };
-  // Percentile badge — answers "where does this offer sit?" at a
-  // glance. Color-coded so a glance tells the user whether to
-  // negotiate up (low) or take it (high). The badge appears only
-  // when the listing actually has a posted salary AND the cohort
-  // had enough samples to compute a meaningful percentile.
-  const pct = stats.targetPercentile;
-  const pctMeta = pct == null ? null
-    : pct >= 75 ? { label: `${pct}th percentile`, color: 'text-emerald-700 bg-emerald-50 border-emerald-200', hint: 'Top quartile — strong offer' }
-    : pct >= 50 ? { label: `${pct}th percentile`, color: 'text-indigo-700 bg-indigo-50 border-indigo-200', hint: 'Above the cohort median' }
-    : pct >= 25 ? { label: `${pct}th percentile`, color: 'text-amber-700 bg-amber-50 border-amber-200', hint: 'Below median — room to negotiate' }
-    : { label: `${pct}th percentile`, color: 'text-rose-700 bg-rose-50 border-rose-200', hint: 'Bottom quartile — significant negotiation room' };
+  // Helpers for $ display: $156k / $1.25M.
+  const fmtK = (v: number) =>
+    v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`
+    : `$${Math.round(v / 1000)}k`;
 
-  // Humanize the scope token. computeSalaryStats emits machine-y
-  // bucket codes like "Remote-US" and "WA-Seattle"; this turns them
-  // into human-readable strings without rewriting the upstream API.
-  const prettyScope = stats.scope
-    .replace(/\bRemote-(\w+)\b/g, 'Remote · $1')
-    .replace(/\bWA-Seattle\b/g, 'Seattle area')
-    .replace(/\bCA-SFBay\b/g, 'SF Bay Area')
-    .replace(/\bNY-NYC\b/g, 'NYC')
-    .replace(/\bTX-Austin\b/g, 'Austin');
+  // ── Signal 1: vs your salary floor ────────────────────────────
+  // Compare the listing's MAX (or single value) to the user's floor.
+  // If the listing has no salary or the user hasn't set a floor, the
+  // badge hides.
+  const listingTop = listing.salaryMax ?? listing.salaryMin;
+  const vsFloor = (() => {
+    if (!userSalaryFloor || listingTop == null) return null;
+    const delta = listingTop - userSalaryFloor;
+    if (delta >= 0) {
+      return {
+        label: `Above your ${fmtK(userSalaryFloor)} floor`,
+        sub: delta > 0 ? `+${fmtK(delta)} headroom` : 'at the floor',
+        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      };
+    }
+    return {
+      label: `Below your ${fmtK(userSalaryFloor)} floor`,
+      sub: `${fmtK(Math.abs(delta))} short`,
+      color: 'bg-rose-50 text-rose-700 border-rose-200',
+    };
+  })();
+
+  // ── Signal 2: Pay structure ──────────────────────────────────
+  // Pull whichever structured fields the parser populated. We always
+  // have at least one of salaryMin/Max (otherwise listing.salary is
+  // null and the strip hides entirely). Base / TC / equity light up
+  // when the parser captured them.
+  const hasAnySalary = listing.salaryMin != null || listing.salaryMax != null;
+  if (!hasAnySalary && !listing.salary) return null;
+  const baseRange = listing.salaryBaseMin != null && listing.salaryBaseMax != null
+    ? `${fmtK(listing.salaryBaseMin)}–${fmtK(listing.salaryBaseMax)}`
+    : null;
+  const tcRange = listing.salaryTcMin != null && listing.salaryTcMax != null
+    ? `${fmtK(listing.salaryTcMin)}–${fmtK(listing.salaryTcMax)}`
+    : null;
+  // Posted range (the headline). Falls back to the raw string when
+  // we couldn't parse numeric min/max (manual entries, etc.).
+  const postedRange = listing.salaryMin != null && listing.salaryMax != null
+    ? `${fmtK(listing.salaryMin)}–${fmtK(listing.salaryMax)}`
+    : listing.salaryMin != null ? `from ${fmtK(listing.salaryMin)}`
+    : listing.salaryMax != null ? `up to ${fmtK(listing.salaryMax)}`
+    : listing.salary;
+
+  // ── Signal 3: vs your applied set ────────────────────────────
+  // Compute where this listing's midpoint sits among the user's
+  // existing applied listings (with parseable salaries).
+  const listingMid = listing.salaryMin != null && listing.salaryMax != null
+    ? (listing.salaryMin + listing.salaryMax) / 2
+    : listing.salaryMin ?? listing.salaryMax ?? null;
+  const vsApplied = (() => {
+    if (listingMid == null || appliedSalaryMids.length === 0) return null;
+    const above = appliedSalaryMids.filter((m) => listingMid > m).length;
+    const below = appliedSalaryMids.filter((m) => listingMid < m).length;
+    const total = appliedSalaryMids.length;
+    if (above === total) {
+      return { label: `Highest pay among your ${total} applied`, color: 'text-emerald-700' };
+    }
+    if (below === total) {
+      return { label: `Lowest pay among your ${total} applied`, color: 'text-rose-700' };
+    }
+    return {
+      label: `Ranks ${above + 1} of ${total + 1} among your applied set`,
+      color: 'text-slate-600',
+    };
+  })();
 
   return (
-    // Stat-card layout: small header strip (icon + label + scope),
-    // then a row of labeled metric cells. Each cell stacks its label
-    // (small uppercase) above the value (semibold) so the eye lands
-    // on the numbers first and reads the meaning second. Replaces
-    // the previous fragmented paragraph-style strip that put every
-    // value behind a different connective phrase.
     <div className="rounded-lg border border-emerald-100 bg-gradient-to-br from-emerald-50/80 to-teal-50/60 px-4 py-3">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <DollarSign className="w-4 h-4 text-emerald-600 shrink-0" />
           <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-            Market data
-          </span>
-          <span className="text-[11px] text-slate-500 truncate">
-            · {prettyScope}
+            Pay snapshot
           </span>
         </div>
-        {pctMeta && (
+        {vsFloor && (
           <span
-            className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${pctMeta.color}`}
-            title={pctMeta.hint}
+            className={`shrink-0 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${vsFloor.color}`}
+            title={vsFloor.sub}
           >
-            {pctMeta.label}
+            {vsFloor.label}
+            <span className="opacity-70 font-medium">· {vsFloor.sub}</span>
           </span>
         )}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat
-          label="This posting"
-          value={listingSalary || '—'}
-          emphasis
-        />
-        <Stat
-          label="Cohort median"
-          value={fmt(stats.median)}
-        />
-        <Stat
-          label="P25 – P75 range"
-          value={`${fmt(stats.p25)}–${fmt(stats.p75)}`}
-        />
-        <Stat
-          label={`Sample (n=${stats.n})`}
-          value={stats.confidence === 'high' ? 'High' : stats.confidence === 'medium' ? 'Medium' : 'Low'}
-          valueClass={confidenceStyle[stats.confidence]}
-        />
+      {/* Pay-structure detail. Posted range is the headline; Base and
+          TC light up when distinct from posted (and from each other). */}
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm">
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium mr-1.5">
+            Posted
+          </span>
+          <span className="font-bold text-emerald-900">{postedRange ?? '—'}</span>
+        </div>
+        {baseRange && baseRange !== postedRange && (
+          <div>
+            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium mr-1.5">
+              Base
+            </span>
+            <span className="font-semibold text-slate-800">{baseRange}</span>
+          </div>
+        )}
+        {tcRange && tcRange !== postedRange && tcRange !== baseRange && (
+          <div>
+            <span className="text-[10px] uppercase tracking-wide text-slate-500 font-medium mr-1.5">
+              Total comp
+            </span>
+            <span className="font-semibold text-slate-800">{tcRange}</span>
+          </div>
+        )}
+        {listing.salaryEquityHint && (
+          <div className="text-[11px] text-slate-500 italic">
+            · {listing.salaryEquityHint}
+          </div>
+        )}
       </div>
-    </div>
-  );
-}
-
-/** Small label/value cell used inside the salary stat card. Keeps
- *  the visual rhythm identical across every metric so the row reads
- *  as a tidy grid instead of a paragraph. */
-function Stat({
-  label,
-  value,
-  emphasis,
-  valueClass,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-  valueClass?: string;
-}) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-slate-500 truncate">
-        {label}
-      </div>
-      <div
-        className={`mt-0.5 text-sm truncate ${
-          emphasis ? 'font-bold text-emerald-900' : 'font-semibold text-slate-800'
-        } ${valueClass ?? ''}`}
-      >
-        {value}
-      </div>
+      {vsApplied && (
+        <div className={`mt-2 pt-2 border-t border-emerald-100 text-[11px] ${vsApplied.color}`}>
+          {vsApplied.label}
+        </div>
+      )}
     </div>
   );
 }
