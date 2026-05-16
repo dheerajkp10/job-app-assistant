@@ -1,12 +1,22 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, rename, copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
 import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
+// Atomic-write staging file. writeDb writes the new JSON here first,
+// then renames it over DB_PATH — POSIX rename is atomic so concurrent
+// readers can never observe a half-written file.
+const DB_TMP_PATH = path.join(DATA_DIR, 'db.json.tmp');
+// Last-known-good copy. Refreshed BEFORE every successful write so a
+// crash mid-write or a torn previous file leaves a recoverable
+// snapshot for readDb to fall back to.
+const DB_BAK_PATH = path.join(DATA_DIR, 'db.json.bak');
 
-// Simple mutex to prevent concurrent writes corrupting the file
+// Serializes writeDb calls. Prevents two concurrent writes from
+// racing through the tmp-file step. Reads no longer need this lock —
+// they read DB_PATH directly, which is only ever atomically swapped.
 let writeLock: Promise<void> = Promise.resolve();
 
 const DEFAULT_DB: Database = {
@@ -44,14 +54,65 @@ async function ensureDataDir() {
   }
 }
 
+/**
+ * Read + parse db.json, with auto-recovery from a torn file.
+ *
+ * The legacy reader did `JSON.parse(readFile(DB_PATH))` directly,
+ * which raises `Unterminated string in JSON at position ...` whenever
+ * a concurrent writeDb has truncated the file but hasn't finished
+ * streaming the new contents yet (fs/promises writeFile is NOT
+ * atomic — it does open(O_TRUNC) → write).
+ *
+ * writeDb now writes to a tmp file and renames it over DB_PATH, so a
+ * fresh read of DB_PATH should always be a complete JSON document.
+ * But for users on the legacy path who already have a torn file on
+ * disk, we also fall back to DB_BAK_PATH (last-known-good snapshot)
+ * before giving up — better to serve slightly-stale data than crash
+ * the whole app.
+ */
 export async function readDb(): Promise<Database> {
   await ensureDataDir();
   if (!existsSync(DB_PATH)) {
-    await writeFile(DB_PATH, JSON.stringify(DEFAULT_DB, null, 2));
-    return structuredClone(DEFAULT_DB);
+    // First run — seed an empty db. Done via writeDb so it goes
+    // through the atomic tmp-file path right out of the gate.
+    const fresh = structuredClone(DEFAULT_DB);
+    await writeDb(fresh);
+    return fresh;
   }
-  const raw = await readFile(DB_PATH, 'utf-8');
-  const db = JSON.parse(raw) as Database;
+  let db: Database;
+  try {
+    const raw = await readFile(DB_PATH, 'utf-8');
+    db = JSON.parse(raw) as Database;
+  } catch (err) {
+    // Most common cause: the previous read landed mid-write on a
+    // pre-atomic db.json (or a hand-edited file with a syntax error).
+    // Try the .bak — it's the last-known-good snapshot writeDb
+    // captured before its most recent successful write.
+    if (existsSync(DB_BAK_PATH)) {
+      try {
+        const bakRaw = await readFile(DB_BAK_PATH, 'utf-8');
+        db = JSON.parse(bakRaw) as Database;
+        // Restore the bak as the live file so subsequent reads
+        // don't keep tripping over the torn original.
+        await writeFile(DB_PATH, bakRaw);
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[db] db.json was unreadable (${err instanceof Error ? err.message : String(err)}); ` +
+            `recovered from db.json.bak.`,
+        );
+      } catch (bakErr) {
+        // Both gone — surface the ORIGINAL error so the user sees
+        // the real cause, not the cascade.
+        throw new Error(
+          `db.json is corrupted and db.json.bak also failed to parse. ` +
+            `Original: ${err instanceof Error ? err.message : String(err)}. ` +
+            `Bak: ${bakErr instanceof Error ? bakErr.message : String(bakErr)}.`,
+        );
+      }
+    } else {
+      throw err;
+    }
+  }
   // Ensure listingsCache exists (migration for old DBs)
   if (!db.listingsCache) {
     db.listingsCache = { listings: [], lastFetchedAt: null, fetchErrors: [] };
@@ -102,15 +163,55 @@ function migrateLegacyResume(s: Settings): boolean {
   return true;
 }
 
+/**
+ * Atomic, crash-safe write. Sequence:
+ *
+ *   1. Serialize the new JSON to db.json.tmp (a fresh file, no
+ *      concurrent reader looks at this path).
+ *   2. If db.json already exists, copy it to db.json.bak as a
+ *      last-known-good snapshot — this is the file readDb falls back
+ *      to if anything ever tears.
+ *   3. Atomically rename db.json.tmp → db.json. POSIX rename is
+ *      atomic, so any concurrent readDb either sees the OLD file or
+ *      the NEW file, never a partial one.
+ *
+ * A writeLock still serializes concurrent writers so two parallel
+ * mutations don't race through step 3 in an unpredictable order.
+ * Reads are no longer blocked by this lock — they go straight at
+ * db.json since the rename guarantees they can't observe a half-
+ * written state.
+ */
 export async function writeDb(db: Database): Promise<void> {
   await ensureDataDir();
-  // Serialize writes to prevent concurrent corruption
   const prev = writeLock;
   let resolve: () => void;
   writeLock = new Promise<void>(r => { resolve = r; });
   await prev;
   try {
-    await writeFile(DB_PATH, JSON.stringify(db, null, 2));
+    const serialized = JSON.stringify(db, null, 2);
+    // Step 1 — write fresh tmp file. Failures here don't touch the
+    // live db.json.
+    await writeFile(DB_TMP_PATH, serialized);
+    // Step 2 — refresh the .bak snapshot from the CURRENT (about-to-
+    // be-replaced) live file. Skipped on first-run when DB_PATH
+    // doesn't exist yet. Best-effort: if the bak copy fails, we
+    // still proceed with the rename — losing a backup is preferable
+    // to refusing to write user data.
+    if (existsSync(DB_PATH)) {
+      try {
+        await copyFile(DB_PATH, DB_BAK_PATH);
+      } catch {
+        // eslint-disable-next-line no-console
+        console.warn('[db] failed to refresh db.json.bak; continuing with write.');
+      }
+    }
+    // Step 3 — atomic swap. From here on, db.json IS the new file.
+    await rename(DB_TMP_PATH, DB_PATH);
+  } catch (err) {
+    // Defensive cleanup: a half-written tmp file is harmless but
+    // accumulates on every failed write if we don't remove it.
+    try { await unlink(DB_TMP_PATH); } catch { /* tmp may not exist */ }
+    throw err;
   } finally {
     resolve!();
   }
