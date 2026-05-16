@@ -249,6 +249,45 @@ export interface NetworkContact {
   connectedOn?: string;
 }
 
+/** Outreach to a network contact — turns the static "N you know at X"
+ *  badge into an applicant CRM. Each record tracks one message we
+ *  drafted (or sent) to a specific person, optionally tied to a
+ *  listing. Status moves through `drafted → sent → replied | no-response`;
+ *  the user is responsible for marking the transitions manually since
+ *  we don't have inbox integration yet. */
+export type OutreachStatus = 'drafted' | 'sent' | 'replied' | 'no-response';
+export type OutreachChannel = 'linkedin-message' | 'email' | 'other';
+
+export interface NetworkOutreach {
+  id: string;
+  /** Dedupe key for the contact — same shape as the NetworkContact
+   *  import dedupKey (lowercased first+last+company). Lets us look up
+   *  prior outreach without needing to round-trip names case-sensitively. */
+  contactKey: string;
+  /** Display-friendly contact name at the time of outreach. We snapshot
+   *  this rather than re-resolving via the connections list so the
+   *  record still makes sense if the user later re-imports a different
+   *  Connections.csv. */
+  contactName: string;
+  company: string;
+  /** Optional listing the outreach was tied to (e.g. "referral request
+   *  for role X"). Lets us correlate outreach with pipeline activity. */
+  listingId?: string;
+  /** What kind of message was sent. We don't infer this — the UI asks
+   *  the user when they mark drafted → sent. */
+  channel?: OutreachChannel;
+  status: OutreachStatus;
+  /** Saved subject + body from the AI-drafted referral request. Useful
+   *  for repeated outreach to the same person, and for letting the user
+   *  copy/edit the message to send. */
+  draftSubject?: string;
+  draftBody?: string;
+  createdAt: string;
+  sentAt?: string;
+  repliedAt?: string;
+  notes?: string;
+}
+
 /** A user-added company source. Lives in `Settings.customSources`
  *  and gets unioned with the static `COMPANY_SOURCES` whenever we
  *  need to fetch listings. The `addedByUser` flag distinguishes
@@ -438,6 +477,11 @@ export interface Database {
    *  Empty/whitespace-only strings are treated as "no note" and
    *  pruned at write time. */
   listingNotes?: Record<string, ListingNote>;
+  /** Outreach CRM — every referral request / contact message the user
+   *  has drafted or sent. Read by the network outreach inbox + by the
+   *  contact popover (so it can show a "Contacted" pill on rows the
+   *  user has already messaged). */
+  networkOutreach?: NetworkOutreach[];
 }
 
 export interface CoverLetterTemplate {

@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate } from './types';
+import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -475,6 +475,47 @@ export async function deleteCoverLetterTemplate(id: string): Promise<boolean> {
   if (!before) return false;
   db.settings.coverLetterTemplates = (db.settings.coverLetterTemplates ?? []).filter((x) => x.id !== id);
   const removed = (db.settings.coverLetterTemplates.length ?? 0) < before;
+  if (removed) await writeDb(db);
+  return removed;
+}
+
+// ─── Network outreach (CRM) ─────────────────────────────────────────
+// Read/write helpers for the network-outreach store. Stored at the
+// top level of Database (not under Settings) because outreach records
+// are append-mostly history, not user preferences.
+
+export async function listNetworkOutreach(): Promise<NetworkOutreach[]> {
+  const db = await readDb();
+  return db.networkOutreach ?? [];
+}
+
+export async function addNetworkOutreach(o: NetworkOutreach): Promise<NetworkOutreach> {
+  const db = await readDb();
+  db.networkOutreach = [...(db.networkOutreach ?? []), o];
+  await writeDb(db);
+  return o;
+}
+
+export async function updateNetworkOutreach(
+  id: string,
+  patch: Partial<NetworkOutreach>,
+): Promise<NetworkOutreach | null> {
+  const db = await readDb();
+  const arr = db.networkOutreach ?? [];
+  const idx = arr.findIndex((x) => x.id === id);
+  if (idx === -1) return null;
+  arr[idx] = { ...arr[idx], ...patch };
+  db.networkOutreach = arr;
+  await writeDb(db);
+  return arr[idx];
+}
+
+export async function deleteNetworkOutreach(id: string): Promise<boolean> {
+  const db = await readDb();
+  const before = (db.networkOutreach ?? []).length;
+  if (!before) return false;
+  db.networkOutreach = (db.networkOutreach ?? []).filter((x) => x.id !== id);
+  const removed = db.networkOutreach.length < before;
   if (removed) await writeDb(db);
   return removed;
 }

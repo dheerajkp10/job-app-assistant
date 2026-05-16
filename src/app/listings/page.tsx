@@ -3651,23 +3651,70 @@ interface BadgeContact {
   url?: string;
 }
 
+/** Mirror of the server-side dedup key in /api/network. Lets the
+ *  client correlate a contact with any prior outreach record without
+ *  another round-trip. URL wins when present (LinkedIn's stable id);
+ *  otherwise we fall back to first+last+company, lowercased. */
+function contactDedupKey(c: BadgeContact, company: string): string {
+  if (c.url) return c.url.trim().toLowerCase();
+  return `${c.firstName}|${c.lastName}|${company}`.toLowerCase();
+}
+
+type ContactOutreach = {
+  id: string;
+  contactKey: string;
+  status: 'drafted' | 'sent' | 'replied' | 'no-response';
+  createdAt: string;
+  sentAt?: string;
+  repliedAt?: string;
+};
+
 function NetworkBadge({ company, listingId }: { company: string; listingId?: string }) {
   const [contacts, setContacts] = useState<BadgeContact[]>([]);
   const [open, setOpen] = useState(false);
+  // Outreach records for THIS company — keyed by contactKey for fast
+  // lookup so each contact row can render a "Contacted" pill with the
+  // latest status. Refreshed when the popover opens.
+  const [outreachByContact, setOutreachByContact] = useState<Record<string, ContactOutreach>>({});
+  const reloadOutreach = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/network/outreach?company=${encodeURIComponent(company)}`);
+      const d = await r.json();
+      if (Array.isArray(d.outreach)) {
+        // For each contact, keep the most-recent record. API returns
+        // newest-first so we just take the first hit per contactKey.
+        const map: Record<string, ContactOutreach> = {};
+        for (const o of d.outreach as ContactOutreach[]) {
+          if (!map[o.contactKey]) map[o.contactKey] = o;
+        }
+        setOutreachByContact(map);
+      }
+    } catch {
+      // Network blip — leave whatever we had on screen.
+    }
+  }, [company]);
   // Referral-draft modal state. When set, renders a portaled modal
   // with the generated subject + body for the chosen contact. The
   // popover stays mounted underneath; user closes the modal to get
   // back to the contact list and pick another contact or close.
   const [referral, setReferral] = useState<
-    | { contactName: string; subject: string; body: string; loading?: false }
-    | { contactName: string; loading: true }
+    | {
+        contactName: string;
+        contactKey: string;
+        outreachId?: string;
+        subject: string;
+        body: string;
+        loading?: false;
+      }
+    | { contactName: string; contactKey: string; loading: true }
     | null
   >(null);
 
   async function requestReferral(contact: BadgeContact) {
     if (!listingId) return;
     const contactName = `${contact.firstName} ${contact.lastName}`.trim() || 'there';
-    setReferral({ contactName, loading: true });
+    const contactKey = contactDedupKey(contact, company);
+    setReferral({ contactName, contactKey, loading: true });
     try {
       const res = await fetch('/api/outreach', {
         method: 'POST',
@@ -3680,17 +3727,67 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? `HTTP ${res.status}`);
-      setReferral({
-        contactName,
-        subject: data.subject ?? '',
-        body: data.body ?? '',
-      });
+      const subject = data.subject ?? '';
+      const body = data.body ?? '';
+      // Persist the draft as an outreach record so the contact list
+      // shows a "Drafted" pill and the user can mark it sent / replied
+      // later from the inbox.
+      let outreachId: string | undefined;
+      try {
+        const persistRes = await fetch('/api/network/outreach', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contactKey,
+            contactName,
+            company,
+            listingId,
+            draftSubject: subject,
+            draftBody: body,
+          }),
+        });
+        const persistData = await persistRes.json();
+        if (persistRes.ok && persistData?.outreach?.id) {
+          outreachId = persistData.outreach.id as string;
+          // Optimistically update the local cache so the contact list
+          // shows the pill without waiting for a refetch.
+          setOutreachByContact((prev) => ({
+            ...prev,
+            [contactKey]: persistData.outreach,
+          }));
+        }
+      } catch {
+        // Persistence failure shouldn't block the user from seeing the
+        // generated text — they can still copy/paste from the modal.
+      }
+      setReferral({ contactName, contactKey, outreachId, subject, body });
     } catch (e) {
       setReferral({
         contactName,
+        contactKey,
         subject: '',
         body: `Couldn't draft a referral message: ${e instanceof Error ? e.message : 'unknown error'}.\n\nMake sure you have an active resume in Settings and try again.`,
       });
+    }
+  }
+
+  /** Move an outreach record to a new status (sent / replied / no-response).
+   *  Used by the buttons in the referral modal footer. */
+  async function markOutreachStatus(id: string, status: 'sent' | 'replied' | 'no-response') {
+    try {
+      const r = await fetch('/api/network/outreach', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      if (r.ok) {
+        const d = await r.json();
+        if (d?.outreach?.contactKey) {
+          setOutreachByContact((prev) => ({ ...prev, [d.outreach.contactKey]: d.outreach }));
+        }
+      }
+    } catch {
+      // Silent — user can retry; we'll re-read on next open.
     }
   }
   // Anchor position for the portaled popover. The badge itself sits
@@ -3712,6 +3809,10 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
   useEffect(() => {
     if (!open) return;
     recomputePos();
+    // Refresh outreach state whenever the popover opens — the user
+    // may have marked things sent/replied in the inbox view since the
+    // last open. Cheap call (one record per contact).
+    reloadOutreach();
     const onChange = () => recomputePos();
     window.addEventListener('scroll', onChange, true);
     window.addEventListener('resize', onChange);
@@ -3719,7 +3820,7 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
       window.removeEventListener('scroll', onChange, true);
       window.removeEventListener('resize', onChange);
     };
-  }, [open, recomputePos]);
+  }, [open, recomputePos, reloadOutreach]);
   useEffect(() => {
     let cancelled = false;
     fetch(`/api/network?company=${encodeURIComponent(company)}`)
@@ -3770,12 +3871,33 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
             <ul className="max-h-72 overflow-y-auto divide-y divide-gray-100">
               {contacts.map((c, i) => {
                 const name = `${c.firstName} ${c.lastName}`.trim();
+                const key = contactDedupKey(c, company);
+                const outreach = outreachByContact[key];
                 return (
                   <li key={`${name}-${i}`} className="py-1.5 px-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-medium text-slate-800 truncate">
-                          {name || 'Unknown'}
+                        <div className="text-xs font-medium text-slate-800 truncate flex items-center gap-1.5">
+                          <span className="truncate">{name || 'Unknown'}</span>
+                          {/* Outreach status pill. Surfaces previous
+                              messages so the user doesn't re-draft to
+                              someone they've already contacted. */}
+                          {outreach && (
+                            <span
+                              className={`shrink-0 inline-flex items-center px-1.5 py-0 rounded text-[9px] font-bold uppercase tracking-wide ${
+                                outreach.status === 'replied'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : outreach.status === 'sent'
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : outreach.status === 'no-response'
+                                  ? 'bg-slate-100 text-slate-500'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}
+                              title={`Outreach ${outreach.status} — ${new Date(outreach.createdAt).toLocaleDateString()}`}
+                            >
+                              {outreach.status === 'no-response' ? 'no reply' : outreach.status}
+                            </span>
+                          )}
                         </div>
                         {c.position && (
                           <div className="text-[11px] text-slate-500 truncate">
@@ -3880,7 +4002,7 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
                   </>
                 )}
               </div>
-              <div className="flex justify-end gap-2 p-4 border-t border-slate-100 bg-slate-50/60">
+              <div className="flex flex-wrap justify-end gap-2 p-4 border-t border-slate-100 bg-slate-50/60">
                 <button
                   type="button"
                   onClick={() => setReferral(null)}
@@ -3888,6 +4010,46 @@ function NetworkBadge({ company, listingId }: { company: string; listingId?: str
                 >
                   Close
                 </button>
+                {!referral.loading && referral.outreachId && (() => {
+                  // Status of the persisted outreach record. Drives
+                  // which transition buttons we render so the user
+                  // can't double-mark and we don't show "Mark sent"
+                  // after they've already marked replied.
+                  const current = outreachByContact[referral.contactKey];
+                  const status = current?.status ?? 'drafted';
+                  return (
+                    <>
+                      {status === 'drafted' && (
+                        <button
+                          type="button"
+                          onClick={() => markOutreachStatus(referral.outreachId!, 'sent')}
+                          className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all duration-200"
+                          title="Mark this outreach as sent — flips to 'sent' so you stop seeing it as a draft"
+                        >
+                          Mark sent
+                        </button>
+                      )}
+                      {status === 'sent' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => markOutreachStatus(referral.outreachId!, 'replied')}
+                            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-200 transition-all duration-200"
+                          >
+                            Mark replied
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => markOutreachStatus(referral.outreachId!, 'no-response')}
+                            className="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-xl bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-all duration-200"
+                          >
+                            No response
+                          </button>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
                 {!referral.loading && (
                   <button
                     type="button"

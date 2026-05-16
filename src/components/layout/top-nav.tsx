@@ -9,6 +9,7 @@ import {
   Globe,
   LayoutDashboard,
   Kanban,
+  Users,
 } from 'lucide-react';
 import ThemeToggle from './theme-toggle';
 
@@ -16,6 +17,7 @@ const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/listings', label: 'Job Listings', icon: Globe },
   { href: '/pipeline', label: 'Pipeline', icon: Kanban },
+  { href: '/network', label: 'Network', icon: Users },
   { href: '/jobs/add', label: 'Add Job', icon: PlusCircle },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
