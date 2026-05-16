@@ -1,0 +1,55 @@
+{
+  "name": "Job Application Assistant",
+  "short_name": "JobAssist",
+  "description": "Local-first applicant tracker with ATS scoring, resume tailoring, and CRM for your job search.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#6366f1",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "share_target": {
+    "action": "/jobs/add",
+    "method": "GET",
+    "enctype": "application/x-www-form-urlencoded",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Add job",
+      "short_name": "Add",
+      "description": "Quickly add a job by URL or paste.",
+      "url": "/jobs/add"
+    },
+    {
+      "name": "Listings",
+      "short_name": "Listings",
+      "description": "Browse fetched listings.",
+      "url": "/listings"
+    },
+    {
+      "name": "Pipeline",
+      "short_name": "Pipeline",
+      "description": "See your application pipeline.",
+      "url": "/pipeline"
+    }
+  ]
+}

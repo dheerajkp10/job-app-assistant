@@ -20,6 +20,21 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: "Job Application Assistant",
   description: "Track and manage job applications across portals",
+  // PWA wiring — installable as a standalone app on iOS / Android /
+  // desktop Chrome. The manifest.webmanifest also declares a
+  // share_target so the OS share-sheet → JobAssist → /jobs/add flow
+  // works (e.g. share a URL from LinkedIn into the Add Job form).
+  manifest: "/manifest.webmanifest",
+  themeColor: "#6366f1",
+  appleWebApp: {
+    capable: true,
+    title: "JobAssist",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
 };
 
 // Mobile viewport setup. Without this, iOS/Android render the page at

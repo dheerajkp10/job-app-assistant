@@ -8,6 +8,7 @@ import {
   DollarSign, Filter, ChevronDown, ChevronUp, ChevronRight, Loader2, AlertCircle,
   Target, Download, FileText, AlertTriangle, CheckCircle2, XCircle,
   Tag, EyeOff, Eye, Globe, Sparkles, Check, Users, NotebookPen,
+  Mic, MicOff,
 } from 'lucide-react';
 import type { JobListing, ScoreCacheEntry, ListingFlag, ListingFlagEntry, Settings, WorkMode } from '@/lib/types';
 import { LISTING_FLAGS, LEVEL_TIERS } from '@/lib/types';
@@ -3001,23 +3002,31 @@ function ListingCard({
           {/* Notes section — free-form per-listing notes. Auto-saves
               on a 800ms debounce; empty text deletes the note
               server-side. The textarea grows with content so short
-              notes don't waste space and long ones don't truncate. */}
+              notes don't waste space and long ones don't truncate.
+              Voice-note button on supported browsers streams Web
+              Speech API transcription straight into the textarea —
+              hands-free capture for thoughts after a recruiter call. */}
           <section className="bg-slate-50 rounded-lg p-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <NotebookPen className="w-4 h-4 text-amber-500" />
                 <h4 className="text-sm font-semibold text-slate-800">Notes</h4>
               </div>
-              <div className="text-[11px] text-slate-400">
-                {noteSaving ? (
-                  <span className="flex items-center gap-1">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Saving…
-                  </span>
-                ) : noteSavedAt ? (
-                  <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
-                    Saved {formatPostedDate(noteSavedAt) ?? ''}
-                  </span>
-                ) : null}
+              <div className="flex items-center gap-2">
+                <VoiceNoteButton
+                  onTranscript={(text) => handleNoteChange(noteText ? `${noteText.trimEnd()}\n${text}` : text)}
+                />
+                <div className="text-[11px] text-slate-400">
+                  {noteSaving ? (
+                    <span className="flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+                    </span>
+                  ) : noteSavedAt ? (
+                    <span title={`Last saved ${new Date(noteSavedAt).toLocaleString()}`}>
+                      Saved {formatPostedDate(noteSavedAt) ?? ''}
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
             <textarea
@@ -4573,5 +4582,123 @@ function ExcludedCompaniesBar({
           )}
         </div>
     </div>
+  );
+}
+
+// ─── Voice-note button ──────────────────────────────────────────────
+//
+// Uses the browser's built-in Web Speech API (SpeechRecognition) to
+// stream transcription of the user's voice into the notes textarea.
+// Zero server dependency — runs entirely on-device on Chrome, Edge,
+// and Safari (iOS 14.5+). Firefox doesn't ship it; we gracefully
+// hide the button there rather than show a broken control.
+//
+// Use cases this unlocks:
+//   - 30-second dump after a recruiter call without typing on a phone
+//   - Hands-free capture of thoughts while reading a JD
+//
+// We DON'T store the audio itself — transcript only — which keeps the
+// db.json footprint bounded.
+
+// Minimal types for the SpeechRecognition API. TypeScript's lib.dom
+// doesn't bundle these because the API is still non-standard.
+interface SpeechRecognitionEventLike {
+  resultIndex: number;
+  results: ArrayLike<{
+    isFinal: boolean;
+    0: { transcript: string };
+  }>;
+}
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((e: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  stop(): void;
+}
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function VoiceNoteButton({ onTranscript }: { onTranscript: (text: string) => void }) {
+  const [supported, setSupported] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    setSupported(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
+  }, []);
+
+  if (!supported) return null;
+
+  function start() {
+    const w = window as unknown as {
+      SpeechRecognition?: SpeechRecognitionCtor;
+      webkitSpeechRecognition?: SpeechRecognitionCtor;
+    };
+    const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    rec.continuous = true;
+    rec.interimResults = false; // we only commit finalized chunks
+    rec.lang = navigator.language || 'en-US';
+    rec.onresult = (e) => {
+      // Collect only finalized results since the last index — interim
+      // results would spam onTranscript with growing prefixes.
+      let final = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) final += r[0].transcript;
+      }
+      if (final.trim()) onTranscript(final.trim());
+    };
+    rec.onerror = () => {
+      // Most common: permission denied or no-speech timeout. Silently
+      // stop — the user will retry if they meant to record.
+      setRecording(false);
+    };
+    rec.onend = () => setRecording(false);
+    rec.start();
+    recognitionRef.current = rec;
+    setRecording(true);
+  }
+
+  function stop() {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setRecording(false);
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={recording ? stop : start}
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors ${
+        recording
+          ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 animate-pulse'
+          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+      }`}
+      title={
+        recording
+          ? 'Stop recording — finalized speech is appended to the note as you speak'
+          : 'Record a voice note — transcription is appended to the note as you speak'
+      }
+    >
+      {recording ? (
+        <>
+          <MicOff className="w-3 h-3" /> Stop
+        </>
+      ) : (
+        <>
+          <Mic className="w-3 h-3" /> Voice
+        </>
+      )}
+    </button>
   );
 }

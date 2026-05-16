@@ -95,6 +95,27 @@ export default function AddJobPage() {
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
 
+  // PWA share-target prefill. The manifest registers /jobs/add as a
+  // share target that receives ?url= / ?text= / ?title= when the user
+  // shares from another app's share sheet (e.g. LinkedIn job → Share
+  // → JobAssist). When those params are present we prefill the URL
+  // field and switch to the URL tab so a quick extract is one tap
+  // away. Mobile capture is the main motivation for this hook.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    // iOS shares URLs in `url`; Android often packs the URL into
+    // `text`. Try the most specific first.
+    const shared = params.get('url') || params.get('text') || params.get('title');
+    if (shared && /^https?:\/\//i.test(shared.trim())) {
+      setUrl(shared.trim());
+      setTab('url');
+      // Strip the params from the address bar so a reload doesn't
+      // re-prefill (in case the user clears the URL on purpose).
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Post-save state
   const [savedJobId, setSavedJobId] = useState<string | null>(null);
   const [savedListingId, setSavedListingId] = useState<string | null>(null);
