@@ -494,6 +494,73 @@ function extractJdBigrams(jd: string, maxPhrases = 8): BigramHit[] {
     .slice(0, maxPhrases);
 }
 
+/** Allowed gap (in intervening tokens) between phrase words for a
+ *  "near-miss" match. Set to 3 so the tailor's typical inline-append
+ *  clause — "; leveraged Spark, Kafka, Airflow." — can split a
+ *  previously-matched JD bigram like "data plane" by up to 3
+ *  intervening tokens (verb + 1-2 keywords) without losing the match.
+ *  Larger gaps risk false positives where two unrelated words in
+ *  prose ("data team and the plane build") get treated as the
+ *  bigram. 3 is the empirical sweet spot for the inject patterns
+ *  this codebase produces. */
+const PHRASE_MAX_GAP = 3;
+
+/**
+ * Match a JD bigram phrase against the resume with light tolerance
+ * to intervening tokens. Previously a strict `resumeLower.includes()`
+ * meant any text the tailor injected between adjacent words broke
+ * the match — e.g. "led data plane migration" → after inject
+ * "led data ; leveraged spark, kafka plane migration" no longer
+ * substring-matches "data plane", quietly dropping a JD bigram
+ * the resume actually still describes.
+ *
+ * The tolerant version:
+ *   1. Strict substring first — fast path, matches the bulk of cases
+ *      (no intervening text) without tokenizing.
+ *   2. Token-window fallback: split the phrase into its words, scan
+ *      the resume's token array for the first word, then look for the
+ *      next word within PHRASE_MAX_GAP tokens. Walks the resume O(n)
+ *      with no backtracking.
+ *
+ * Only applied to extracted JD bigrams (2-word phrases), not to the
+ * taxonomy keyword pass.
+ */
+function phraseMatches(phrase: string, resumeLower: string, resumeTokens: string[]): boolean {
+  // Fast path — no tailor-induced gap.
+  if (resumeLower.includes(phrase)) return true;
+  // Tokenized phrase. Most JD bigrams are exactly 2 tokens; the
+  // function still works for longer phrases if extractJdBigrams ever
+  // emits them.
+  const phraseTokens = phrase.split(/\s+/).filter(Boolean);
+  if (phraseTokens.length < 2) return false;
+  // Walk resumeTokens looking for each phrase token in sequence,
+  // permitting up to PHRASE_MAX_GAP intervening tokens between
+  // consecutive phrase tokens.
+  for (let start = 0; start < resumeTokens.length; start++) {
+    if (resumeTokens[start] !== phraseTokens[0]) continue;
+    let cursor = start;
+    let matched = true;
+    for (let i = 1; i < phraseTokens.length; i++) {
+      const want = phraseTokens[i];
+      const windowEnd = Math.min(resumeTokens.length, cursor + 1 + PHRASE_MAX_GAP + 1);
+      let nextHit = -1;
+      for (let j = cursor + 1; j < windowEnd; j++) {
+        if (resumeTokens[j] === want) {
+          nextHit = j;
+          break;
+        }
+      }
+      if (nextHit === -1) {
+        matched = false;
+        break;
+      }
+      cursor = nextHit;
+    }
+    if (matched) return true;
+  }
+  return false;
+}
+
 /**
  * Per-category Laplace-smoothed coverage ratio expressed as 0-100.
  * Treats each JD keyword as carrying its TF-derived weight, then adds
@@ -579,6 +646,14 @@ export function scoreResumeFromKeywords(
   const resumeLower = resumeFullText
     ? resumeFullText.toLowerCase()
     : Array.from(resumeKeywords.keys()).join(' ').toLowerCase();
+  // Pre-tokenized resume — used for the tolerant phrase matcher
+  // (see phraseMatches below). Same word-boundary split the JD
+  // bigram extractor uses; ASCII-word characters + apostrophes
+  // mirror the JD normalizer at line 481.
+  const resumeTokens = resumeLower
+    .replace(/[^a-z0-9\s'-]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
   const jdBigrams = extractJdBigrams(jobDescription);
   // Skip bigrams whose phrase is already represented in the taxonomy
   // pass — e.g. "distributed systems" is in TECHNICAL_SKILLS AND will
@@ -594,7 +669,7 @@ export function scoreResumeFromKeywords(
     if (alreadyCounted.has(phrase)) continue;
     alreadyCounted.add(phrase);
     stats.phrases.totalW += weight;
-    const isFound = resumeLower.includes(phrase);
+    const isFound = phraseMatches(phrase, resumeLower, resumeTokens);
     if (isFound) {
       stats.phrases.matchedW += weight;
       matched.push(phrase);
