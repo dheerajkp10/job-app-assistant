@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSettings, getListingById, saveScore } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { scoreResume } from '@/lib/ats-scorer';
+import { resumeStamp } from '@/lib/resume-stamp';
 import { SCORER_VERSION } from '@/lib/types';
 import { detectSuggestions } from '@/lib/resume-suggestions';
 
@@ -47,6 +48,7 @@ export async function POST(req: NextRequest) {
       totalCount: 0,
       scoredAt: new Date().toISOString(),
       scorerVersion: SCORER_VERSION,
+      resumeStamp: resumeStamp(settings.baseResumeText),
     });
     return NextResponse.json(
       { error: 'This listing has no public job description — scoring isn\'t available for it.' },

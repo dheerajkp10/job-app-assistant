@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readDb, saveScore } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractKeywords, scoreResume } from '@/lib/ats-scorer';
+import { resumeStamp } from '@/lib/resume-stamp';
 import { extractDocxText } from '@/lib/docx-text';
 import { buildSummaryPhrase } from '@/lib/resume-tailor';
 import {
@@ -143,6 +144,7 @@ export async function POST(req: NextRequest) {
       totalCount: score.totalJdKeywords,
       scoredAt: new Date().toISOString(),
       scorerVersion: SCORER_VERSION,
+      resumeStamp: resumeStamp(resumeText),
     }).catch(() => {});
 
     const jdKeywords = extractKeywords(content);

@@ -7,7 +7,7 @@ import {
   User, Briefcase, MapPin, DollarSign, FileText, Target, Building2,
   Loader2, BarChart3,
   CheckCircle2, AlertTriangle, Star, Zap, Sparkles, Download, X, Check,
-  AlertCircle, RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import type { Settings, JobListing, ScoreCacheEntry, WorkMode, ListingFlagEntry } from '@/lib/types';
 import { Button } from '@/components/ui/button';
@@ -498,75 +498,6 @@ function StatCard({
   );
 }
 
-/**
- * Manual "Recompute against current resume" affordance on the
- * Resume Performance card. Wipes the server-side score cache and
- * resets the dashboard's local state so the auto-rescore effect
- * refills everything against the CURRENT active resume's text.
- *
- * Surfaces a fix for the case where:
- *   - The user uploaded a new resume but the cache wasn't auto-wiped
- *     (e.g. the upload happened before the auto-invalidate fix).
- *   - The active resume's text drifted from cached scores for any
- *     other reason (manual db edit, partial migration, …).
- *
- * Idempotent: clicking when scores are already fresh just rescores
- * everything again — no harm, just a few seconds of work.
- */
-function ResumeRecomputeAction({
-  onReload,
-  onResetRescoreGuard,
-  onClearLocalCache,
-}: {
-  onReload: () => Promise<void> | void;
-  onResetRescoreGuard: () => void;
-  onClearLocalCache: () => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
-  async function run() {
-    setBusy(true);
-    setDone(false);
-    try {
-      await fetch('/api/scores-cache', { method: 'DELETE' });
-      // Drop local mirror so the auto-rescore effect sees uncached
-      // listings immediately (the effect keys on scoreCache + listings).
-      onClearLocalCache();
-      // Re-arm the one-shot ref so the auto-rescore actually fires.
-      onResetRescoreGuard();
-      await onReload();
-      setDone(true);
-      // Soft-clear the "done" pill after a few seconds; the user can
-      // see the per-card averages flip to "Rescoring…" as confirmation.
-      setTimeout(() => setDone(false), 3500);
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
-      <span className="text-slate-500">
-        Scores look stale?
-      </span>
-      <button
-        type="button"
-        onClick={run}
-        disabled={busy}
-        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-indigo-700 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
-        title="Wipe cached ATS scores and rescore every listing against the resume marked Active in Settings"
-      >
-        {busy ? (
-          <><Loader2 className="w-3 h-3 animate-spin" /> Recomputing…</>
-        ) : done ? (
-          <><Check className="w-3 h-3" /> Rescore queued</>
-        ) : (
-          <><RefreshCw className="w-3 h-3" /> Recompute against current resume</>
-        )}
-      </button>
-    </div>
-  );
-}
-
 // ─── Types ─────────────────────────────────────────────────────────
 
 interface CompanyStats {
@@ -1018,23 +949,13 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Manual recompute escape hatch — wipes the score cache
-              and re-runs the resume-keyword probe + auto-rescore.
-              Surfaces a fix for the case where auto-invalidation
-              didn't fire (e.g. a resume swap that pre-dates the
-              auto-invalidate code path, or any state drift between
-              active resume text + cached scores). Quiet small link
-              below the bars; only meaningful when the user has
-              listings to rescore. */}
-          {stats.scorableCount > 0 && (
-            <ResumeRecomputeAction
-              onReload={reload}
-              onResetRescoreGuard={() => {
-                dashboardRescoreFiredRef.current = false;
-              }}
-              onClearLocalCache={() => setScoreCache({})}
-            />
-          )}
+          {/* Auto-heal: stale-resume cache invalidation now happens
+              server-side on every /api/scores-cache GET, so no manual
+              "Recompute" button is needed. Score entries are stamped
+              with a hash of the resume text they were computed
+              against; mismatches are filtered out automatically and
+              the auto-rescore effect refills them against the
+              current active resume. */}
 
           {/* Staged-status row + Master Resume shortcut.
               Mirrors the per-listing "N staged for tailor" indicator,

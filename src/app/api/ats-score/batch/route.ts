@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readDb, saveScoresBatch } from '@/lib/db';
 import { fetchJobDetail } from '@/lib/job-fetcher';
 import { extractKeywords, scoreResumeFromKeywords } from '@/lib/ats-scorer';
+import { resumeStamp } from '@/lib/resume-stamp';
 import { SCORER_VERSION } from '@/lib/types';
 import type { ScoreCacheEntry, JobListing } from '@/lib/types';
 
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
   }
 
   const resumeText = db.settings.baseResumeText;
+  const stamp = resumeStamp(resumeText);
   const existingCache = db.scoreCache ?? {};
 
   // Build an in-memory index once so per-listing lookups are O(1).
@@ -60,7 +62,13 @@ export async function POST(req: NextRequest) {
   const toScore: string[] = [];
   for (const id of listingIds) {
     const cached = existingCache[id];
-    const isFresh = cached && cached.scorerVersion === SCORER_VERSION;
+    // Fresh = same algorithm version AND same resume text. Either
+    // mismatch and we rescore — that's how a resume swap auto-
+    // invalidates without anyone wiping the cache explicitly.
+    const isFresh =
+      cached &&
+      cached.scorerVersion === SCORER_VERSION &&
+      cached.resumeStamp === stamp;
     if (isFresh) {
       scores[id] = {
         overall: cached.overall,
@@ -100,6 +108,7 @@ export async function POST(req: NextRequest) {
           totalCount: 0,
           scoredAt: new Date().toISOString(),
           scorerVersion: SCORER_VERSION,
+          resumeStamp: stamp,
         };
         // Also surface the sentinel in the response map so the client
         // overwrites any stale (bogus 100%) entry in its local state.
@@ -126,6 +135,7 @@ export async function POST(req: NextRequest) {
         totalCount: score.totalJdKeywords,
         scoredAt: new Date().toISOString(),
         scorerVersion: SCORER_VERSION,
+        resumeStamp: stamp,
       };
 
       scores[id] = { overall: score.overall, matchedCount: score.totalMatched, totalCount: score.totalJdKeywords };

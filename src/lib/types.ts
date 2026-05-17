@@ -462,6 +462,17 @@ export interface ScoreCacheEntry {
    *       score above resumes that share only generic skills.
    */
   scorerVersion?: number;
+  /**
+   * Short fingerprint of the resume text this entry was scored
+   * against. Lets the cache layer detect "this entry was scored
+   * against a different resume than is currently active" and auto-
+   * invalidate without needing the upload/active-switch endpoints
+   * to remember to wipe scores. Computed via resumeStamp() in
+   * src/lib/resume-stamp.ts. Optional for backward compat with
+   * entries from before the stamp existed — those are treated as
+   * stale and silently dropped on cache read.
+   */
+  resumeStamp?: string;
 }
 
 /** Current ATS scorer version. See `ScoreCacheEntry.scorerVersion`. */
