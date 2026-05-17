@@ -169,6 +169,7 @@ function CategoryBar({
   categoryKey,
   stagedKeywords,
   onToggleStaged,
+  resumeHas,
 }: {
   label: string;
   score: number;
@@ -179,6 +180,11 @@ function CategoryBar({
    *  listing usages stay unaffected. */
   stagedKeywords?: Set<string>;
   onToggleStaged?: (kw: string) => void;
+  /** Catalog items already present in the active resume — server-
+   *  computed via /api/resume/contains using canonical resumeMentions.
+   *  Renders those chips as "✓ on resume" instead of staging targets,
+   *  and excludes them from the per-group "N/M" counters. */
+  resumeHas?: Set<string>;
 }) {
   const color =
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
@@ -245,6 +251,7 @@ function CategoryBar({
           categoryKey={categoryKey!}
           stagedKeywords={stagedKeywords!}
           onToggle={onToggleStaged!}
+          resumeHas={resumeHas ?? new Set()}
           onClose={() => setPopoverOpen(false)}
         />
       )}
@@ -274,6 +281,7 @@ function CategoryFixPopover({
   categoryKey,
   stagedKeywords,
   onToggle,
+  resumeHas,
   onClose,
 }: {
   anchor: HTMLButtonElement | null;
@@ -284,6 +292,10 @@ function CategoryFixPopover({
    *  Read-only here; toggles dispatched via onToggle. */
   stagedKeywords: Set<string>;
   onToggle: (kw: string) => void;
+  /** Catalog items already on the resume — rendered as muted "✓ on
+   *  resume" chips, unclickable, excluded from group counters and
+   *  the "All / None" toggle. */
+  resumeHas: Set<string>;
   onClose: () => void;
 }) {
   const groups = FIXES_BY_CATEGORY[categoryKey] ?? [];
@@ -323,10 +335,13 @@ function CategoryFixPopover({
   if (typeof document === 'undefined' || !pos) return null;
 
   function toggleGroup(group: FixGroup) {
-    // Bulk: if every item is already staged, deselect all; otherwise
-    // stage all. Same convention as the per-listing popover's All/None.
-    const allOn = group.items.every((k) => stagedKeywords.has(k));
-    for (const kw of group.items) {
+    // Bulk: if every PICKABLE item is already staged, deselect all;
+    // otherwise stage all. Items already on the resume are not
+    // pickable (no value staging them — the tailor would just dedupe),
+    // so we exclude them from the on/off math.
+    const pickable = group.items.filter((k) => !resumeHas.has(k));
+    const allOn = pickable.length > 0 && pickable.every((k) => stagedKeywords.has(k));
+    for (const kw of pickable) {
       const isOn = stagedKeywords.has(kw);
       if (allOn) {
         if (isOn) onToggle(kw);
@@ -337,7 +352,8 @@ function CategoryFixPopover({
   }
 
   const totalStagedInCat = groups.reduce(
-    (acc, g) => acc + g.items.filter((k) => stagedKeywords.has(k)).length,
+    (acc, g) =>
+      acc + g.items.filter((k) => !resumeHas.has(k) && stagedKeywords.has(k)).length,
     0,
   );
 
@@ -375,8 +391,13 @@ function CategoryFixPopover({
         </div>
         <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
           {groups.map((g) => {
-            const onCount = g.items.filter((k) => stagedKeywords.has(k)).length;
-            const allOn = onCount === g.items.length;
+            // Counters operate on PICKABLE items only — items already
+            // on the resume render as "✓ on resume" and aren't part
+            // of the staging math.
+            const pickable = g.items.filter((k) => !resumeHas.has(k));
+            const onCount = pickable.filter((k) => stagedKeywords.has(k)).length;
+            const allOn = pickable.length > 0 && onCount === pickable.length;
+            const haveCount = g.items.length - pickable.length;
             return (
               <div key={g.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -387,15 +408,43 @@ function CategoryFixPopover({
                   <button
                     type="button"
                     onClick={() => toggleGroup(g)}
-                    className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
-                    title={allOn ? 'Deselect all in this group' : 'Select all in this group'}
+                    disabled={pickable.length === 0}
+                    className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
+                    title={
+                      pickable.length === 0
+                        ? 'You already have every keyword in this group on your resume'
+                        : allOn
+                        ? 'Deselect all in this group'
+                        : 'Select all in this group'
+                    }
                   >
-                    {allOn ? 'None' : 'All'} ({onCount}/{g.items.length})
+                    {allOn ? 'None' : 'All'} ({onCount}/{pickable.length})
+                    {haveCount > 0 && (
+                      <span className="ml-1 text-emerald-600 normal-case">
+                        · {haveCount} on resume
+                      </span>
+                    )}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {g.items.map((kw) => {
+                    const onResume = resumeHas.has(kw);
                     const isOn = stagedKeywords.has(kw);
+                    // Already on the resume — show as muted ✓ pill,
+                    // not clickable. No reason to stage; the tailor
+                    // would dedupe it on injection anyway.
+                    if (onResume) {
+                      return (
+                        <span
+                          key={kw}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border bg-emerald-50 text-emerald-700 border-emerald-100"
+                          title="Already on your resume — nothing to stage"
+                        >
+                          <Check className="w-2.5 h-2.5" />
+                          {kw}
+                        </span>
+                      );
+                    }
                     return (
                       <button
                         key={kw}
@@ -488,6 +537,13 @@ export default function DashboardPage() {
   const [scoreCache, setScoreCache] = useState<Record<string, ScoreCacheEntry>>({});
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [loading, setLoading] = useState(true);
+  // Set of FIXES_BY_CATEGORY catalog items already present in the
+  // active resume. Used to render those chips as "✓ on resume" in
+  // the Improve popovers instead of staging targets. Server-computed
+  // via /api/resume/contains using the canonical resumeMentions()
+  // logic, so the same hyphen-tolerant + alias-aware comparison
+  // powering the scorer drives the UI here.
+  const [resumeHas, setResumeHas] = useState<Set<string>>(new Set());
 
   // Loader factored out so we can re-run it on tab focus / visibility
   // changes — when the user adds a job on /jobs/add and navigates back,
@@ -519,6 +575,28 @@ export default function DashboardPage() {
           setAllListings(deduped);
           setScoreCache(scores || {});
           setFlags(flagsData || {});
+
+          // Probe the active resume for the full catalog so the
+          // Improve popovers can grey out keywords the user already
+          // has. Fire-and-forget — failure just falls back to the
+          // pre-change behavior (everything looks "missing").
+          const catalogItems = Array.from(
+            new Set(
+              (Object.values(FIXES_BY_CATEGORY) as FixGroup[][])
+                .flat()
+                .flatMap((g) => g.items),
+            ),
+          );
+          fetch('/api/resume/contains', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywords: catalogItems }),
+          })
+            .then((r) => (r.ok ? r.json() : { present: [] }))
+            .then((data: { present?: string[] }) => {
+              setResumeHas(new Set(data.present ?? []));
+            })
+            .catch(() => {});
         })
         .catch(() => {})
         .finally(() => setLoading(false)),
@@ -853,6 +931,7 @@ export default function DashboardPage() {
               categoryKey="technical"
               stagedKeywords={stagedMasterKeywords}
               onToggleStaged={toggleStagedMasterKeyword}
+              resumeHas={resumeHas}
             />
             <CategoryBar
               label="Management"
@@ -860,6 +939,7 @@ export default function DashboardPage() {
               categoryKey="management"
               stagedKeywords={stagedMasterKeywords}
               onToggleStaged={toggleStagedMasterKeyword}
+              resumeHas={resumeHas}
             />
             <CategoryBar
               label="Domain"
@@ -867,6 +947,7 @@ export default function DashboardPage() {
               categoryKey="domain"
               stagedKeywords={stagedMasterKeywords}
               onToggleStaged={toggleStagedMasterKeyword}
+              resumeHas={resumeHas}
             />
             <CategoryBar
               label="Soft Skills"
@@ -874,6 +955,7 @@ export default function DashboardPage() {
               categoryKey="soft"
               stagedKeywords={stagedMasterKeywords}
               onToggleStaged={toggleStagedMasterKeyword}
+              resumeHas={resumeHas}
             />
           </div>
 

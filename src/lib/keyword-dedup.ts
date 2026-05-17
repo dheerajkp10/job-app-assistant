@@ -114,6 +114,38 @@ export function canonicalForm(kw: string): string {
   return KEYWORD_ALIASES[n] ?? kw;
 }
 
+/**
+ * "Does this resume text already mention `keyword`?" — applies the
+ * same tolerance the central ATS scorer uses (hyphen ↔ space flatten,
+ * alias-table canonicalization, last-resort full-normalization). The
+ * single source of truth for "is X already on the resume" checks
+ * across the app: dashboard catalog popovers, suggestion detectors,
+ * tailor pre-flight, etc.
+ *
+ * Order of checks (cheapest first):
+ *   1. Hyphen-flattened substring match — catches "high-availability"
+ *      vs "high availability" both ways.
+ *   2. Canonical-form match via the alias table (postgres/postgresql,
+ *      k8s/kubernetes, js/javascript, …) so the catalog item's
+ *      canonical name resolves whichever surface form is in the
+ *      resume.
+ *   3. Strip-all-punctuation normalization as a last resort. Catches
+ *      "REST API" vs "rest-api" vs "restapi".
+ */
+export function resumeMentions(resumeText: string, keyword: string): boolean {
+  const resumeLower = resumeText.toLowerCase();
+  const kLower = keyword.toLowerCase();
+  const resumeFlat = resumeLower.replace(/-/g, ' ');
+  const kFlat = kLower.replace(/-/g, ' ');
+  if (resumeFlat.includes(kFlat)) return true;
+  const kCanonical = canonicalForm(keyword).toLowerCase();
+  if (kCanonical !== kLower && resumeFlat.includes(kCanonical.replace(/-/g, ' '))) return true;
+  const resumeNorm = normalizeKeyword(resumeLower);
+  const kNorm = normalizeKeyword(keyword);
+  if (kNorm && resumeNorm.includes(kNorm)) return true;
+  return false;
+}
+
 /** Returns true when two keywords would render duplicate in the
  *  user's skills line. Two keywords match if either:
  *    a. Their normalized forms are identical (catches casing /

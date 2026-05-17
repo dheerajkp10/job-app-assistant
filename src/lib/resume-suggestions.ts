@@ -36,34 +36,7 @@
  * the client only sends a list of accepted suggestion IDs.
  */
 
-import { canonicalForm, normalizeKeyword } from './keyword-dedup';
-
-/**
- * "Does this resume already mention `keyword`?" — uses the same
- * tolerance rules the central ATS scorer applies, so suggestions don't
- * flag e.g. "high availability" as missing when the resume says
- * "High-Availability". Order of checks:
- *   1. Hyphen-flattened substring match (catches "high-availability"
- *      vs "high availability" both ways).
- *   2. Canonical-form match via the alias table (postgres/postgresql,
- *      k8s/kubernetes, js/javascript, …).
- *   3. Normalized form (strip punctuation entirely) as a last resort.
- */
-function resumeMentions(resumeLower: string, keyword: string): boolean {
-  const kLower = keyword.toLowerCase();
-  const resumeFlat = resumeLower.replace(/-/g, ' ');
-  const kFlat = kLower.replace(/-/g, ' ');
-  if (resumeFlat.includes(kFlat)) return true;
-  const kCanonical = canonicalForm(keyword).toLowerCase();
-  if (kCanonical !== kLower && resumeFlat.includes(kCanonical.replace(/-/g, ' '))) return true;
-  // Last-resort: normalize both sides (strip all non-alphanumerics)
-  // and substring-match. Catches edge cases like "REST API" vs
-  // "rest-api" vs "restapi".
-  const resumeNorm = normalizeKeyword(resumeLower);
-  const kNorm = normalizeKeyword(keyword);
-  if (kNorm && resumeNorm.includes(kNorm)) return true;
-  return false;
-}
+import { resumeMentions } from './keyword-dedup';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
