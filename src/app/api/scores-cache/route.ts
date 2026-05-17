@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { readDb, saveScoresBatch } from '@/lib/db';
+import { readDb, saveScoresBatch, clearScoreCache } from '@/lib/db';
 import { isUnscorableAts } from '@/lib/job-fetcher';
 import { SCORER_VERSION } from '@/lib/types';
 import type { ScoreCacheEntry } from '@/lib/types';
@@ -73,4 +73,20 @@ export async function GET() {
       'X-Scores-Stale-Version-Count': String(staleVersionCount),
     },
   });
+}
+
+/**
+ * DELETE /api/scores-cache
+ *
+ * Manual escape hatch — wipes every cached ATS score so the
+ * dashboard's auto-rescore effect refills them against the
+ * CURRENT active resume. Used by the "Recompute against current
+ * resume" button on the Resume Performance card for cases where
+ * the cache wasn't auto-wiped (e.g. a resume swap that happened
+ * before the auto-invalidate fix shipped, or any future state
+ * drift between active text and cached scores).
+ */
+export async function DELETE() {
+  const cleared = await clearScoreCache();
+  return NextResponse.json({ cleared });
 }

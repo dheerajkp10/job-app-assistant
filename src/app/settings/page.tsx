@@ -20,6 +20,12 @@ export default function SettingsPage() {
   const [resumeText, setResumeText] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Bumped after every successful upload so the embedded
+  // ResumeLibrary re-fetches /api/resumes and shows the new file
+  // immediately — previously the library only reloaded on its own
+  // mount, so a fresh upload only appeared after the user clicked
+  // Save AND refreshed.
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -112,6 +118,7 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error || `Upload failed (HTTP ${res.status})`);
       setResumeFileName(data.fileName || null);
       setResumeText(data.text || '');
+      setLibraryRefreshKey((k) => k + 1);
       setMessage({ type: 'success', text: 'Resume uploaded and parsed successfully!' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed' });
@@ -607,7 +614,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        <ResumeLibrary />
+        <ResumeLibrary refreshKey={libraryRefreshKey} />
         <CoverLetterTemplateLibrary />
 
 
@@ -749,7 +756,7 @@ interface LibraryResume {
   addedAt: string;
 }
 
-function ResumeLibrary() {
+function ResumeLibrary({ refreshKey = 0 }: { refreshKey?: number }) {
   const [resumes, setResumes] = useState<LibraryResume[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -771,9 +778,12 @@ function ResumeLibrary() {
     }
   }
 
+  // Refetch when the parent signals a change (e.g. upload completed).
+  // Without this the library was only loaded on mount, so new uploads
+  // didn't appear until the user navigated away + back.
   useEffect(() => {
     reload();
-  }, []);
+  }, [refreshKey]);
 
   async function setActive(id: string) {
     setBusyId(id);
