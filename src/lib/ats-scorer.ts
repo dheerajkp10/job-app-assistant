@@ -344,10 +344,18 @@ function compileTable(set: Set<string>): CompiledKeyword[] {
   for (const keyword of set) {
     const canonical = canonicalize(keyword);
     const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Tolerant separator: any run of spaces/hyphens between word
+    // segments in the taxonomy keyword should match the same run in
+    // the source text. Without this, "high availability" (taxonomy)
+    // misses "High-Availability" in the resume, and "cross functional"
+    // misses "cross-functional". Hyphen and space aren't regex meta
+    // characters (outside a char class), so the post-escape source
+    // still has the literal separators we can swap.
+    const tolerant = escaped.replace(/[\s-]+/g, '[\\s-]+');
     // Phrase keywords (containing a space) match plain substrings with
     // case-insensitive flag — same as v1, preserves identical detection
     // behavior. Single tokens use word boundaries.
-    const binarySrc = keyword.includes(' ') ? escaped : `\\b${escaped}\\b`;
+    const binarySrc = keyword.includes(' ') ? tolerant : `\\b${tolerant}\\b`;
     const patternBinary = new RegExp(binarySrc, 'i');
     const patternCount = new RegExp(binarySrc, 'gi');
     out.push({ keyword, canonical, patternBinary, patternCount });
@@ -528,6 +536,12 @@ const PHRASE_MAX_GAP = 3;
 function phraseMatches(phrase: string, resumeLower: string, resumeTokens: string[]): boolean {
   // Fast path — no tailor-induced gap.
   if (resumeLower.includes(phrase)) return true;
+  // Hyphen-flattened fast path. JD bigrams come space-separated
+  // ("high availability"), but resumes routinely write the same
+  // concept hyphenated ("High-Availability"). Without this the
+  // taxonomy pass catches the canonical form but the JD-extracted
+  // bigram pass falsely flags it as missing.
+  if (resumeLower.replace(/-/g, ' ').includes(phrase)) return true;
   // Tokenized phrase. Most JD bigrams are exactly 2 tokens; the
   // function still works for longer phrases if extractJdBigrams ever
   // emits them.
