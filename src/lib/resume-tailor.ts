@@ -8,6 +8,7 @@
  */
 
 import { extractKeywords, scoreResume, type ATSScore } from './ats-scorer';
+import { tokenizeSkillsLine, mergeSkillsTokens } from './keyword-dedup';
 
 // ─── Resume Section Parsing ──────────────────────────────────────────
 
@@ -73,6 +74,27 @@ export interface TailoredResume {
 
 function displayName(keyword: string): string {
   return keyword.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+
+/**
+ * Append new keywords to a skills line in the form "Label: a, b, c"
+ * while running them through the alias-aware dedup (keyword-dedup
+ * module). Preserves the leading "Label:" prefix and any trailing
+ * punctuation so the line still reads naturally.
+ */
+function appendKeywordsToSkillsLine(line: string, newKeywords: string[]): string {
+  // Split off an optional "Label:" prefix so we only dedup the values.
+  const colonIdx = line.indexOf(':');
+  const prefix = colonIdx >= 0 ? line.slice(0, colonIdx + 1) + ' ' : '';
+  const body = colonIdx >= 0 ? line.slice(colonIdx + 1) : line;
+
+  const trimmed = body.trim();
+  const trailingPunct = trimmed.match(/[.,;]\s*$/)?.[0] ?? '';
+  const trimmedBody = trimmed.replace(/[.,;]\s*$/, '');
+
+  const existingTokens = tokenizeSkillsLine(trimmedBody);
+  const merged = mergeSkillsTokens(existingTokens, newKeywords);
+  return prefix + merged.join(', ') + trailingPunct;
 }
 
 function joinNatural(items: string[]): string {
@@ -387,8 +409,7 @@ export function tailorResume(
         /^(technical|cloud|infrastructure|languages|frameworks|tools|platform|data|backend|frontend)/i.test(lower.trim()) ||
         lower.includes('aws') || lower.includes('python') || lower.includes('java')
       )) {
-        const addition = techMissing.map(displayName).join(', ');
-        lines[i] = lines[i].trimEnd().replace(/\.?\s*$/, '') + ', ' + addition;
+        lines[i] = appendKeywordsToSkillsLine(lines[i], techMissing.map(displayName));
         addedKeywords.push(...techMissing);
         techAppended = true;
         changesSummary.push(`Appended ${techMissing.length} technical keywords to existing skills line`);
@@ -398,8 +419,7 @@ export function tailorResume(
         /^(management|leadership|people|process|agile)/i.test(lower.trim()) ||
         lower.includes('agile') || lower.includes('mentoring') || lower.includes('hiring')
       )) {
-        const addition = mgmtMissing.map(displayName).join(', ');
-        lines[i] = lines[i].trimEnd().replace(/\.?\s*$/, '') + ', ' + addition;
+        lines[i] = appendKeywordsToSkillsLine(lines[i], mgmtMissing.map(displayName));
         addedKeywords.push(...mgmtMissing);
         mgmtAppended = true;
         changesSummary.push(`Appended ${mgmtMissing.length} management keywords to existing skills line`);

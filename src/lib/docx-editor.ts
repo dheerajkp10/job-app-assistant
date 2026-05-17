@@ -13,6 +13,7 @@ import {
   injectIntoWorkExperience,
   type WorkExperienceBudget,
 } from './work-experience-injector';
+import { tokenizeSkillsLine, mergeSkillsTokens } from './keyword-dedup';
 
 /**
  * Resolve the path to the user's base .docx resume.
@@ -163,24 +164,33 @@ function appendToSkillsLine(
     const tOpenEnd = xml.indexOf('>', nextTStart) + 1;
     const existingText = xml.substring(tOpenEnd, nextTEnd);
 
-    // Dedupe: drop keywords already present in the line (case-insensitive,
-    // compared on the title-cased display form and the raw kebab form).
-    // This prevents "Microservices, Microservices" type duplicates that
-    // would make the skills line look sloppy if the upstream filter ever
-    // slips.
-    const existingLower = existingText.toLowerCase();
-    const toAppend = keywords.filter((k) => {
-      const display = k.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-      return !existingLower.includes(display.toLowerCase()) &&
-             !existingLower.includes(k.toLowerCase());
-    });
-    if (toAppend.length === 0) return { xml, appended: false };
+    // Pretty-print incoming keywords (kebab → Title Case for display)
+    // before handing them to the alias-aware dedup. mergeSkillsTokens
+    // canonicalizes both sides — "postgresql" → "Postgres", "k8s" →
+    // "Kubernetes", etc. — and also cleans up dupes that may have
+    // accumulated in the existing line across prior tailor runs.
+    const display = (k: string) =>
+      k.split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const incoming = keywords.map(display);
 
-    // Append keywords
-    const addition = toAppend.map(k =>
-      k.split(/[-_]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-    ).join(', ');
-    const newText = existingText.trimEnd().replace(/\.?\s*$/, '') + ', ' + addition;
+    // Preserve any leading/trailing whitespace around the existing text
+    // so we don't accidentally shift inline formatting.
+    const trimmed = existingText.trim();
+    const leadingWs = existingText.slice(0, existingText.indexOf(trimmed[0] ?? ''));
+    const trailingPunct = trimmed.match(/[.,;]\s*$/)?.[0] ?? '';
+    const trimmedBody = trimmed.replace(/[.,;]\s*$/, '');
+
+    const existingTokens = tokenizeSkillsLine(trimmedBody);
+    const merged = mergeSkillsTokens(existingTokens, incoming);
+
+    // Did anything actually change? If the merged list equals the
+    // existing tokens (same length + same order), no append happened.
+    const unchanged =
+      merged.length === existingTokens.length &&
+      merged.every((t, i) => t === existingTokens[i]);
+    if (unchanged) return { xml, appended: false };
+
+    const newText = leadingWs + merged.join(', ') + trailingPunct;
 
     return {
       xml: xml.substring(0, tOpenEnd) + newText + xml.substring(nextTEnd),
