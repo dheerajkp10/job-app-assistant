@@ -410,16 +410,155 @@ export function mergePositionHeaders(xml: string): { xml: string; merged: number
 export function increaseSectionSpacing(xml: string): string {
   return xml.replace(/<w:p[ >][\s\S]*?<\/w:p>/g, (para) => {
     if (!para.includes('<w:pBdr>')) return para;
-    let p = para.replace(
-      /(<w:spacing\b[^/>]*?\s)w:before="36"/,
-      '$1w:before="160"',
+    // Bump w:before to at least 80 twips (~4pt) and w:after to at
+    // least 80 twips on any bordered section header paragraph,
+    // regardless of the current value. Templates vary: the original
+    // hardcoded "36"/"14" values miss resumes where the header
+    // starts with w:before="0" (which is exactly what most user
+    // templates ship with). Whichever value is there, normalize up.
+    return para.replace(
+      /<w:spacing\b([^/>]*)\/>/,
+      (_full, attrs: string) => {
+        const setOrBump = (a: string, key: string, min: number): string => {
+          const rx = new RegExp(`\\s${key}="(\\d+)"`);
+          const m = a.match(rx);
+          if (m) {
+            const cur = parseInt(m[1], 10);
+            if (cur >= min) return a;
+            return a.replace(rx, ` ${key}="${min}"`);
+          }
+          return a + ` ${key}="${min}"`;
+        };
+        // Only bump w:before — the divider line under the heading
+        // already gives visual closure. Adding w:after compounds with
+        // the content-breath the layout polish adds and overflows the
+        // page. 60 twips ≈ 3pt of breath above each section.
+        const next = setOrBump(attrs, 'w:before', 60);
+        return `<w:spacing${next}/>`;
+      },
     );
-    p = p.replace(
-      /(<w:spacing\b[^/>]*?\s)w:after="14"/,
-      '$1w:after="80"',
-    );
-    return p;
   });
+}
+
+/**
+ * Final layout polish applied after all content edits. Bakes the
+ * post-tailor formatting passes the user expects on every generated
+ * resume:
+ *
+ *   1. Right-align the date stamps ("Jul 2025 – Present" style) to
+ *      the exact right edge of the text body (where the blue divider
+ *      line ends). Old templates ship with a tab at 10800 twips
+ *      regardless of margins; we recompute the correct edge from
+ *      pgSz/pgMar and rewrite every right-aligned tab to match.
+ *   2. Small breath (~1pt) on the first content paragraph following
+ *      each bordered section header — gives air below the divider.
+ *   3. Modest breath (~1.5pt) on every role/education line (detected
+ *      by the right-tab + bold title pattern) — keeps multi-role
+ *      Work Experience readable.
+ *   4. Ensure sectPr carries <w:vAlign w:val="center"/> so a resume
+ *      that doesn't fill the page sits centered vertically rather
+ *      than flush to the top.
+ *
+ * All four passes are idempotent — running this on already-polished
+ * XML is a no-op. Safe to call unconditionally at the end of every
+ * tailor edit.
+ */
+export function applyLayoutPolish(xml: string): string {
+  // (1) Recompute right-tab position from sectPr geometry.
+  // Body width = pgW - leftMargin - rightMargin. Right-aligned tabs
+  // are positioned in twips from the LEFT margin, so the correct
+  // value to align with the body's right edge is the body width.
+  const sectMatch = xml.match(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/);
+  if (sectMatch) {
+    const sect = sectMatch[0];
+    const pgW = parseInt(sect.match(/<w:pgSz[^/]*\sw:w="(\d+)"/)?.[1] ?? '12240', 10);
+    const left = parseInt(sect.match(/<w:pgMar[^/]*\sw:left="(\d+)"/)?.[1] ?? '576', 10);
+    const right = parseInt(sect.match(/<w:pgMar[^/]*\sw:right="(\d+)"/)?.[1] ?? '576', 10);
+    const bodyEdge = Math.max(0, pgW - left - right);
+    if (bodyEdge > 0) {
+      xml = xml.replace(
+        /<w:tab\s+w:val="right"\s+w:pos="\d+"\s*\/>/g,
+        `<w:tab w:val="right" w:pos="${bodyEdge}"/>`,
+      );
+    }
+  }
+
+  // Helper: ensure a paragraph's <w:spacing> has w:before >= min.
+  // Inserts <w:pPr>/<w:spacing> when they don't exist. Idempotent.
+  const ensureBefore = (paragraph: string, min: number): string => {
+    // Already has a <w:spacing> with w:before >= min? leave it alone.
+    const spacingMatch = paragraph.match(/<w:spacing\b([^/>]*)\/>/);
+    if (spacingMatch) {
+      const curMatch = spacingMatch[1].match(/\sw:before="(\d+)"/);
+      const cur = curMatch ? parseInt(curMatch[1], 10) : 0;
+      if (cur >= min) return paragraph;
+      const newAttrs = curMatch
+        ? spacingMatch[1].replace(/\sw:before="\d+"/, ` w:before="${min}"`)
+        : spacingMatch[1] + ` w:before="${min}"`;
+      return paragraph.replace(spacingMatch[0], `<w:spacing${newAttrs}/>`);
+    }
+    // No <w:spacing> — does the paragraph have a <w:pPr>?
+    if (paragraph.includes('<w:pPr>')) {
+      return paragraph.replace(
+        '</w:pPr>',
+        `<w:spacing w:after="0" w:before="${min}" w:line="240" w:lineRule="auto"/></w:pPr>`,
+      );
+    }
+    // No pPr at all — inject one right after the opening <w:p[…]>.
+    return paragraph.replace(
+      /^(<w:p[^>]*>)/,
+      `$1<w:pPr><w:spacing w:after="0" w:before="${min}" w:line="240" w:lineRule="auto"/></w:pPr>`,
+    );
+  };
+
+  // (2) + (3): walk every paragraph. Tag each with a role/section
+  // signal and apply spacing. We also tag "first paragraph after a
+  // bordered section header" with a small content-breath.
+  let prevWasHeader = false;
+  xml = xml.replace(/<w:p[ >][\s\S]*?<\/w:p>/g, (para) => {
+    const isHeader = para.includes('<w:pBdr>');
+    const hasRightTab = /<w:tab\s+w:val="right"/.test(para);
+    let next = para;
+    if (prevWasHeader && !isHeader) {
+      // First paragraph following a section header — small breath
+      // beneath the divider line. 20 twips ≈ 1pt.
+      next = ensureBefore(next, 20);
+    } else if (hasRightTab && !isHeader) {
+      // Role / education line — slightly more breath. 30 twips ≈ 1.5pt.
+      next = ensureBefore(next, 30);
+    }
+    prevWasHeader = isHeader;
+    return next;
+  });
+
+  // (4) sectPr vertical centering. Idempotent insert.
+  if (!/<w:vAlign\b/.test(xml)) {
+    xml = xml.replace('</w:sectPr>', '<w:vAlign w:val="center"/></w:sectPr>');
+  }
+
+  // (5) Symmetric top/bottom margins. Most user templates ship with
+  // asymmetric pgMar (e.g. top=574, bottom=300) which makes vAlign
+  // center look off-balance AND wastes vertical real estate on one
+  // side. We collapse both to the SMALLER of the two — preserves
+  // the user's tightest setting, reclaims the headroom on the other
+  // side for the added inter-section spacing, and makes vertical
+  // centering visually correct. Idempotent: if top==bottom already
+  // this is a no-op.
+  xml = xml.replace(
+    /<w:pgMar\b([^/]*)\/>/,
+    (_full, attrs: string) => {
+      const t = attrs.match(/\sw:top="(\d+)"/)?.[1];
+      const b = attrs.match(/\sw:bottom="(\d+)"/)?.[1];
+      if (!t || !b) return `<w:pgMar${attrs}/>`;
+      const min = Math.min(parseInt(t, 10), parseInt(b, 10));
+      const next = attrs
+        .replace(/\sw:top="\d+"/, ` w:top="${min}"`)
+        .replace(/\sw:bottom="\d+"/, ` w:bottom="${min}"`);
+      return `<w:pgMar${next}/>`;
+    },
+  );
+
+  return xml;
 }
 
 /**
@@ -915,6 +1054,12 @@ export async function editDocxTemplate(
       changesSummary.push(...injection.changesSummary);
     }
   }
+
+  // Final pass: layout polish (right-aligned date tabs, small breath
+  // under each section divider, role-line spacing, vertical centering).
+  // Idempotent — safe to run after every tailor regardless of which
+  // edits actually fired above.
+  xml = applyLayoutPolish(xml);
 
   // Write modified XML back
   zip.file('word/document.xml', xml);
