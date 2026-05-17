@@ -465,7 +465,7 @@ export interface ScoreCacheEntry {
 }
 
 /** Current ATS scorer version. See `ScoreCacheEntry.scorerVersion`. */
-export const SCORER_VERSION = 3;
+export const SCORER_VERSION = 4;
 
 export interface Database {
   settings: Settings;
