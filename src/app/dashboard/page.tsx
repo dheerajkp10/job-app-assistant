@@ -390,14 +390,22 @@ function CategoryFixPopover({
           </button>
         </div>
         <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+          {groups.every((g) => g.items.every((k) => resumeHas.has(k))) && (
+            <div className="px-4 py-6 text-center text-xs text-slate-500">
+              Your resume already covers every keyword in this catalog —
+              nothing to stage from here.
+            </div>
+          )}
           {groups.map((g) => {
-            // Counters operate on PICKABLE items only — items already
-            // on the resume render as "✓ on resume" and aren't part
-            // of the staging math.
+            // Drop items already on the resume entirely — no value in
+            // surfacing them as "improvements". The user wants to see
+            // genuine gaps, not a roster of what they already have.
             const pickable = g.items.filter((k) => !resumeHas.has(k));
+            // Group with zero gaps disappears — keeps the popover
+            // focused on actionable improvements.
+            if (pickable.length === 0) return null;
             const onCount = pickable.filter((k) => stagedKeywords.has(k)).length;
-            const allOn = pickable.length > 0 && onCount === pickable.length;
-            const haveCount = g.items.length - pickable.length;
+            const allOn = onCount === pickable.length;
             return (
               <div key={g.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -408,43 +416,15 @@ function CategoryFixPopover({
                   <button
                     type="button"
                     onClick={() => toggleGroup(g)}
-                    disabled={pickable.length === 0}
-                    className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed"
-                    title={
-                      pickable.length === 0
-                        ? 'You already have every keyword in this group on your resume'
-                        : allOn
-                        ? 'Deselect all in this group'
-                        : 'Select all in this group'
-                    }
+                    className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-indigo-600 hover:text-indigo-700"
+                    title={allOn ? 'Deselect all in this group' : 'Select all in this group'}
                   >
                     {allOn ? 'None' : 'All'} ({onCount}/{pickable.length})
-                    {haveCount > 0 && (
-                      <span className="ml-1 text-emerald-600 normal-case">
-                        · {haveCount} on resume
-                      </span>
-                    )}
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {g.items.map((kw) => {
-                    const onResume = resumeHas.has(kw);
+                  {pickable.map((kw) => {
                     const isOn = stagedKeywords.has(kw);
-                    // Already on the resume — show as muted ✓ pill,
-                    // not clickable. No reason to stage; the tailor
-                    // would dedupe it on injection anyway.
-                    if (onResume) {
-                      return (
-                        <span
-                          key={kw}
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border bg-emerald-50 text-emerald-700 border-emerald-100"
-                          title="Already on your resume — nothing to stage"
-                        >
-                          <Check className="w-2.5 h-2.5" />
-                          {kw}
-                        </span>
-                      );
-                    }
                     return (
                       <button
                         key={kw}
