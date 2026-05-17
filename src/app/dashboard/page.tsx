@@ -641,6 +641,16 @@ export default function DashboardPage() {
   // "Rescoring…" indefinitely. The ref guard makes sure we don't
   // re-fire on every render — once per mount.
   const dashboardRescoreFiredRef = useRef(false);
+  // Re-arm the one-shot auto-rescore guard whenever the active
+  // resume changes (id OR underlying text). Without this, a user
+  // who uploads a new resume in another tab + comes back to the
+  // dashboard sees stale cards: the cache was wiped, but our
+  // single-fire ref already fired during the first mount and
+  // blocks the batch from re-running. Tying the guard to resume
+  // identity means each new resume gets one fresh auto-rescore.
+  useEffect(() => {
+    dashboardRescoreFiredRef.current = false;
+  }, [settings?.activeResumeId, settings?.baseResumeText]);
   useEffect(() => {
     if (dashboardRescoreFiredRef.current) return;
     if (listings.length === 0) return;

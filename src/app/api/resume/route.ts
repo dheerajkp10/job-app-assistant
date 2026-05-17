@@ -144,9 +144,17 @@ export async function POST(req: NextRequest) {
     const willBecomeActive =
       isReplace
         ? prevSettings.activeResumeId === resumeId
-        // First-ever resume becomes active by default (see addResume);
-        // subsequent additions don't auto-switch.
-        : !prevSettings.activeResumeId;
+        // Default: every standalone upload becomes the new active
+        // resume. The user's mental model is "I uploaded a new
+        // resume, that's my resume now" — they re-tailor + re-upload
+        // and expect the dashboard / per-listing scores to reflect
+        // the upgraded text. The prior behavior added the new file
+        // to the library but kept the OLD resume active, which made
+        // re-uploads look broken: same "missing" keywords came back
+        // because the scorer was still reading the old text. If a
+        // future library UI wants the additive-only flow, it should
+        // POST through a separate endpoint or signal `keepActive=1`.
+        : true;
     let clearedScores = 0;
     if (willBecomeActive && prevActiveText !== text) {
       clearedScores = await clearScoreCache();
