@@ -1105,16 +1105,27 @@ export async function setPageMargins(
   const m = xml.match(pgMarRe);
   if (!m) return docxBuffer;
 
-  const setAttr = (tag: string, attr: string, value: number) =>
-    tag.match(new RegExp(`${attr}="\\d+"`))
-      ? tag.replace(new RegExp(`${attr}="\\d+"`), `${attr}="${value}"`)
-      : tag.replace('/>', ` ${attr}="${value}"/>`);
+  // Floor-only update: NEVER expand a margin that's already tighter
+  // than our target. The compression cascade is supposed to RECLAIM
+  // vertical space, but the previous unconditional-set behavior would
+  // EXPAND a user's already-tight margins (e.g. their 160-twip
+  // master back up to 648 twips at the "margins 0.45""" step), making
+  // overflow worse before later steps could compensate. Now each
+  // axis stays at the smaller of (current, target).
+  const minAttr = (tag: string, attr: string, target: number): string => {
+    const re = new RegExp(`${attr}="(\\d+)"`);
+    const existing = tag.match(re);
+    if (!existing) return tag.replace('/>', ` ${attr}="${target}"/>`);
+    const cur = parseInt(existing[1], 10);
+    const next = Math.min(cur, target);
+    return tag.replace(re, `${attr}="${next}"`);
+  };
 
   let updated = m[0];
-  updated = setAttr(updated, 'w:top', topBottomTwips);
-  updated = setAttr(updated, 'w:bottom', topBottomTwips);
-  updated = setAttr(updated, 'w:left', leftRightTwips);
-  updated = setAttr(updated, 'w:right', leftRightTwips);
+  updated = minAttr(updated, 'w:top', topBottomTwips);
+  updated = minAttr(updated, 'w:bottom', topBottomTwips);
+  updated = minAttr(updated, 'w:left', leftRightTwips);
+  updated = minAttr(updated, 'w:right', leftRightTwips);
   xml = xml.replace(pgMarRe, updated);
 
   zip.file('word/document.xml', xml);
@@ -1141,23 +1152,31 @@ export async function setLineHeight(
   let xml = await file.async('string');
 
   // Update existing <w:spacing/> tags inside each paragraph's pPr.
+  // Only SHRINK existing line heights — if a paragraph is already
+  // tighter than `linePct` (e.g. user shipped at 1.0 and we're trying
+  // 1.10), leave it alone. Without this floor the cascade would
+  // EXPAND a tight template's line height on early steps, making
+  // overflow worse before later, lower-target steps can compensate.
+  //
+  // We do NOT inject w:line into spacing tags that don't already
+  // have one (or into paragraphs that have no spacing tag at all):
+  // those inherit from styles.xml, and adding a value we don't know
+  // beats the inherited default would risk expansion. Tightening
+  // wide-default templates is fine to miss — the user's master
+  // already ships at line=240 (1.0) so there's nothing more to gain
+  // from the cascade's line-height steps anyway.
   xml = xml.replace(/<w:spacing\b[^/]*\/>/g, (tag) => {
     let t = tag;
-    t = t.match(/w:line="[^"]*"/)
-      ? t.replace(/w:line="[^"]*"/, `w:line="${linePct}"`)
-      : t.replace('/>', ` w:line="${linePct}"/>`);
+    const lineMatch = t.match(/w:line="(\d+)"/);
+    if (!lineMatch) return t; // inherits — don't touch
+    const cur = parseInt(lineMatch[1], 10);
+    if (cur <= linePct) return t; // already tighter — don't expand
+    t = t.replace(/w:line="\d+"/, `w:line="${linePct}"`);
     t = t.match(/w:lineRule="[^"]*"/)
       ? t.replace(/w:lineRule="[^"]*"/, `w:lineRule="auto"`)
       : t.replace('/>', ` w:lineRule="auto"/>`);
     return t;
   });
-
-  // For paragraphs that have a <w:pPr> but no <w:spacing>, inject
-  // one. We use a non-greedy match so we hit each pPr individually.
-  xml = xml.replace(/<w:pPr>(?![\s\S]*?<w:spacing\b)([\s\S]*?)<\/w:pPr>/g,
-    (_match, inner: string) =>
-      `<w:pPr><w:spacing w:line="${linePct}" w:lineRule="auto"/>${inner}</w:pPr>`,
-  );
 
   zip.file('word/document.xml', xml);
   return Buffer.from(
@@ -1268,6 +1287,77 @@ export async function setHeaderFontSize(
     adjust('w:szCs');
     zip.file(path, xml);
   }
+  return Buffer.from(
+    await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
+  );
+}
+
+/**
+ * Drop trailing tokens from each comma-separated skills line until
+ * the line is at most `keepFraction` of its original length. The
+ * cascade calls this as a last-resort when font/spacing compression
+ * exhausts but the resume still overflows page 1 — typically
+ * happens when the user's master ships with very long skills tails
+ * (industry verticals, niche tools, …) and the tailor's keyword
+ * injection compounds the overflow.
+ *
+ * Operates on the SKILLS section's bold-labeled paragraphs
+ * ("Leadership: …", "Systems & Architecture: …", "Cloud & Stack: …",
+ * "AI / ML: …"). The bold label paragraph structure is identified
+ * by looking for paragraphs whose first run is bold + ends with
+ * "<label>:" — same pattern appendToSkillsLine targets.
+ *
+ * Conservatism notes:
+ *   - Tokens at the FRONT of each list are kept (those are usually
+ *     the user's headline skills — Engineering Management, AWS
+ *     Lambda, …). Tail tokens — typically domain verticals or
+ *     niche keywords — are the ones dropped.
+ *   - We never drop bold-label runs; only the body run after the
+ *     label is trimmed.
+ *   - Idempotent at any fraction: running keepFraction=0.6 twice
+ *     leaves the line at 0.6 (not 0.36), because we measure
+ *     against the CURRENT line length.
+ */
+export async function trimSkillsTail(
+  docxBuffer: Buffer,
+  keepFraction: number,
+): Promise<Buffer> {
+  const JSZip = (await import('jszip')).default;
+  const zip = await JSZip.loadAsync(docxBuffer);
+  const file = zip.file('word/document.xml');
+  if (!file) return docxBuffer;
+  let xml = await file.async('string');
+
+  const LABELS = ['Leadership', 'Systems & Architecture', 'Cloud & Stack', 'AI / ML'];
+
+  for (const label of LABELS) {
+    const labelMarker = `${label}: `;
+    const labelIdx = xml.indexOf(labelMarker);
+    if (labelIdx < 0) continue;
+
+    // Find the body <w:t> AFTER the label run. Same lookup the
+    // appendToSkillsLine helper does.
+    const labelEndTag = xml.indexOf('</w:t>', labelIdx);
+    if (labelEndTag < 0) continue;
+    const nextTStart = xml.indexOf('<w:t', labelEndTag);
+    if (nextTStart < 0) continue;
+    const nextTEnd = xml.indexOf('</w:t>', nextTStart);
+    if (nextTEnd < 0) continue;
+    const pEnd = xml.indexOf('</w:p>', labelIdx);
+    if (pEnd >= 0 && pEnd < nextTEnd) continue;
+
+    const tOpenEnd = xml.indexOf('>', nextTStart) + 1;
+    const body = xml.substring(tOpenEnd, nextTEnd);
+
+    const tokens = body.split(/,\s*/).filter((t) => t.trim().length > 0);
+    if (tokens.length <= 4) continue; // already short — leave alone
+    const keepN = Math.max(4, Math.floor(tokens.length * keepFraction));
+    if (keepN >= tokens.length) continue;
+    const trimmed = tokens.slice(0, keepN).join(', ');
+    xml = xml.substring(0, tOpenEnd) + trimmed + xml.substring(nextTEnd);
+  }
+
+  zip.file('word/document.xml', xml);
   return Buffer.from(
     await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
   );
@@ -1413,6 +1503,27 @@ export function buildCompressionCascade(): CompressionStep[] {
           await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }),
         );
       },
+    },
+    // 16–18. Skills-tail trim. Keeps the user's headline skills (start
+    // of each skills line — Engineering Management, AWS Lambda, etc.)
+    // while progressively dropping niche/long-tail tokens that
+    // overflow page 1. Three progressively-more-aggressive passes so
+    // the cascade only sacrifices what it has to. Last-resort because
+    // it's the only step in the cascade that drops content rather
+    // than reshaping format — but the user's explicit ask is "prevent
+    // spillovers beyond 1 page", so we honor that over keeping every
+    // long-tail token.
+    {
+      label: 'trim skills tail to 80%',
+      apply: (b) => trimSkillsTail(b, 0.8),
+    },
+    {
+      label: 'trim skills tail to 60%',
+      apply: (b) => trimSkillsTail(b, 0.6),
+    },
+    {
+      label: 'trim skills tail to 40%',
+      apply: (b) => trimSkillsTail(b, 0.4),
     },
   ];
 }
