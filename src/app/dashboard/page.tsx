@@ -538,6 +538,7 @@ export default function DashboardPage() {
     };
   }, [reload]);
 
+
   // Expand the user's excluded-companies list to all alias brands (e.g. "Amazon" → ["amazon","aws",...])
   const excludedAliases = useMemo(() => {
     const excluded = settings?.excludedCompanies ?? [];
@@ -575,8 +576,52 @@ export default function DashboardPage() {
     return !!s && s.totalCount > 0;
   };
 
-  // Compute aggregate stats
+  // Auto-fire a background rescore if the dashboard lands with a
+  // mostly-empty score cache (typical state right after a resume
+  // change cleared it). Without this, the user has to click the
+  // RescoreBanner; in the meantime the per-card averages show
+  // "Rescoring…" indefinitely. The ref guard makes sure we don't
+  // re-fire on every render — once per mount.
+  const dashboardRescoreFiredRef = useRef(false);
+  useEffect(() => {
+    if (dashboardRescoreFiredRef.current) return;
+    if (listings.length === 0) return;
+    const scorable = listings.filter((l) => !isUnscorableAts(l.ats));
+    const uncached = scorable.filter((l) => !scoreCache[l.id] || scoreCache[l.id].totalCount === 0);
+    if (scorable.length === 0) return;
+    // Only auto-fire when meaningfully under-covered — small gaps
+    // (a handful of newly-fetched listings) don't warrant an
+    // unprompted batch. Threshold matches stats.scoringInProgress.
+    if (uncached.length / scorable.length < 0.1) return;
+    dashboardRescoreFiredRef.current = true;
+    (async () => {
+      const CHUNK = 25;
+      for (let i = 0; i < uncached.length; i += CHUNK) {
+        const chunk = uncached.slice(i, i + CHUNK).map((l) => l.id);
+        try {
+          const res = await fetch('/api/ats-score/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ listingIds: chunk }),
+          });
+          if (!res.ok) break;
+        } catch {
+          break;
+        }
+      }
+      reload();
+    })();
+  }, [listings, scoreCache, reload]);
+
+  // Compute aggregate stats. The displayed averages are gated on
+  // a coverage threshold so we don't show a misleading "70%" when
+  // the score cache is partially populated (e.g. immediately after
+  // a resume change cleared the cache and only some listings have
+  // been re-scored). `scoringInProgress` flips on whenever coverage
+  // < 90% of scorable listings, signalling the dashboard to show
+  // "Rescoring…" instead of a half-baked number.
   const stats = useMemo(() => {
+    const scorable = listings.filter((l) => !isUnscorableAts(l.ats));
     const scored = listings.filter((l) => hasValidScore(l));
     const scores = scored.map((l) => scoreCache[l.id].overall);
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
@@ -593,7 +638,21 @@ export default function DashboardPage() {
     const appliedCount = Object.values(flags).filter((f) => f.flag === 'applied').length;
     const companies = new Set(listings.map((l) => l.company)).size;
 
-    return { avgScore, avgTechnical, avgManagement, avgDomain, avgSoft, high, medium, low, appliedCount, companies, scoredCount: scored.length, totalListings: listings.length };
+    // Coverage = fraction of scorable listings that have a fresh
+    // score cache entry. Below 90% we treat the dashboard avg as
+    // unreliable and the UI surfaces a "rescoring" state. Above
+    // that, the few stragglers are likely permanent N/A entries
+    // (extraction failures, etc.) and the avg is statistically OK.
+    const scorableCount = scorable.length;
+    const coverage = scorableCount > 0 ? scored.length / scorableCount : 1;
+    const scoringInProgress = scorableCount > 0 && coverage < 0.9;
+
+    return {
+      avgScore, avgTechnical, avgManagement, avgDomain, avgSoft,
+      high, medium, low, appliedCount, companies,
+      scoredCount: scored.length, totalListings: listings.length,
+      scorableCount, coverage, scoringInProgress,
+    };
   }, [listings, scoreCache, flags]);
 
   // Top companies by average ATS score
@@ -717,10 +776,31 @@ export default function DashboardPage() {
         onComplete={reload}
       />
 
-      {/* Stats cards */}
+      {/* Stats cards. When scoring is in progress (cache <90% covered)
+          the Avg / Strong tiles show "—" instead of partial numbers.
+          A partial average would otherwise read as a real reading and
+          confuse the user (e.g. the 71→70 drop bug the user reported,
+          where the displayed avg was computed against an incomplete
+          freshly-rescored subset). */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6 sm:mb-8">
-        <StatCard icon={Target} label="Avg ATS Score" value={`${stats.avgScore}%`} sub={`Across ${stats.scoredCount} scored listings`} color="blue" />
-        <StatCard icon={BarChart3} label="Strong Matches" value={stats.high} sub={`Score 60%+ (of ${stats.scoredCount})`} color="green" />
+        <StatCard
+          icon={Target}
+          label="Avg ATS Score"
+          value={stats.scoringInProgress ? '—' : `${stats.avgScore}%`}
+          sub={stats.scoringInProgress
+            ? `Rescoring ${stats.scoredCount} of ${stats.scorableCount}…`
+            : `Across ${stats.scoredCount} scored listings`}
+          color="blue"
+        />
+        <StatCard
+          icon={BarChart3}
+          label="Strong Matches"
+          value={stats.scoringInProgress ? '—' : stats.high}
+          sub={stats.scoringInProgress
+            ? 'Pending rescore'
+            : `Score 60%+ (of ${stats.scoredCount})`}
+          color="green"
+        />
         <StatCard icon={Building2} label="Companies" value={stats.companies} sub={`With ${stats.totalListings} matching roles`} color="purple" />
         <StatCard icon={CheckCircle2} label="Applied" value={stats.appliedCount} sub="Jobs you've applied to" color="amber" />
       </div>
@@ -740,7 +820,22 @@ export default function DashboardPage() {
           </div>
 
           <div className="flex justify-center mb-5">
-            <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
+            {stats.scoringInProgress ? (
+              // Don't show a partial-cache number here either — same
+              // reasoning as the stat tiles above. A dashed ring with
+              // a "Rescoring…" label is honest about the state.
+              <div className="flex flex-col items-center gap-2">
+                <div
+                  className="w-[120px] h-[120px] rounded-full border-4 border-dashed border-slate-200 flex items-center justify-center"
+                  title={`Rescoring ${stats.scoredCount} of ${stats.scorableCount} listings`}
+                >
+                  <Loader2 className="w-6 h-6 text-indigo-400 animate-spin" />
+                </div>
+                <span className="text-xs text-slate-500">Rescoring…</span>
+              </div>
+            ) : (
+              <ScoreRing score={stats.avgScore} size={120} label="Average Match" />
+            )}
           </div>
 
           {/* Per-category bars with click-to-open coaching. Weak bars
