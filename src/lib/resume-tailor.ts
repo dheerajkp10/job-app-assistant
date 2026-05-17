@@ -218,6 +218,240 @@ export function buildSummaryPhrase(domainKeywords: string[], softKeywords: strin
   return '';
 }
 
+// ─── Summary merge — prevents template-stamp repetition across tailor runs ──
+//
+// Problem this solves: appendToSummary used to BLINDLY append the next
+// template phrase, even when an instance of the same template was
+// already in the summary from a prior tailor run. Result: side-by-side
+// duplicates like
+//
+//   "Recognized for driving outcomes across A, B, C domains; operates
+//    with X, Y in fast-moving, ambiguous environments. Recognized for
+//    driving outcomes across D, E, F domains; operates with P, Q in
+//    fast-moving, ambiguous environments."
+//
+// Fix: for each template pattern that's ALREADY present in the
+// summary, we parse out its keyword lists, merge new keywords in, and
+// rewrite the existing sentence. Only when no pattern matches do we
+// append a fresh sentence — and we pick a template whose pattern
+// isn't already in the summary.
+
+/** Regex that captures the keyword lists from each template, used to
+ *  detect existing instances and merge new keywords in. Indexed in
+ *  the same order as the *_TEMPLATES arrays above so the index-based
+ *  rendering keeps working.
+ *
+ *  Each entry matches the FULL sentence (ending period included) so
+ *  we can swap the whole sentence in-place. The `(.+?)` captures use
+ *  non-greedy + the closing literal phrase + period to bound the
+ *  match — they correctly stop at the END of the matching template
+ *  sentence even if the keyword list is long.
+ */
+const DOMAIN_AND_SOFT_MATCHERS: RegExp[] = [
+  /Delivers measurable outcomes across (.+?) domains, applying (.+?) to move programs from strategy to execution\./,
+  /Brings hands-on experience in (.+?) areas, paired with (.+?) that scale teams and accelerate delivery\./,
+  /Leads cross-functional initiatives across (.+?) domains, drawing on (.+?) to align organizations and ship complex work\./,
+  /Combines deep expertise in (.+?) domains with (.+?) to raise the engineering bar and unblock high-stakes delivery\./,
+  /Recognized for driving outcomes across (.+?) domains; operates with (.+?) in fast-moving, ambiguous environments\./,
+  /Experience spans (.+?) domains, underpinned by (.+?) that translate vision into durable, production-grade systems\./,
+  /Track record of owning initiatives in (.+?) workstreams, applying (.+?) to partner with stakeholders and deliver at scale\./,
+  /Shipping leadership across (.+?) domains, reinforced by (.+?) that build lasting velocity across teams\./,
+];
+
+const DOMAIN_ONLY_MATCHERS: RegExp[] = [
+  /Deep experience delivering across (.+?) domains\./,
+  /Hands-on expertise spans (.+?) areas, with a bias toward measurable outcomes\./,
+  /Track record of shipping impactful work across (.+?) domains\./,
+  /Leads initiatives across (.+?) workstreams, owning technical direction end-to-end\./,
+  /Experienced across (.+?) domains, with a focus on durable, production-grade systems\./,
+  /Career spans (.+?) domains, operating across full delivery lifecycles\./,
+];
+
+const SOFT_ONLY_MATCHERS: RegExp[] = [
+  /Operates with (.+?) to align teams and deliver outcomes at scale\./,
+  /Known for (.+?) in ambiguous, fast-moving environments\./,
+  /Leverages (.+?) to partner across functions and execute with precision\./,
+  /Applies (.+?) to unblock teams and translate strategy into execution\./,
+  /Brings (.+?) to organizations navigating rapid growth and change\./,
+];
+
+/** Split a natural-language list ("A, B, and C" / "A and B" / "A") back
+ *  into its components. Inverse of joinNatural(). */
+function splitNatural(s: string): string[] {
+  const trimmed = s.trim();
+  if (!trimmed) return [];
+  // "A, B, and C" → A, B, and C
+  // "A and B" → A, B
+  // "A" → A
+  return trimmed
+    .split(/,\s*and\s+|\s+and\s+|,\s*/g)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+}
+
+/** Combine two keyword lists, preserving original order and dropping
+ *  case-insensitive duplicates. First-occurrence wins. */
+function mergeUnique(existing: string[], incoming: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of [...existing, ...incoming]) {
+    const k = t.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Merge new domain + soft keywords into an existing summary string.
+ *
+ * Strategy:
+ *   1. Scan the summary for any existing template instance (domain-
+ *      and-soft, domain-only, soft-only matchers above).
+ *   2. For the FIRST matching template found in each category, parse
+ *      its keyword lists, merge with the new keywords, and rewrite
+ *      the sentence in place. Subsequent template instances of the
+ *      same pattern get DELETED — those are leftover duplicates from
+ *      prior tailor runs.
+ *   3. After merging, route any remaining unplaced keywords to a
+ *      fresh template instance, preferring templates whose patterns
+ *      aren't already in the summary.
+ *
+ * Result: never two sentences using the same template, all keywords
+ * are placed exactly once.
+ *
+ * Returns { newSummary, appendPhrase }. The caller writes newSummary
+ * back to the docx body. `appendPhrase` is non-empty when there are
+ * keywords that couldn't merge into an existing template — those go
+ * to the caller's append path (appendToSummary).
+ */
+export function mergeSummaryWithKeywords(
+  summaryText: string,
+  domainKeywords: string[],
+  softKeywords: string[],
+): { newSummary: string; appendPhrase: string } {
+  const domains = domainKeywords.map(displayName);
+  const softs = softKeywords.map(displayName);
+
+  let summary = summaryText;
+  const placedDomains = new Set<string>();
+  const placedSofts = new Set<string>();
+
+  // 1. Try to merge into existing domain+soft templates.
+  for (let i = 0; i < DOMAIN_AND_SOFT_MATCHERS.length; i++) {
+    const matcher = DOMAIN_AND_SOFT_MATCHERS[i];
+    let firstMatch: { d: string[]; s: string[]; raw: string } | null = null;
+    summary = summary.replace(new RegExp(matcher.source, 'g'), (full, dRaw, sRaw) => {
+      if (!firstMatch) {
+        const d = splitNatural(dRaw);
+        const s = splitNatural(sRaw);
+        firstMatch = { d, s, raw: full };
+        return ' PLACEHOLDER ';
+      }
+      // Subsequent matches: delete (also fold their keywords into firstMatch)
+      firstMatch.d = mergeUnique(firstMatch.d, splitNatural(dRaw));
+      firstMatch.s = mergeUnique(firstMatch.s, splitNatural(sRaw));
+      return '';
+    });
+    if (firstMatch !== null) {
+      const matched: { d: string[]; s: string[]; raw: string } = firstMatch;
+      // Add new keywords that aren't already in this sentence.
+      matched.d = mergeUnique(matched.d, domains);
+      matched.s = mergeUnique(matched.s, softs);
+      for (const x of matched.d) placedDomains.add(x.toLowerCase());
+      for (const x of matched.s) placedSofts.add(x.toLowerCase());
+      const rebuilt = DOMAIN_AND_SOFT_TEMPLATES[i](joinNatural(matched.d), joinNatural(matched.s));
+      summary = summary.replace(' PLACEHOLDER ', rebuilt);
+      // Collapse multi-spaces left by deletes.
+      summary = summary.replace(/ {2,}/g, ' ').replace(/\s+\./g, '.');
+      break; // only ever ONE domain+soft sentence
+    }
+  }
+
+  // Same for domain-only.
+  for (let i = 0; i < DOMAIN_ONLY_MATCHERS.length; i++) {
+    const matcher = DOMAIN_ONLY_MATCHERS[i];
+    let firstMatch: { d: string[] } | null = null;
+    summary = summary.replace(new RegExp(matcher.source, 'g'), (_full, dRaw) => {
+      if (!firstMatch) {
+        firstMatch = { d: splitNatural(dRaw) };
+        return ' PLACEHOLDER ';
+      }
+      firstMatch.d = mergeUnique(firstMatch.d, splitNatural(dRaw));
+      return '';
+    });
+    if (firstMatch !== null) {
+      const matched: { d: string[] } = firstMatch;
+      const remainingDomains = domains.filter((x) => !placedDomains.has(x.toLowerCase()));
+      matched.d = mergeUnique(matched.d, remainingDomains);
+      for (const x of matched.d) placedDomains.add(x.toLowerCase());
+      const rebuilt = DOMAIN_ONLY_TEMPLATES[i](joinNatural(matched.d));
+      summary = summary.replace(' PLACEHOLDER ', rebuilt);
+      summary = summary.replace(/ {2,}/g, ' ').replace(/\s+\./g, '.');
+      break;
+    }
+  }
+
+  // Same for soft-only.
+  for (let i = 0; i < SOFT_ONLY_MATCHERS.length; i++) {
+    const matcher = SOFT_ONLY_MATCHERS[i];
+    let firstMatch: { s: string[] } | null = null;
+    summary = summary.replace(new RegExp(matcher.source, 'g'), (_full, sRaw) => {
+      if (!firstMatch) {
+        firstMatch = { s: splitNatural(sRaw) };
+        return ' PLACEHOLDER ';
+      }
+      firstMatch.s = mergeUnique(firstMatch.s, splitNatural(sRaw));
+      return '';
+    });
+    if (firstMatch !== null) {
+      const matched: { s: string[] } = firstMatch;
+      const remainingSofts = softs.filter((x) => !placedSofts.has(x.toLowerCase()));
+      matched.s = mergeUnique(matched.s, remainingSofts);
+      for (const x of matched.s) placedSofts.add(x.toLowerCase());
+      const rebuilt = SOFT_ONLY_TEMPLATES[i](joinNatural(matched.s));
+      summary = summary.replace(' PLACEHOLDER ', rebuilt);
+      summary = summary.replace(/ {2,}/g, ' ').replace(/\s+\./g, '.');
+      break;
+    }
+  }
+
+  // 2. For any keywords still unplaced, build a fresh phrase using an
+  //    UNUSED template (one whose pattern doesn't already appear in
+  //    the summary).
+  const unplacedDomains = domains.filter((x) => !placedDomains.has(x.toLowerCase()));
+  const unplacedSofts = softs.filter((x) => !placedSofts.has(x.toLowerCase()));
+  let appendPhrase = '';
+  if (unplacedDomains.length > 0 && unplacedSofts.length > 0) {
+    const idx = pickUnusedTemplate(DOMAIN_AND_SOFT_MATCHERS, summary,
+      pickIndex([...unplacedDomains, ...unplacedSofts], 'both', DOMAIN_AND_SOFT_TEMPLATES.length));
+    appendPhrase = DOMAIN_AND_SOFT_TEMPLATES[idx](joinNatural(unplacedDomains), joinNatural(unplacedSofts));
+  } else if (unplacedDomains.length > 0) {
+    const idx = pickUnusedTemplate(DOMAIN_ONLY_MATCHERS, summary,
+      pickIndex(unplacedDomains, 'domain', DOMAIN_ONLY_TEMPLATES.length));
+    appendPhrase = DOMAIN_ONLY_TEMPLATES[idx](joinNatural(unplacedDomains));
+  } else if (unplacedSofts.length > 0) {
+    const idx = pickUnusedTemplate(SOFT_ONLY_MATCHERS, summary,
+      pickIndex(unplacedSofts, 'soft', SOFT_ONLY_TEMPLATES.length));
+    appendPhrase = SOFT_ONLY_TEMPLATES[idx](joinNatural(unplacedSofts));
+  }
+
+  return { newSummary: summary, appendPhrase };
+}
+
+/** Walk the matchers starting at `preferred` and return the first
+ *  index whose pattern is NOT already present in `summary`. Falls
+ *  back to `preferred` if every template is already used (8+ runs
+ *  on the same JD shape — vanishingly unlikely). */
+function pickUnusedTemplate(matchers: RegExp[], summary: string, preferred: number): number {
+  for (let off = 0; off < matchers.length; off++) {
+    const i = (preferred + off) % matchers.length;
+    if (!matchers[i].test(summary)) return i;
+  }
+  return preferred;
+}
+
 // ─── Work-experience bullet templates ────────────────────────────────
 //
 // These produce a single formal resume bullet embedding the given

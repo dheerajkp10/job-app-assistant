@@ -14,6 +14,7 @@ import {
   type WorkExperienceBudget,
 } from './work-experience-injector';
 import { tokenizeSkillsLine, mergeSkillsTokens } from './keyword-dedup';
+import { mergeSummaryWithKeywords } from './resume-tailor';
 
 /**
  * Resolve the path to the user's base .docx resume.
@@ -206,6 +207,79 @@ function appendToSkillsLine(
  * Finds the SUMMARY heading, then the text in the next paragraph,
  * and appends the phrase to the last text run.
  */
+/**
+ * Read the SUMMARY paragraph's text and replace it with `newText`.
+ * Concatenates all <w:t> nodes in the post-heading paragraph,
+ * empties them, and writes `newText` into the LAST run (so the
+ * final run's formatting wins — typically the user-styled body
+ * style). Used by the smart-merge path that rewrites existing
+ * template-stamped sentences instead of appending duplicates.
+ *
+ * Returns the modified xml AND the original concatenated summary
+ * text (so the caller can decide what to merge into).
+ */
+export function readSummaryText(xml: string): string | null {
+  const summaryIdx = xml.indexOf('>SUMMARY<');
+  if (summaryIdx < 0) return null;
+  const afterSummary = xml.indexOf('</w:p>', summaryIdx);
+  if (afterSummary < 0) return null;
+  const nextPStart = xml.indexOf('<w:p', afterSummary);
+  if (nextPStart < 0) return null;
+  const nextPEnd = xml.indexOf('</w:p>', nextPStart);
+  if (nextPEnd < 0) return null;
+  const paraContent = xml.substring(nextPStart, nextPEnd);
+  // Concatenate every <w:t>...</w:t> text in document order.
+  const parts: string[] = [];
+  const re = /<w:t[^>]*>([^<]*)<\/w:t>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(paraContent)) !== null) parts.push(m[1]);
+  // Decode XML entities for the merge logic; we'll re-encode on write.
+  const decoded = parts
+    .join('')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'");
+  return decoded;
+}
+
+/** Replace the SUMMARY paragraph's text with `newText`. Writes the
+ *  full string into the LAST <w:t> in the post-heading paragraph and
+ *  clears all earlier <w:t>s. Re-encodes XML entities. */
+export function replaceSummaryText(xml: string, newText: string): string {
+  const summaryIdx = xml.indexOf('>SUMMARY<');
+  if (summaryIdx < 0) return xml;
+  const afterSummary = xml.indexOf('</w:p>', summaryIdx);
+  if (afterSummary < 0) return xml;
+  const nextPStart = xml.indexOf('<w:p', afterSummary);
+  if (nextPStart < 0) return xml;
+  const nextPEnd = xml.indexOf('</w:p>', nextPStart);
+  if (nextPEnd < 0) return xml;
+  const encoded = newText
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Walk every <w:t>...</w:t> inside the paragraph; clear all but the
+  // last, write `encoded` into the last.
+  let para = xml.substring(nextPStart, nextPEnd);
+  const tagRe = /<w:t([^>]*)>([^<]*)<\/w:t>/g;
+  const matches: { start: number; end: number; attrs: string }[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = tagRe.exec(para)) !== null) {
+    matches.push({ start: mm.index, end: mm.index + mm[0].length, attrs: mm[1] });
+  }
+  if (matches.length === 0) return xml;
+  // Walk back-to-front so offsets stay valid as we rewrite.
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const text = i === matches.length - 1 ? encoded : '';
+    const replacement = `<w:t${matches[i].attrs}>${text}</w:t>`;
+    para = para.substring(0, matches[i].start) + replacement + para.substring(matches[i].end);
+  }
+  return xml.substring(0, nextPStart) + para + xml.substring(nextPEnd);
+}
+
 function appendToSummary(xml: string, phrase: string): string {
   if (!phrase) return xml;
 
@@ -432,8 +506,11 @@ export function increaseSectionSpacing(xml: string): string {
         // Only bump w:before — the divider line under the heading
         // already gives visual closure. Adding w:after compounds with
         // the content-breath the layout polish adds and overflows the
-        // page. 60 twips ≈ 3pt of breath above each section.
-        const next = setOrBump(attrs, 'w:before', 60);
+        // page. 120 twips ≈ 6pt of breath above each section —
+        // clearly visible but small enough that the page-fit cascade
+        // can usually still keep the output to 1 page; if not, the
+        // cascade's progressive compression will reclaim it.
+        const next = setOrBump(attrs, 'w:before', 120);
         return `<w:spacing${next}/>`;
       },
     );
@@ -1017,11 +1094,40 @@ export async function editDocxTemplate(
     }
   }
 
-  // 4. Append a short, complete-sentence phrase to the Summary. This is
-  //    one of two places where we add prose (not a keyword list); the
-  //    phrase is constructed by buildSummaryPhrase() to read as a
-  //    natural sentence continuation.
-  if (summaryPhrase) {
+  // 4. Update the Summary section. Smart-merge path: if the summary
+  //    already contains a template-stamped sentence (from a prior
+  //    tailor run), we MERGE the new domain/soft keywords into that
+  //    sentence's keyword list rather than appending a duplicate.
+  //    Only when there's no existing template instance to merge into
+  //    do we fall back to appending a fresh sentence. The merge
+  //    detects + deletes side-by-side duplicates ("Recognized for X
+  //    domains; operates with Y." × 2) that prior runs of this
+  //    pipeline used to produce.
+  const domainMissing = missingKeywords.domain ?? [];
+  const softMissing = missingKeywords.soft ?? [];
+  if (domainMissing.length > 0 || softMissing.length > 0) {
+    const currentSummary = readSummaryText(xml);
+    if (currentSummary !== null) {
+      const { newSummary, appendPhrase } = mergeSummaryWithKeywords(
+        currentSummary,
+        domainMissing,
+        softMissing,
+      );
+      if (newSummary !== currentSummary) {
+        xml = replaceSummaryText(xml, newSummary);
+        changesSummary.push(`Merged ${domainMissing.length + softMissing.length} keyword(s) into existing Summary phrases`);
+      }
+      if (appendPhrase) {
+        xml = appendToSummary(xml, appendPhrase);
+        changesSummary.push(`Appended fresh Summary sentence (no compatible existing phrase)`);
+      }
+    } else if (summaryPhrase) {
+      // No summary in the resume at all — rare but possible. Fall
+      // back to the legacy append path.
+      xml = appendToSummary(xml, summaryPhrase);
+      changesSummary.push(`Added short phrase to Summary`);
+    }
+  } else if (summaryPhrase) {
     xml = appendToSummary(xml, summaryPhrase);
     changesSummary.push(`Added short phrase to Summary`);
   }
