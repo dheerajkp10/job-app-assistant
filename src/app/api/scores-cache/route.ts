@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { readDb, saveScoresBatch } from '@/lib/db';
+
+// Force-dynamic — the stamp filter compares each entry to the
+// CURRENT active resume's stamp. If Next.js cached this response,
+// a resume swap wouldn't reflect on the dashboard until the cache
+// rotated.
+export const dynamic = 'force-dynamic';
 import { isUnscorableAts } from '@/lib/job-fetcher';
 import { resumeStamp } from '@/lib/resume-stamp';
 import { SCORER_VERSION } from '@/lib/types';
@@ -93,6 +99,7 @@ export async function GET() {
       'X-Scorer-Version': String(SCORER_VERSION),
       'X-Scores-Stale-Version-Count': String(staleVersionCount),
       'X-Scores-Stale-Resume-Count': String(staleResumeCount),
+      'Cache-Control': 'no-store',
     },
   });
 }

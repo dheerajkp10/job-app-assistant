@@ -31,13 +31,19 @@ const RESUME_DIR = path.join(process.cwd(), 'data', 'resume');
  *
  * Response includes `{ resumeId, fileName, text, isActive, clearedScores }`.
  */
+// Force-dynamic + no-store: this endpoint reflects the active
+// resume's live state, which changes whenever the user uploads or
+// switches active. Any stale cache (Next.js, browser, CDN) defeats
+// the dashboard's auto-refresh of ⚠ popovers + scores.
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   // Back-compat: legacy clients want fileName + text of the active.
   const settings = await getSettings();
   return NextResponse.json({
     fileName: settings.baseResumeFileName,
     text: settings.baseResumeText,
-  });
+  }, { headers: { 'Cache-Control': 'no-store' } });
 }
 
 export async function POST(req: NextRequest) {

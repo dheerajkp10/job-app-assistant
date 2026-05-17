@@ -58,7 +58,7 @@ export default function SettingsPage() {
   const [showSalaryBreakdown, setShowSalaryBreakdown] = useState(false);
 
   useEffect(() => {
-    fetch('/api/settings')
+    fetch('/api/settings', { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
         const s = data.settings;
@@ -91,7 +91,7 @@ export default function SettingsPage() {
         setSalarySkipped(!!s.salarySkipped);
         setShowSalaryBreakdown(Boolean(s.salaryBaseMin || s.salaryBonusMin || s.salaryEquityMin || s.salaryBaseMax || s.salaryBonusMax || s.salaryEquityMax));
       });
-    fetch('/api/resume')
+    fetch('/api/resume', { cache: 'no-store' })
       .then((r) => r.json())
       .then((data) => {
         setResumeFileName(data.fileName);
@@ -105,7 +105,11 @@ export default function SettingsPage() {
     const formData = new FormData();
     formData.append('file', file);
     try {
-      const res = await fetch('/api/resume', { method: 'POST', body: formData });
+      const res = await fetch('/api/resume', {
+        method: 'POST',
+        cache: 'no-store',
+        body: formData,
+      });
       const raw = await res.text();
       let data: { fileName?: string; text?: string; error?: string; details?: string } = {};
       try {
@@ -119,6 +123,16 @@ export default function SettingsPage() {
       setResumeFileName(data.fileName || null);
       setResumeText(data.text || '');
       setLibraryRefreshKey((k) => k + 1);
+      // Cross-tab broadcast: tell the dashboard (and anyone else
+      // listening on this channel) to refetch state — the active
+      // resume just changed, so cached score lists, resume-keyword
+      // probes, and ⚠ popovers are all stale. Channel listener
+      // lives in src/app/dashboard/page.tsx.
+      try {
+        const bc = new BroadcastChannel('job-app-assistant');
+        bc.postMessage({ type: 'resume-updated' });
+        bc.close();
+      } catch { /* not supported — no-op */ }
       setMessage({ type: 'success', text: 'Resume uploaded and parsed successfully!' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Upload failed' });
@@ -767,7 +781,7 @@ function ResumeLibrary({ refreshKey = 0 }: { refreshKey?: number }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/resumes');
+      const res = await fetch('/api/resumes', { cache: 'no-store' });
       const data = await res.json();
       setResumes(Array.isArray(data.resumes) ? data.resumes : []);
       setActiveId(data.activeId ?? null);
@@ -791,6 +805,7 @@ function ResumeLibrary({ refreshKey = 0 }: { refreshKey?: number }) {
     try {
       const res = await fetch('/api/resumes/active', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
       });
@@ -799,6 +814,13 @@ function ResumeLibrary({ refreshKey = 0 }: { refreshKey?: number }) {
         throw new Error(j.error || `Failed (${res.status})`);
       }
       await reload();
+      // Also broadcast — switching the active resume invalidates
+      // dashboard scores + ⚠ popover state.
+      try {
+        const bc = new BroadcastChannel('job-app-assistant');
+        bc.postMessage({ type: 'resume-updated' });
+        bc.close();
+      } catch { /* not supported */ }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Switch failed');
     } finally {

@@ -24,6 +24,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSettings } from '@/lib/db';
 import { resumeMentions } from '@/lib/keyword-dedup';
 
+// Force-dynamic — the present-set depends on settings.baseResumeText
+// which mutates on every upload/active-switch. Caching it for any
+// duration causes the dashboard's ⚠ popovers to show stale "missing"
+// keywords.
+export const dynamic = 'force-dynamic';
+
 export async function POST(req: NextRequest) {
   let body: { keywords?: unknown };
   try {
@@ -43,9 +49,9 @@ export async function POST(req: NextRequest) {
   if (!resumeText) {
     // No active resume — nothing is present. Return empty rather than
     // erroring so the client can render the catalog as "all missing".
-    return NextResponse.json({ present: [] });
+    return NextResponse.json({ present: [] }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
   const present = keywords.filter((k) => resumeMentions(resumeText, k));
-  return NextResponse.json({ present });
+  return NextResponse.json({ present }, { headers: { 'Cache-Control': 'no-store' } });
 }

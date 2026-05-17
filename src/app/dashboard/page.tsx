@@ -531,10 +531,16 @@ export default function DashboardPage() {
   const reload = useMemo(
     () => () =>
       Promise.all([
-        fetch('/api/settings').then((r) => r.json()),
-        fetch('/api/listings').then((r) => r.json()),
-        fetch('/api/scores-cache').then((r) => r.json()),
-        fetch('/api/listing-flags').then((r) => r.json()),
+        // `cache: 'no-store'` on every read — these endpoints reflect
+        // live DB state (active resume, score cache stamp filter,
+        // …) that the browser MUST NOT serve stale from its HTTP
+        // cache. Without this, a Settings upload in a sibling tab
+        // could leave the dashboard rendering against a cached
+        // /api/settings response indefinitely.
+        fetch('/api/settings', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/listings', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/scores-cache', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/listing-flags', { cache: 'no-store' }).then((r) => r.json()),
       ])
         .then(([settingsData, listingsData, scores, flagsData]) => {
           if (!settingsData.settings?.onboardingComplete) {
@@ -569,6 +575,7 @@ export default function DashboardPage() {
           );
           fetch('/api/resume/contains', {
             method: 'POST',
+            cache: 'no-store',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ keywords: catalogItems }),
           })
@@ -590,9 +597,32 @@ export default function DashboardPage() {
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
+
+    // Cross-tab refresh: when the Settings page uploads a new
+    // resume in a sibling tab, it broadcasts on the
+    // 'job-app-assistant' channel. We listen for the
+    // 'resume-updated' signal and re-run reload() immediately —
+    // even if the user never switches focus to this tab. Without
+    // this, the dashboard sat on stale state until the user
+    // tabbed back to it. Also covered: same-tab navigation
+    // already remounts the component, so the visibility listener
+    // above handles that case.
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('job-app-assistant');
+      bc.onmessage = (e) => {
+        if (e.data?.type === 'resume-updated') reload();
+      };
+    } catch {
+      // BroadcastChannel unavailable (older browsers) — fall back
+      // to the visibility/focus path. Most modern browsers
+      // support BC; this is a defensive no-op.
+    }
+
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
+      bc?.close();
     };
   }, [reload]);
 
