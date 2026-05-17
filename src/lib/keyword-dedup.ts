@@ -143,6 +143,40 @@ export function resumeMentions(resumeText: string, keyword: string): boolean {
   const resumeNorm = normalizeKeyword(resumeLower);
   const kNorm = normalizeKeyword(keyword);
   if (kNorm && resumeNorm.includes(kNorm)) return true;
+
+  // Distributive-parens match. Resume writers commonly factor out a
+  // shared word and list variants in parens:
+  //   "API (REST, GraphQL, API Gateway)"       covers "REST API",
+  //                                              "GraphQL API", etc.
+  //   "AWS (Lambda, S3, EC2)"                   covers "AWS Lambda",
+  //                                              "S3", "EC2", etc.
+  //   "Cloud (GCP, Azure)"                      covers "GCP Cloud",
+  //                                              "Azure Cloud".
+  //
+  // For a multi-token catalog keyword, take every pair of its tokens
+  // (lead, inside) and look for the pattern
+  //   lead<non-paren-chars>(<paren content with `inside`>)
+  // in the resume. If either ordering hits, treat as matched.
+  //
+  // Word-boundary + the negated-paren bridge keeps the lead anchored
+  // OUTSIDE any earlier paren group so we don't false-positive on
+  // "(api ... (rest ...)" style nesting. Cap the bridge at 20 chars
+  // so we don't drift across unrelated content.
+  const kTokens = kLower.split(/\s+/).filter((t) => t.length >= 2);
+  if (kTokens.length >= 2) {
+    const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const lead of kTokens) {
+      for (const inside of kTokens) {
+        if (lead === inside) continue;
+        const re = new RegExp(
+          `\\b${esc(lead)}\\b[^(]{0,20}\\([^)]*\\b${esc(inside)}\\b`,
+          'i',
+        );
+        if (re.test(resumeLower)) return true;
+      }
+    }
+  }
+
   return false;
 }
 
