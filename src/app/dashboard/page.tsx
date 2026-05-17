@@ -190,10 +190,6 @@ function CategoryBar({
     score >= 70 ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
     : score >= 45 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
     : 'bg-gradient-to-r from-rose-400 to-pink-400';
-  // ⚠ shows when (a) the category is weak, (b) we have a staged-set
-  // + toggle function plumbed (i.e. we're in master-tailor context),
-  // (c) score < 80 (the "already strong" threshold).
-  const showCoach = !!categoryKey && !!stagedKeywords && !!onToggleStaged && score < 80;
   const [popoverOpen, setPopoverOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   // How many keywords in this category's atomic catalog the user has
@@ -204,6 +200,29 @@ function CategoryBar({
     const items = (FIXES_BY_CATEGORY[categoryKey] ?? []).flatMap((g) => g.items);
     return items.filter((k) => stagedKeywords.has(k)).length;
   }, [stagedKeywords, categoryKey]);
+  // How many catalog items in this category are NOT already on the
+  // resume — i.e. how many ACTIONABLE improvements the popover would
+  // show. If zero (the user's resume already covers everything in
+  // this category's catalog), suppress the ⚠ entirely — no point
+  // pointing them at an empty popover.
+  const pickableInCat = useMemo(() => {
+    if (!categoryKey || !resumeHas) {
+      // Without a resumeHas signal, fall back to "all items pickable"
+      // so we don't false-hide the icon during the brief window
+      // before /api/resume/contains finishes its first probe.
+      return categoryKey ? (FIXES_BY_CATEGORY[categoryKey] ?? []).flatMap((g) => g.items).length : 0;
+    }
+    const items = (FIXES_BY_CATEGORY[categoryKey] ?? []).flatMap((g) => g.items);
+    return items.filter((k) => !resumeHas.has(k)).length;
+  }, [categoryKey, resumeHas]);
+  // ⚠ shows when (a) the category is weak (score < 80), (b) we have
+  // a staged-set + toggle function plumbed (master-tailor context),
+  // AND (c) there's at least one actionable improvement to surface
+  // — otherwise the popover would render empty and the icon would
+  // be a dead end.
+  const showCoach =
+    !!categoryKey && !!stagedKeywords && !!onToggleStaged &&
+    score < 80 && pickableInCat > 0;
   return (
     <div className="flex items-center gap-3">
       <span className="text-xs text-slate-500 w-20 text-right">{label}</span>
