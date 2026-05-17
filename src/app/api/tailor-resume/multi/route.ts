@@ -225,11 +225,51 @@ export async function POST(req: NextRequest) {
     // freq ordering is important because if the page-length check trips we
     // start trimming from the tail (lowest frequency), so the highest-impact
     // keywords survive.
+    //
+    // Two sources of selected keywords:
+    //   1. Per-listing ⚠ popovers — selections live in the cohort's
+    //      aggregated `missingKeywords` list (JD-derived). We bucket
+    //      those into their analyzed category via the lookup below.
+    //   2. Dashboard Resume Performance ⚠ popovers — selections come
+    //      from the curated FIXES_BY_CATEGORY catalog (Terraform,
+    //      Datadog, Spring Boot, …) which is INDEPENDENT of any
+    //      specific JD's text. Those keywords aren't in
+    //      `missingKeywords` and used to be silently dropped on this
+    //      path. We now route any leftover selected keyword through
+    //      `extractKeywords()` to find its taxonomy category and
+    //      bucket it accordingly. Falls back to `technical` for
+    //      keywords outside the taxonomy.
     const selectedSet = new Set(selectedKeywords as string[]);
     const byCategory: Record<Category, string[]> = { technical: [], management: [], domain: [], soft: [] };
+    const placedFromMissing = new Set<string>();
     for (const kw of missingKeywords) {
       if (!selectedSet.has(kw.keyword)) continue;
       byCategory[kw.category].push(kw.keyword);
+      placedFromMissing.add(kw.keyword);
+    }
+    // Now place any catalog-only selections (not in missingKeywords).
+    const stillUnplaced = (selectedKeywords as string[]).filter(
+      (k) => !placedFromMissing.has(k),
+    );
+    if (stillUnplaced.length > 0) {
+      for (const kw of stillUnplaced) {
+        // Probe the keyword's category via the canonical taxonomy.
+        // extractKeywords returns Map<canonical, Category>; if our
+        // selection matches a taxonomy entry, we get its bucket.
+        const probe = extractKeywords(kw);
+        let placedCat: Category | null = null;
+        if (probe.size > 0) {
+          // Single-keyword text → at most one entry. Use it.
+          for (const [, cat] of probe) {
+            placedCat = cat;
+            break;
+          }
+        }
+        // Fallback: default to 'technical'. The dashboard catalog
+        // entries are skewed toward tech tooling (cloud / frameworks
+        // / data infra) so this is the safest default for unknowns.
+        byCategory[placedCat ?? 'technical'].push(kw);
+      }
     }
 
     // Aggregate user-accepted suggestions across the selected jobs.
