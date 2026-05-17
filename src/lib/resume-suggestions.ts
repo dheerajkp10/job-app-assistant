@@ -36,6 +36,35 @@
  * the client only sends a list of accepted suggestion IDs.
  */
 
+import { canonicalForm, normalizeKeyword } from './keyword-dedup';
+
+/**
+ * "Does this resume already mention `keyword`?" — uses the same
+ * tolerance rules the central ATS scorer applies, so suggestions don't
+ * flag e.g. "high availability" as missing when the resume says
+ * "High-Availability". Order of checks:
+ *   1. Hyphen-flattened substring match (catches "high-availability"
+ *      vs "high availability" both ways).
+ *   2. Canonical-form match via the alias table (postgres/postgresql,
+ *      k8s/kubernetes, js/javascript, …).
+ *   3. Normalized form (strip punctuation entirely) as a last resort.
+ */
+function resumeMentions(resumeLower: string, keyword: string): boolean {
+  const kLower = keyword.toLowerCase();
+  const resumeFlat = resumeLower.replace(/-/g, ' ');
+  const kFlat = kLower.replace(/-/g, ' ');
+  if (resumeFlat.includes(kFlat)) return true;
+  const kCanonical = canonicalForm(keyword).toLowerCase();
+  if (kCanonical !== kLower && resumeFlat.includes(kCanonical.replace(/-/g, ' '))) return true;
+  // Last-resort: normalize both sides (strip all non-alphanumerics)
+  // and substring-match. Catches edge cases like "REST API" vs
+  // "rest-api" vs "restapi".
+  const resumeNorm = normalizeKeyword(resumeLower);
+  const kNorm = normalizeKeyword(keyword);
+  if (kNorm && resumeNorm.includes(kNorm)) return true;
+  return false;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────
 
 export type SuggestionKind =
@@ -284,7 +313,7 @@ function detectNichePhrases(input: SuggestionInput, max = 2): Suggestion[] {
   const resumeLower = input.resumeText.toLowerCase();
   const out: Suggestion[] = [];
   for (const { phrase, count } of top) {
-    if (resumeLower.includes(phrase)) continue;
+    if (resumeMentions(resumeLower, phrase)) continue;
     const display = phrase.replace(/\b\w/g, (c) => c.toUpperCase());
     out.push({
       id: `add-niche-${phrase.replace(/\s+/g, '-')}`,
@@ -392,7 +421,15 @@ function detectSkillsGap(input: SuggestionInput): Suggestion | null {
   for (const cat of SKILLS_CATEGORIES) {
     const missing: string[] = [];
     for (const k of cat.keywords) {
-      if (jdLower.includes(k) && !resumeLower.includes(k.replace(/-/g, ' ')) && !resumeLower.includes(k)) {
+      // JD presence: tolerant on hyphens (JD might say "high
+      // availability" while taxonomy stores "high-availability" or
+      // vice versa). Resume absence: full alias-aware check via
+      // resumeMentions so we don't flag "k8s" missing when the
+      // resume has "Kubernetes".
+      const jdFlat = jdLower.replace(/-/g, ' ');
+      const kFlat = k.replace(/-/g, ' ');
+      const inJd = jdFlat.includes(kFlat) || jdLower.includes(k);
+      if (inJd && !resumeMentions(resumeLower, k)) {
         missing.push(k);
       }
     }

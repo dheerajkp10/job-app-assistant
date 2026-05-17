@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import mammoth from 'mammoth';
+import { extractDocxText } from '@/lib/docx-text';
 import {
   getSettings,
   updateSettings,
@@ -64,8 +64,10 @@ export async function POST(req: NextRequest) {
     let text = '';
     if (ext === '.docx') {
       try {
-        const result = await mammoth.extractRawText({ buffer });
-        text = result.value;
+        // Centralized extractor — same mammoth path the tailor uses
+        // when scoring the modified docx, so upload-time text and
+        // post-tailor text are bit-for-bit comparable.
+        text = await extractDocxText(buffer);
       } catch (err) {
         return NextResponse.json(
           {
