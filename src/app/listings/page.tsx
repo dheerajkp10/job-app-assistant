@@ -344,14 +344,47 @@ export default function ListingsPage() {
       return next;
     });
     try {
-      await fetch('/api/listing-flags', {
+      const res = await fetch('/api/listing-flags', {
         method: 'POST',
+        cache: 'no-store',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ listingId, flag }),
       });
+      // Merge any server-side cascaded flags into client state.
+      // POST /api/listing-flags returns { cascadedFlags?:
+      // ListingFlagEntry[] } when a 'rejected' flag triggered the
+      // company-wide cascade (every sibling listing at the same
+      // company gets flagged too). Without merging these, the
+      // listings page would show stale unflagged cards for sibling
+      // roles until the next focus/visibility refresh — the user's
+      // reported bug.
+      if (res.ok) {
+        try {
+          const data = await res.json();
+          const cascaded: ListingFlagEntry[] = Array.isArray(data.cascadedFlags)
+            ? data.cascadedFlags
+            : [];
+          if (cascaded.length > 0) {
+            setFlags((prev) => {
+              const next = { ...prev };
+              for (const entry of cascaded) next[entry.listingId] = entry;
+              return next;
+            });
+          }
+        } catch { /* response wasn't JSON — fine, optimistic state stands */ }
+        // Cross-tab signal — tell the pipeline page (and dashboard,
+        // if it cares) to refresh. The pipeline page especially
+        // needs this so its Rejected column reflects new company
+        // entries without a focus event.
+        try {
+          const bc = new BroadcastChannel('job-app-assistant');
+          bc.postMessage({ type: 'flags-updated' });
+          bc.close();
+        } catch { /* unsupported — no-op */ }
+      }
     } catch {
       // If the request fails, refetch the source of truth to repair state.
-      fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
+      fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
     }
   }, []);
 
@@ -687,18 +720,34 @@ export default function ListingsPage() {
   // and the user navigates back here (or switches tabs), they immediately
   // see the new entry without having to hit "Refresh All".
   useEffect(() => {
+    const refreshFlagsAndScores = () => {
+      fetch('/api/scores-cache', { cache: 'no-store' }).then(r => r.json()).then(setScoreCache).catch(() => {});
+      fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
+    };
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
         loadListings();
-        fetch('/api/scores-cache').then(r => r.json()).then(setScoreCache).catch(() => {});
-        fetch('/api/listing-flags').then(r => r.json()).then(setFlags).catch(() => {});
+        refreshFlagsAndScores();
       }
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
+    // Same-app cross-tab signal — when ANY tab posts a flag
+    // change, every other tab refetches the flag map. Catches the
+    // case where the user has two listings tabs open and rejects
+    // a role in tab A: tab B's sibling cards should reflect the
+    // cascade without a focus event.
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('job-app-assistant');
+      bc.onmessage = (e) => {
+        if (e.data?.type === 'flags-updated') refreshFlagsAndScores();
+      };
+    } catch { /* unsupported */ }
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
+      bc?.close();
     };
   }, [loadListings]);
 
@@ -1967,21 +2016,39 @@ export default function ListingsPage() {
                   // Fire all flag-set requests in parallel; the
                   // listing-flag store keys by listingId so writes
                   // are independent.
-                  await Promise.all(
+                  const responses = await Promise.all(
                     ids.map((id) =>
                       fetch('/api/listing-flags', {
                         method: 'POST',
+                        cache: 'no-store',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ listingId: id, flag }),
                       }),
                     ),
                   );
+                  // Collect cascaded flags from each response — same
+                  // merge logic as setFlagFor. Bulk-rejecting one
+                  // listing per company would otherwise leave the
+                  // sibling listings stale on screen.
+                  const cascadedAll: ListingFlagEntry[] = [];
+                  for (const r of responses) {
+                    if (!r.ok) continue;
+                    try {
+                      const data = await r.json();
+                      if (Array.isArray(data.cascadedFlags)) {
+                        cascadedAll.push(...data.cascadedFlags);
+                      }
+                    } catch { /* ignore non-JSON */ }
+                  }
                   // Optimistic local update — mirror what setFlagFor does.
                   setFlags((prev) => {
                     const next = { ...prev };
                     const now = new Date().toISOString();
                     for (const id of ids) {
                       next[id] = { listingId: id, flag, flaggedAt: now };
+                    }
+                    for (const entry of cascadedAll) {
+                      next[entry.listingId] = entry;
                     }
                     return next;
                   });

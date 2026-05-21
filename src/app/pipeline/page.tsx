@@ -82,9 +82,22 @@ export default function PipelinePage() {
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
+    // Cross-tab signal — the listings page broadcasts after every
+    // flag change so the Rejected column updates without needing a
+    // tab switch.
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel('job-app-assistant');
+      bc.onmessage = (e) => {
+        if (e.data?.type === 'flags-updated' || e.data?.type === 'resume-updated') {
+          reload();
+        }
+      };
+    } catch { /* unsupported */ }
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
+      bc?.close();
     };
   }, [reload]);
 
