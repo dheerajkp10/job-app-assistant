@@ -23,13 +23,25 @@ export async function POST(req: NextRequest) {
 
   const id = `manual-${randomUUID()}`;
 
+  // Normalize "no real location" inputs to a single placeholder so
+  // the listings-page filters treat them consistently. URL parsers
+  // sometimes return "N/A" / "TBD" / "Unknown" / empty — all
+  // semantically equivalent ("we couldn't find one"). The work-auth
+  // filter's ANYWHERE_MARKERS regex passes all these through, but
+  // standardizing on "Not specified" keeps the listing card UI
+  // tidy and avoids inconsistent display of the same concept.
+  const PLACEHOLDER_LOC = /^\s*(n\/?a|tbd|tbc|unknown|undisclosed|not\s+(?:specified|listed|disclosed|available))\s*$/i;
+  const cleanLocation = !location || !location.trim() || PLACEHOLDER_LOC.test(location)
+    ? 'Not specified'
+    : location;
+
   const listing: JobListing = {
     id,
     sourceId: id,
     company,
     companySlug: company.toLowerCase().replace(/\s+/g, '-'),
     title,
-    location: location || 'Not specified',
+    location: cleanLocation,
     department: '',
     salary: null,
     salaryMin: null,

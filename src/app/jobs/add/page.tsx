@@ -332,8 +332,22 @@ export default function AddJobPage() {
           <div className="flex-1">
             <span className="font-semibold">{jobTitle}</span> at <span className="font-semibold">{companyName}</span> saved!
           </div>
-          <Link href={`/jobs/${savedJobId}`}
-            className="text-green-700 hover:text-green-800 underline text-sm font-medium">
+          {/* Send the user to the rich listing detail page, not the
+              legacy /jobs/[jobId] tracker page. The /listings/[id]
+              route surfaces the full toolkit — tailor resume,
+              generate cover letter, network outreach, interview
+              prep, salary intel — same UX they get from any
+              auto-fetched listing on /listings. The previous link
+              went to /jobs/{savedJobId} which only shows basic
+              tracker fields, so users reported "I can't tailor /
+              generate cover letter consistent with the listings
+              page". Falls back to /jobs/{savedJobId} when the
+              listing-creation half failed (rare, but possible
+              when the listings cache is mid-write). */}
+          <Link
+            href={savedListingId ? `/listings/${savedListingId}` : `/jobs/${savedJobId}`}
+            className="text-green-700 hover:text-green-800 underline text-sm font-medium"
+          >
             View Job
           </Link>
         </div>

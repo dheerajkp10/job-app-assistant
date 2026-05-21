@@ -296,7 +296,15 @@ export function detectCountries(location: string | null | undefined): Set<string
  *  better to surface them and let the user decide than to silently hide
  *  them). Anchored with word boundaries to avoid matching "remotely" etc.
  *  in body text, but the location field is short so collisions are rare. */
-const ANYWHERE_MARKERS = /\b(remote|anywhere|virtual|work from home|wfh|distributed)\b/i;
+// Markers that mean "we don't know the location, but the listing is
+// real". Includes both true anywhere/remote markers AND the
+// placeholder strings the URL parser + manual-add form use when no
+// location is parseable ("N/A", "TBD", "Unknown", "Not specified",
+// "Not listed", etc.). Treating these as pass-through is correct
+// because the work-auth filter is meant to drop listings we can
+// PROVE are in a country the user isn't authorized for — an unknown
+// location is not proof of anything.
+const ANYWHERE_MARKERS = /\b(remote|anywhere|virtual|work from home|wfh|distributed|n\/?a|tbd|tbc|unknown|not\s+(?:specified|listed|disclosed|available)|undisclosed)\b/i;
 
 /** Regional buckets that name a continent / multi-country area without
  *  naming a specific country. These are NOT countries — they map to a
