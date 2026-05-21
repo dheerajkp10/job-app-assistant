@@ -479,8 +479,37 @@ export default function ListingsPage() {
   // their onboarding-chosen levels (but allow them to override).
   const [levelsInitialized, setLevelsInitialized] = useState(false);
 
-  // Expanded card
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Expanded card — backed by sessionStorage so the open card stays
+  // open across tab switches and any parent re-renders triggered by
+  // the visibility/focus refresh listeners (loadListings,
+  // refreshFlagsAndScores). User reported "switching tabs collapses
+  // the open job listing dropdown and the progress for generating
+  // resume etc is gone" — persisting expandedId is one half of the
+  // fix; the per-card useSessionState below covers the in-progress
+  // tailor state.
+  const [expandedId, setExpandedId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = sessionStorage.getItem('listings:expandedId');
+      if (!raw) return null;
+      const { id, ts } = JSON.parse(raw);
+      // 30-minute TTL so a stale expansion from yesterday doesn't
+      // re-open on a fresh visit. Long enough that an active
+      // tailoring session is never disrupted.
+      if (typeof id !== 'string' || Date.now() - ts > 30 * 60_000) return null;
+      return id;
+    } catch { return null; }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      if (expandedId) {
+        sessionStorage.setItem('listings:expandedId', JSON.stringify({ id: expandedId, ts: Date.now() }));
+      } else {
+        sessionStorage.removeItem('listings:expandedId');
+      }
+    } catch { /* quota or private mode — fail silently */ }
+  }, [expandedId]);
 
   // Dashboard → listings deep link. When the user clicks "Improve" on
   // a CategoryBar in the Resume Performance card, the dashboard sends
@@ -2119,6 +2148,45 @@ function scoreColor(score: number): string {
   return 'text-rose-700 bg-rose-50 border-rose-100';
 }
 
+// ─── Session-backed state hook ──────────────────────────────────────
+//
+// Drop-in replacement for useState that mirrors writes to
+// sessionStorage. Survives tab switches, parent re-renders, and any
+// transient card unmount-then-remount that the listings page might
+// do as state shuffles around. 30-minute TTL so a stuck tailor
+// state from a previous session doesn't poison the next visit.
+//
+// API matches useState exactly (initialValue + functional updates)
+// so existing call sites just swap the import name. Used below in
+// ListingCard for the tailor progress + result state — the things
+// the user reported losing on tab switches.
+function useSessionState<T>(key: string, initial: T): [T, (v: T | ((prev: T) => T)) => void] {
+  const TTL_MS = 30 * 60_000;
+  const [state, setStateRaw] = useState<T>(() => {
+    if (typeof window === 'undefined') return initial;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (!raw) return initial;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed.ts !== 'number') return initial;
+      if (Date.now() - parsed.ts > TTL_MS) return initial;
+      return parsed.v as T;
+    } catch { return initial; }
+  });
+  const set = useCallback((v: T | ((prev: T) => T)) => {
+    setStateRaw((prev) => {
+      const next = typeof v === 'function' ? (v as (p: T) => T)(prev) : v;
+      try {
+        if (typeof window !== 'undefined') {
+          sessionStorage.setItem(key, JSON.stringify({ v: next, ts: Date.now() }));
+        }
+      } catch { /* quota or private mode — keep in-memory state, drop persistence */ }
+      return next;
+    });
+  }, [key]);
+  return [state, set];
+}
+
 // ─── Expandable Listing Card ────────────────────────────────────────
 
 function ListingCard({
@@ -2195,8 +2263,14 @@ function ListingCard({
   const [loadingScore, setLoadingScore] = useState(false);
   const [scoreError, setScoreError] = useState<string | null>(null);
 
-  // Tailor state
-  const [tailorResult, setTailorResult] = useState<TailorResult | null>(null);
+  // Tailor state — all backed by sessionStorage so the user doesn't
+  // lose their progress / result when they switch browser tabs and
+  // come back. Previously this state lived in plain useState, which
+  // vanished any time the parent re-rendered + dropped this card
+  // (or the user navigated away and back). The session-backed hook
+  // restores on mount, so the open card remembers where it was.
+  const SK = `lc:${listing.id}`;
+  const [tailorResult, setTailorResult] = useSessionState<TailorResult | null>(`${SK}:result`, null);
   // Mandatory mode — when ON (default), the tailor route injects
   // every user-selected keyword AND runs a compression cascade
   // (margins/spacing/line-height/font shrink) to keep the result on
@@ -2208,7 +2282,7 @@ function ListingCard({
   // sacrificed (e.g. "margins 0.4", line height 1.05, body 10pt").
   // Special trailing token 'exhausted' means we couldn't fit even at
   // max compression and shipped a best-effort multi-page.
-  const [compressionSteps, setCompressionSteps] = useState<string[] | null>(null);
+  const [compressionSteps, setCompressionSteps] = useSessionState<string[] | null>(`${SK}:steps`, null);
   const [tailoring, setTailoring] = useState(false);
   const [tailorError, setTailorError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
@@ -2217,10 +2291,10 @@ function ListingCard({
   // text round-trips through a textarea so the user can edit before
   // downloading; we only push the FRESH server-generated text into
   // the textarea, never overwriting unsaved edits without prompt.
-  const [coverLetter, setCoverLetter] = useState<{
+  const [coverLetter, setCoverLetter] = useSessionState<{
     text: string;
     matchedKeywords: string[];
-  } | null>(null);
+  } | null>(`${SK}:cover`, null);
   const [generatingCover, setGeneratingCover] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
   // Per-listing note. Lazy-loaded on expand. Auto-saves on a 800ms
