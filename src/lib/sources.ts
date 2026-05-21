@@ -124,6 +124,59 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'Supabase', slug: 'supabase', ats: 'ashby', boardToken: 'supabase', logoColor: '#3ECF8E' },
   { name: 'Deel', slug: 'deel', ats: 'ashby', boardToken: 'deel', logoColor: '#15CC81' },
 
+  // ─── 2026-05-21 coverage expansion ──────────────────────────────
+  // 32 employers added after a one-shot audit found them missing
+  // from the catalog despite matching the user's role/region. Each
+  // verified live via its declared ATS endpoint. Grouped by likely
+  // user interest, not strictly by ATS, for readability.
+
+  // Seattle / Bellevue / Kirkland — explicit user region match.
+  { name: 'OfferUp', slug: 'offerup', ats: 'greenhouse', boardToken: 'offerup', logoColor: '#56C271', region: 'Seattle' },
+  { name: 'Tanium', slug: 'tanium', ats: 'greenhouse', boardToken: 'tanium', logoColor: '#000000', region: 'Seattle' },
+  { name: 'Bungie', slug: 'bungie', ats: 'greenhouse', boardToken: 'bungie', logoColor: '#000000', region: 'Seattle' },
+  { name: 'Outreach', slug: 'outreach', ats: 'lever', boardToken: 'outreach', logoColor: '#3B43FF', region: 'Seattle' },
+
+  // AI / ML — heavy EM hiring, often remote.
+  { name: 'Together AI', slug: 'togetherai', ats: 'greenhouse', boardToken: 'togetherai', logoColor: '#0EA5E9' },
+  { name: 'Character.AI', slug: 'characterai', ats: 'ashby', boardToken: 'character', logoColor: '#0091FF' },
+  { name: 'Runway', slug: 'runway', ats: 'ashby', boardToken: 'runway', logoColor: '#000000' },
+  { name: 'Anyscale', slug: 'anyscale', ats: 'lever', boardToken: 'anyscale', logoColor: '#0E76FD' },
+  { name: 'Modal', slug: 'modal', ats: 'ashby', boardToken: 'modal', logoColor: '#7FEE64' },
+  { name: 'LangChain', slug: 'langchain', ats: 'ashby', boardToken: 'langchain', logoColor: '#1A7F37' },
+  { name: 'LlamaIndex', slug: 'llamaindex', ats: 'ashby', boardToken: 'llamaindex', logoColor: '#2F65F1' },
+  { name: 'Crusoe', slug: 'crusoe', ats: 'ashby', boardToken: 'crusoe', logoColor: '#F65027' },
+  { name: 'Lambda Labs', slug: 'lambdalabs', ats: 'ashby', boardToken: 'lambda', logoColor: '#7B61FF' },
+  { name: 'Suno', slug: 'suno', ats: 'ashby', boardToken: 'suno', logoColor: '#FB7300' },
+
+  // Dev tools / infra / observability.
+  { name: 'JFrog', slug: 'jfrog', ats: 'greenhouse', boardToken: 'jfrog', logoColor: '#41BF47' },
+  { name: 'CircleCI', slug: 'circleci', ats: 'greenhouse', boardToken: 'circleci', logoColor: '#161616' },
+  { name: 'PagerDuty', slug: 'pagerduty', ats: 'greenhouse', boardToken: 'pagerduty', logoColor: '#06AC38' },
+  { name: 'Honeycomb', slug: 'honeycomb', ats: 'greenhouse', boardToken: 'honeycomb', logoColor: '#F5A623' },
+  { name: 'Grafana Labs', slug: 'grafanalabs', ats: 'greenhouse', boardToken: 'grafanalabs', logoColor: '#F46800' },
+  { name: 'Fastly', slug: 'fastly', ats: 'greenhouse', boardToken: 'fastly', logoColor: '#FF282D' },
+  { name: 'Vanta', slug: 'vanta', ats: 'ashby', boardToken: 'vanta', logoColor: '#000000' },
+
+  // Fintech / payments.
+  { name: 'Marqeta', slug: 'marqeta', ats: 'greenhouse', boardToken: 'marqeta', logoColor: '#3331F2' },
+  { name: 'Adyen', slug: 'adyen', ats: 'greenhouse', boardToken: 'adyen', logoColor: '#0ABF53' },
+
+  // Consumer / e-comm.
+  { name: 'Faire', slug: 'faire', ats: 'greenhouse', boardToken: 'faire', logoColor: '#16242B' },
+  { name: 'Box', slug: 'box', ats: 'greenhouse', boardToken: 'boxinc', logoColor: '#0061D5' },
+
+  // B2B SaaS.
+  { name: 'Calendly', slug: 'calendly', ats: 'greenhouse', boardToken: 'calendly', logoColor: '#006BFF' },
+  { name: 'Airtable', slug: 'airtable', ats: 'greenhouse', boardToken: 'airtable', logoColor: '#FFB000' },
+  { name: 'PlanetScale', slug: 'planetscale', ats: 'greenhouse', boardToken: 'planetscale', logoColor: '#000000' },
+
+  // Other big employers (high EM hiring volume).
+  { name: 'Mozilla', slug: 'mozilla', ats: 'greenhouse', boardToken: 'mozilla', logoColor: '#FF7139' },
+  { name: 'LinkedIn', slug: 'linkedin', ats: 'greenhouse', boardToken: 'linkedin', logoColor: '#0A66C2' },
+  { name: 'SpaceX', slug: 'spacex', ats: 'greenhouse', boardToken: 'spacex', logoColor: '#000000' },
+  { name: 'Coupang', slug: 'coupang', ats: 'greenhouse', boardToken: 'coupang', logoColor: '#F31616' },
+  { name: 'Strava', slug: 'strava', ats: 'ashby', boardToken: 'strava', logoColor: '#FC4C02' },
+
   // ─── Custom per-company APIs (tech giants that don't use public ATSs) ───
   { name: 'Google', slug: 'google', ats: 'google', boardToken: 'google', logoColor: '#4285F4' },
   { name: 'Apple', slug: 'apple', ats: 'apple', boardToken: 'apple', logoColor: '#000000' },
