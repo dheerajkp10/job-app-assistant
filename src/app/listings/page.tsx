@@ -748,29 +748,56 @@ export default function ListingsPage() {
   // This makes the page feel "live" — when a job is added on /jobs/add
   // and the user navigates back here (or switches tabs), they immediately
   // see the new entry without having to hit "Refresh All".
+  // ⚠ DEEPER ROOT CAUSE: when this effect's onVisible fired
+  // loadListings() + refreshFlagsAndScores() during a tab return,
+  // the resulting parent state updates (setAllListings, setFlags,
+  // setScoreCache) re-rendered the listings tree. Because `filtered`
+  // sorts by score and `paginated` slices to one page, a tiny
+  // change in scoreCache could shift a listing off the current
+  // page → React unmounts the card → all card-internal state
+  // (detailScore, noteText, tailoring, downloadProgress, …) is
+  // gone. The dev server logs confirmed this: /api/listing-notes
+  // was firing 3× and /api/ats-score 4× per tab-return on a
+  // single expanded card — each one a fresh mount.
+  //
+  // Fix: while the user has a card expanded, DEFER the refresh
+  // entirely. Keep listening to the events so we know to refresh
+  // as soon as they collapse the card. The cost — the listings
+  // page might show very slightly stale flag/score data while
+  // a card is open — is a fair trade against the much worse UX
+  // of losing tailor progress every time the user alt-tabs.
+  //
+  // Once `expandedId` returns to null we run the deferred refresh
+  // (if one was queued) so the user catches up to whatever
+  // happened in other tabs.
+  const refreshDeferredRef = useRef(false);
   useEffect(() => {
     const refreshFlagsAndScores = () => {
       fetch('/api/scores-cache', { cache: 'no-store' }).then(r => r.json()).then(setScoreCache).catch(() => {});
       fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
     };
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        loadListings();
-        refreshFlagsAndScores();
+    const tryRefresh = () => {
+      if (expandedId !== null) {
+        // Defer — flag it for replay on collapse.
+        refreshDeferredRef.current = true;
+        return;
       }
+      loadListings();
+      refreshFlagsAndScores();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') tryRefresh();
     };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
     // Same-app cross-tab signal — when ANY tab posts a flag
-    // change, every other tab refetches the flag map. Catches the
-    // case where the user has two listings tabs open and rejects
-    // a role in tab A: tab B's sibling cards should reflect the
-    // cascade without a focus event.
+    // change, every other tab refetches the flag map. Also
+    // deferred while expanded.
     let bc: BroadcastChannel | null = null;
     try {
       bc = new BroadcastChannel('job-app-assistant');
       bc.onmessage = (e) => {
-        if (e.data?.type === 'flags-updated') refreshFlagsAndScores();
+        if (e.data?.type === 'flags-updated') tryRefresh();
       };
     } catch { /* unsupported */ }
     return () => {
@@ -778,7 +805,17 @@ export default function ListingsPage() {
       window.removeEventListener('focus', onVisible);
       bc?.close();
     };
-  }, [loadListings]);
+  }, [loadListings, expandedId]);
+
+  // Replay any deferred refresh when the user collapses the card.
+  useEffect(() => {
+    if (expandedId !== null) return;
+    if (!refreshDeferredRef.current) return;
+    refreshDeferredRef.current = false;
+    loadListings();
+    fetch('/api/scores-cache', { cache: 'no-store' }).then(r => r.json()).then(setScoreCache).catch(() => {});
+    fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
+  }, [expandedId, loadListings]);
 
   // Persist excludedCompanies whenever the user edits the list.
   const saveExcludedCompanies = useCallback((next: string[]) => {
