@@ -16,13 +16,64 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
   getCompanyRejections, removeCompanyRejection, getListingFlags,
-  clearListingFlag, readDb,
+  clearListingFlag, readDb, writeDb, addCompanyRejection,
 } from '@/lib/db';
+import type { CompanyRejection } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const rejections = await getCompanyRejections();
+  // Reconcile pass: any company with at least one 'rejected'
+  // per-listing flag should ALSO appear in companyRejections.
+  // Backfills entries from before the cascade landed (commit
+  // c9f54e0) — listings flagged rejected back then were never
+  // recorded as company-level rejections, so the pipeline page's
+  // Rejected column missed them entirely. The `addCompanyRejection`
+  // helper is idempotent, so calling it for already-listed
+  // companies is a cheap no-op.
+  const db = await readDb();
+  const flags = await getListingFlags();
+  const listingsById = new Map(
+    db.listingsCache.listings.map((l) => [l.id, l] as const),
+  );
+  const seenSlugs = new Set<string>(
+    (db.companyRejections ?? []).map((r) => r.companySlug),
+  );
+  const oldestByCompany = new Map<string, { name: string; ts: number }>();
+  for (const entry of Object.values(flags)) {
+    if (entry.flag !== 'rejected') continue;
+    const listing = listingsById.get(entry.listingId);
+    if (!listing) continue;
+    const slug = listing.companySlug || listing.company.trim().toLowerCase();
+    if (seenSlugs.has(slug)) continue;
+    const ts = Date.parse(entry.flaggedAt);
+    const prev = oldestByCompany.get(slug);
+    if (!prev || ts < prev.ts) {
+      oldestByCompany.set(slug, { name: listing.company, ts });
+    }
+  }
+  // Apply backfills in chronological order so rejectedAt
+  // timestamps mirror real history. addCompanyRejection sets
+  // rejectedAt = Date.now() — for a more accurate backfill we
+  // patch the entry's rejectedAt right after.
+  if (oldestByCompany.size > 0) {
+    for (const [slug, { name, ts }] of oldestByCompany) {
+      await addCompanyRejection(slug, name);
+      // Patch the timestamp to the oldest known flaggedAt so the
+      // pipeline UI's "N days ago" matches when the user actually
+      // rejected the company.
+      const refreshed = await readDb();
+      const target = (refreshed.companyRejections ?? []).find(
+        (r) => r.companySlug === slug,
+      );
+      if (target && Date.parse(target.rejectedAt) > ts) {
+        target.rejectedAt = new Date(ts).toISOString();
+        await writeDb(refreshed);
+      }
+    }
+  }
+
+  const rejections: CompanyRejection[] = await getCompanyRejections();
   return NextResponse.json(rejections, {
     headers: { 'Cache-Control': 'no-store' },
   });
