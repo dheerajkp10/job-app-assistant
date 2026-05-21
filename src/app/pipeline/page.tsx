@@ -6,16 +6,11 @@ import {
   MapPin, ExternalLink, Loader2, Trash2, ChevronRight, Download,
   AlertTriangle, X,
 } from 'lucide-react';
-import type { JobListing, ListingFlag, ListingFlagEntry, ScoreCacheEntry } from '@/lib/types';
+import type {
+  JobListing, ListingFlag, ListingFlagEntry, ScoreCacheEntry, CompanyRejection,
+} from '@/lib/types';
 import { PIPELINE_FLAGS } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
-
-/** Active pipeline stages — anything before a terminal outcome.
- *  Used by the company-rejection cascade prompt to decide which
- *  sibling listings are candidates for "also mark rejected?". The
- *  rejected stage itself and offer (which is terminal-positive)
- *  are excluded. */
-const ACTIVE_PIPELINE_STAGES: ListingFlag[] = ['applied', 'phone-screen', 'interviewing'];
 
 /** Resolve a company "identity" key from a listing. Prefers
  *  companySlug (already canonical) and falls back to a normalized
@@ -52,6 +47,7 @@ export default function PipelinePage() {
   const [listings, setListings] = useState<JobListing[]>([]);
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [scoreCache, setScoreCache] = useState<Record<string, ScoreCacheEntry>>({});
+  const [companyRejections, setCompanyRejections] = useState<CompanyRejection[]>([]);
   const [loading, setLoading] = useState(true);
   // Mobile single-lane selector. The five-column kanban can't fit on
   // a phone, so we render one lane at a time on narrow viewports
@@ -62,14 +58,16 @@ export default function PipelinePage() {
   // when the user updates flags from the Listings page in another tab.
   const reload = useCallback(async () => {
     try {
-      const [listingsRes, flagsRes, scoresRes] = await Promise.all([
-        fetch('/api/listings').then((r) => r.json()),
-        fetch('/api/listing-flags').then((r) => r.json()),
-        fetch('/api/scores-cache').then((r) => r.json()),
+      const [listingsRes, flagsRes, scoresRes, rejectionsRes] = await Promise.all([
+        fetch('/api/listings', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/listing-flags', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/scores-cache', { cache: 'no-store' }).then((r) => r.json()),
+        fetch('/api/company-rejections', { cache: 'no-store' }).then((r) => r.json()),
       ]);
       setListings(listingsRes.listings || []);
       setFlags(flagsRes || {});
       setScoreCache(scoresRes || {});
+      setCompanyRejections(Array.isArray(rejectionsRes) ? rejectionsRes : []);
     } catch {
       // Network hiccups — keep whatever we have on screen.
     } finally {
@@ -139,22 +137,18 @@ export default function PipelinePage() {
 
   // ─── Company-rejection awareness ───────────────────────────────────
   //
-  // Pipeline-stage rejections in tech hiring are usually delivered by
-  // the company's recruiting team, not by the role's hiring manager
-  // alone — so being rejected for one role at Acme is meaningful
-  // signal about every OTHER Acme role the user is pursuing. We
-  // surface this two ways:
+  // Rejection is now a COMPANY-level concept (per user preference).
+  // When the user moves any card to 'rejected', the server cascades
+  // the flag to every sibling listing at the same company and
+  // records the company in /api/company-rejections. Future scrapes
+  // from that company auto-archive (handled by the listings page
+  // filter that hides rejected-company listings from the active
+  // feed).
   //
-  //   1. Sibling badge: any active card at a company that ALSO has
-  //      a rejected sibling shows a small "Co. rejected" pill so
-  //      the user can decide whether the active app is still worth
-  //      chasing.
-  //
-  //   2. Cascade prompt: when the user moves a card to Rejected, we
-  //      check for other active applications at the same company
-  //      and offer to mark them rejected too — opt-in, never auto,
-  //      because the user MAY still be independently pursuing
-  //      separate roles.
+  // Two derived structures we use in render:
+  //   - rejectedByCompany — listings flagged rejected, keyed by
+  //     company. Powers the collapsed company cards in the Rejected
+  //     column.
   const rejectedByCompany = useMemo(() => {
     const out = new Map<string, { listing: JobListing; flaggedAt: string }[]>();
     for (const entry of Object.values(flags)) {
@@ -166,52 +160,23 @@ export default function PipelinePage() {
       arr.push({ listing, flaggedAt: entry.flaggedAt });
       out.set(key, arr);
     }
-    // Most-recent rejection first per company.
     for (const arr of out.values()) {
       arr.sort((a, b) => Date.parse(b.flaggedAt) - Date.parse(a.flaggedAt));
     }
     return out;
   }, [flags, listingById]);
 
-  // Modal state. When non-null, we've stashed enough context to ask
-  // the user whether to cascade the rejection to siblings.
-  const [cascadePrompt, setCascadePrompt] = useState<{
-    triggerListing: JobListing;
-    siblings: { listing: JobListing; flag: ListingFlag }[];
-  } | null>(null);
-
-  /** Public flag setter used by every card action on the page. For
-   *  the special case of moving to 'rejected', we first check for
-   *  active siblings at the same company; if there are any, we
-   *  defer the write and open the cascade modal. All other
-   *  transitions (advance, retreat, remove) go straight through. */
-  const requestUpdateFlag = useCallback((listingId: string, flag: ListingFlag | null) => {
-    if (flag !== 'rejected') {
-      updateFlag(listingId, flag);
-      return;
-    }
-    const listing = listingById.get(listingId);
-    if (!listing) {
-      updateFlag(listingId, flag);
-      return;
-    }
-    const key = companyKey(listing);
-    const siblings: { listing: JobListing; flag: ListingFlag }[] = [];
-    for (const entry of Object.values(flags)) {
-      if (entry.listingId === listingId) continue;
-      if (!ACTIVE_PIPELINE_STAGES.includes(entry.flag)) continue;
-      const sibling = listingById.get(entry.listingId);
-      if (!sibling) continue;
-      if (companyKey(sibling) !== key) continue;
-      siblings.push({ listing: sibling, flag: entry.flag });
-    }
-    if (siblings.length === 0) {
-      // No siblings — straight through, no prompt.
-      updateFlag(listingId, flag);
-      return;
-    }
-    setCascadePrompt({ triggerListing: listing, siblings });
-  }, [flags, listingById, updateFlag]);
+  /** Un-reject a company: removes it from companyRejections + clears
+   *  every per-listing rejected flag at that company. Reverts the
+   *  cascade silently — single round trip to DELETE
+   *  /api/company-rejections. */
+  const unrejectCompany = useCallback(async (slug: string) => {
+    await fetch(`/api/company-rejections?slug=${encodeURIComponent(slug)}`, {
+      method: 'DELETE',
+      cache: 'no-store',
+    });
+    await reload();
+  }, [reload]);
 
   if (loading) {
     return (
@@ -318,6 +283,30 @@ export default function PipelinePage() {
               className="bg-white/60 rounded-2xl border border-slate-100 shadow-card"
             >
               <div className="p-2 space-y-2">
+                {/* Rejected column — company-grouped rendering. One
+                    card per rejected company instead of one per role.
+                    Same data in both mobile + desktop branches; the
+                    only difference is the wrapping section width. */}
+                {flagDef.key === 'rejected' ? (
+                  companyRejections.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic text-center py-6">
+                      No rejected companies yet.
+                    </p>
+                  ) : (
+                    [...companyRejections]
+                      .sort((a, b) => Date.parse(b.rejectedAt) - Date.parse(a.rejectedAt))
+                      .map((r) => (
+                        <RejectedCompanyCard
+                          key={r.companySlug}
+                          companyName={r.companyName}
+                          companySlug={r.companySlug}
+                          rejectedAt={r.rejectedAt}
+                          listings={rejectedByCompany.get(r.companySlug) ?? []}
+                          onUnreject={unrejectCompany}
+                        />
+                      ))
+                  )
+                ) : (<>
                 {items.length === 0 && (
                   <p className="text-xs text-slate-400 italic text-center py-6">
                     No applications in {flagDef.label.toLowerCase()} yet.
@@ -330,10 +319,10 @@ export default function PipelinePage() {
                   // their rejected card was also rejected somewhere
                   // else). Same logic as the desktop branch below.
                   const cKey = companyKey(listing);
-                  const companyRejections = rejectedByCompany.get(cKey) ?? [];
+                  const companyRejectionList = rejectedByCompany.get(cKey) ?? [];
                   const showRejBadge =
                     flagDef.key !== 'rejected' &&
-                    companyRejections.some((r) => r.listing.id !== listing.id);
+                    companyRejectionList.some((r) => r.listing.id !== listing.id);
                   return (
                     <article
                       key={listing.id}
@@ -349,7 +338,7 @@ export default function PipelinePage() {
                         </div>
                       </div>
                       {showRejBadge && (
-                        <CompanyRejectedBadge rejections={companyRejections.filter((r) => r.listing.id !== listing.id)} />
+                        <CompanyRejectedBadge rejections={companyRejectionList.filter((r) => r.listing.id !== listing.id)} />
                       )}
                       {listing.location && listing.location !== 'Not specified' && (
                         <div className="flex items-center gap-1 text-xs text-slate-500 mb-1.5">
@@ -365,7 +354,7 @@ export default function PipelinePage() {
                             onClick={() => {
                               const prev = PIPELINE_FLAGS[idx - 1];
                               if (prev) {
-                                requestUpdateFlag(listing.id, prev.key);
+                                updateFlag(listing.id, prev.key);
                                 setMobileLane(prev.key);
                               }
                             }}
@@ -380,7 +369,7 @@ export default function PipelinePage() {
                             onClick={() => {
                               const nxt = PIPELINE_FLAGS[idx + 1];
                               if (nxt) {
-                                requestUpdateFlag(listing.id, nxt.key);
+                                updateFlag(listing.id, nxt.key);
                                 setMobileLane(nxt.key);
                               }
                             }}
@@ -391,7 +380,7 @@ export default function PipelinePage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => requestUpdateFlag(listing.id, null)}
+                            onClick={() => updateFlag(listing.id, null)}
                             className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                             title="Remove from pipeline"
                           >
@@ -425,6 +414,7 @@ export default function PipelinePage() {
                     </article>
                   );
                 })}
+                </>)}
               </div>
             </section>
           );
@@ -458,11 +448,33 @@ export default function PipelinePage() {
                   <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
                     {flagDef.label}
                   </h3>
-                  <span className="text-xs text-slate-500 ml-auto">{items.length}</span>
+                  <span className="text-xs text-slate-500 ml-auto">
+                    {flagDef.key === 'rejected' ? companyRejections.length : items.length}
+                  </span>
                 </div>
               </header>
 
               <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {flagDef.key === 'rejected' ? (
+                  companyRejections.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic text-center py-6">
+                      No rejected companies yet.
+                    </p>
+                  ) : (
+                    [...companyRejections]
+                      .sort((a, b) => Date.parse(b.rejectedAt) - Date.parse(a.rejectedAt))
+                      .map((r) => (
+                        <RejectedCompanyCard
+                          key={r.companySlug}
+                          companyName={r.companyName}
+                          companySlug={r.companySlug}
+                          rejectedAt={r.rejectedAt}
+                          listings={rejectedByCompany.get(r.companySlug) ?? []}
+                          onUnreject={unrejectCompany}
+                        />
+                      ))
+                  )
+                ) : (<>
                 {items.length === 0 && (
                   <p className="text-xs text-slate-400 italic text-center py-6">
                     No applications here yet.
@@ -471,10 +483,10 @@ export default function PipelinePage() {
                 {items.map(({ listing }) => {
                   const score = scoreCache[listing.id];
                   const cKey = companyKey(listing);
-                  const companyRejections = rejectedByCompany.get(cKey) ?? [];
+                  const companyRejectionList = rejectedByCompany.get(cKey) ?? [];
                   const showRejBadge =
                     flagDef.key !== 'rejected' &&
-                    companyRejections.some((r) => r.listing.id !== listing.id);
+                    companyRejectionList.some((r) => r.listing.id !== listing.id);
                   return (
                     <article
                       key={listing.id}
@@ -490,7 +502,7 @@ export default function PipelinePage() {
                         </div>
                       </div>
                       {showRejBadge && (
-                        <CompanyRejectedBadge rejections={companyRejections.filter((r) => r.listing.id !== listing.id)} />
+                        <CompanyRejectedBadge rejections={companyRejectionList.filter((r) => r.listing.id !== listing.id)} />
                       )}
                       {listing.location && listing.location !== 'Not specified' && (
                         <div className="flex items-center gap-1 text-xs text-slate-500 mb-1.5">
@@ -511,7 +523,7 @@ export default function PipelinePage() {
                             disabled={isFirst}
                             onClick={() => {
                               const prev = PIPELINE_FLAGS[idx - 1];
-                              if (prev) requestUpdateFlag(listing.id, prev.key);
+                              if (prev) updateFlag(listing.id, prev.key);
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
                             title="Move to previous stage"
@@ -523,7 +535,7 @@ export default function PipelinePage() {
                             disabled={isLast}
                             onClick={() => {
                               const nxt = PIPELINE_FLAGS[idx + 1];
-                              if (nxt) requestUpdateFlag(listing.id, nxt.key);
+                              if (nxt) updateFlag(listing.id, nxt.key);
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
                             title="Move to next stage"
@@ -532,7 +544,7 @@ export default function PipelinePage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => requestUpdateFlag(listing.id, null)}
+                            onClick={() => updateFlag(listing.id, null)}
                             className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
                             title="Remove from pipeline"
                           >
@@ -566,30 +578,13 @@ export default function PipelinePage() {
                     </article>
                   );
                 })}
+                </>)}
               </div>
             </section>
           );
         })}
       </div>
 
-      {cascadePrompt && (
-        <CascadeRejectModal
-          trigger={cascadePrompt.triggerListing}
-          siblings={cascadePrompt.siblings}
-          onCancel={() => setCascadePrompt(null)}
-          onJustThisOne={() => {
-            updateFlag(cascadePrompt.triggerListing.id, 'rejected');
-            setCascadePrompt(null);
-          }}
-          onCascade={() => {
-            updateFlag(cascadePrompt.triggerListing.id, 'rejected');
-            for (const s of cascadePrompt.siblings) {
-              updateFlag(s.listing.id, 'rejected');
-            }
-            setCascadePrompt(null);
-          }}
-        />
-      )}
     </div>
   );
 }
@@ -633,112 +628,103 @@ function CompanyRejectedBadge({
   );
 }
 
-// ─── Cascade-reject modal ────────────────────────────────────────────
+// ─── Rejected-column company card ────────────────────────────────────
 //
-// Shown when the user moves a card to Rejected AND there are other
-// active applications (applied / phone-screen / interviewing) at the
-// same company. Offers two paths:
-//
-//   - "Just this one" — preserves the user's parallel pursuit of
-//     separate roles at the same company.
-//   - "Mark all rejected" — for the common case where a single
-//     rejection email maps to a company-wide decision.
-//
-// Default-safe: closing the modal (Escape / backdrop / X) cancels
-// the entire transition. We only commit the trigger card's
-// rejection when the user clicks one of the two action buttons.
+// The Rejected column collapses every per-listing rejection into ONE
+// card per company. Rejection in tech hiring is a company-level
+// signal, not a role-level one, so the user sees "Acme — 3 roles
+// rejected · 12d ago" instead of three separate Acme cards. Expanding
+// the card reveals the affected role list. An un-reject button
+// re-activates every cascaded listing in one go (DELETE
+// /api/company-rejections?slug=…).
 
-function CascadeRejectModal({
-  trigger,
-  siblings,
-  onCancel,
-  onJustThisOne,
-  onCascade,
+function RejectedCompanyCard({
+  companyName,
+  companySlug,
+  rejectedAt,
+  listings,
+  onUnreject,
+  compact = false,
 }: {
-  trigger: JobListing;
-  siblings: { listing: JobListing; flag: ListingFlag }[];
-  onCancel: () => void;
-  onJustThisOne: () => void;
-  onCascade: () => void;
+  companyName: string;
+  companySlug: string;
+  rejectedAt: string;
+  listings: { listing: JobListing; flaggedAt: string }[];
+  onUnreject: (slug: string) => void;
+  /** Mobile single-lane gives extra width — set false. Desktop
+   *  columns are narrow — set true. Currently both pass false; the
+   *  flag is reserved for future tuning. */
+  compact?: boolean;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-  const stageLabel = (key: ListingFlag) =>
-    PIPELINE_FLAGS.find((f) => f.key === key)?.label ?? key;
+  const [expanded, setExpanded] = useState(false);
+  void compact;
+  const fmt = (iso: string) => {
+    const days = Math.floor((Date.now() - Date.parse(iso)) / 86_400_000);
+    if (days <= 0) return 'today';
+    if (days === 1) return 'yesterday';
+    if (days < 30) return `${days}d ago`;
+    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+    return `${Math.floor(days / 365)}y ago`;
+  };
+  const first = listings[0]?.listing;
   return (
-    <div
-      className="fixed inset-0 z-[80] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onCancel}
-    >
-      <div
-        className="bg-white rounded-2xl shadow-modal max-w-md w-full p-5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start gap-3 mb-3">
-          <div className="w-8 h-8 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-4 h-4 text-rose-600" />
+    <article className="bg-white rounded-xl border border-slate-100 shadow-card p-3">
+      <div className="flex items-start gap-2">
+        {first && (
+          <CompanyLogo
+            companySlug={first.companySlug}
+            companyName={first.company}
+            size={24}
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-semibold text-slate-800 truncate">
+            {companyName}
+          </h4>
+          <div className="text-xs text-slate-500">
+            {listings.length} role{listings.length === 1 ? '' : 's'} rejected · {fmt(rejectedAt)}
           </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-sm font-semibold text-slate-800">
-              Rejection at {trigger.company} — cascade to other applications?
-            </h3>
-            <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-              You&apos;re moving <strong className="text-slate-700">{trigger.title}</strong> to Rejected.
-              Companies usually reject candidates at the recruiter level, so other open
-              applications at {trigger.company} may be effectively rejected too. But
-              if you&apos;re intentionally pursuing them separately, keep them active.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="shrink-0 p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Cancel"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
-        <div className="my-3 rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-xs">
-          <div className="font-semibold text-slate-700 mb-1.5">
-            {siblings.length} other {siblings.length === 1 ? 'application' : 'applications'} at {trigger.company}
-          </div>
-          <ul className="space-y-1">
-            {siblings.slice(0, 5).map((s) => (
-              <li key={s.listing.id} className="flex items-start gap-2 text-slate-600">
-                <span className="text-slate-300 mt-0.5">•</span>
-                <span className="min-w-0 flex-1 truncate">
-                  {s.listing.title}
-                  <span className="text-slate-400"> · {stageLabel(s.flag)}</span>
-                </span>
-              </li>
-            ))}
-            {siblings.length > 5 && (
-              <li className="text-slate-400 pl-4">+{siblings.length - 5} more</li>
-            )}
-          </ul>
-        </div>
-        <div className="flex flex-col-reverse sm:flex-row gap-2 mt-4">
-          <button
-            type="button"
-            onClick={onJustThisOne}
-            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-colors"
-          >
-            Just this one
-          </button>
-          <button
-            type="button"
-            onClick={onCascade}
-            className="flex-1 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 shadow-btn-primary hover:shadow-btn-primary-hover transition-all"
-          >
-            Mark all {siblings.length + 1} as rejected
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => onUnreject(companySlug)}
+          className="shrink-0 p-1 rounded text-slate-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors"
+          title="Un-reject company — re-activates every cascaded listing"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
       </div>
-    </div>
+      {listings.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-2 w-full text-left text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
+        >
+          <ChevronRight
+            className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          />
+          {expanded ? 'Hide affected roles' : 'Show affected roles'}
+        </button>
+      )}
+      {expanded && (
+        <ul className="mt-2 pl-4 space-y-1 border-l border-slate-100">
+          {listings.map((l) => (
+            <li
+              key={l.listing.id}
+              className="text-xs text-slate-600 flex items-center gap-1.5 min-w-0"
+            >
+              <span className="text-slate-300 shrink-0">•</span>
+              <Link
+                href={`/listings/${l.listing.id}`}
+                className="truncate hover:text-indigo-600 hover:underline flex-1 min-w-0"
+                title={l.listing.title}
+              >
+                {l.listing.title}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   );
 }

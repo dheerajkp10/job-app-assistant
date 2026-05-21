@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir, rename, copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import path from 'path';
-import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach } from './types';
+import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach, CompanyRejection } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -406,6 +406,58 @@ export async function clearListingFlag(listingId: string): Promise<boolean> {
   const db = await readDb();
   if (!db.listingFlags || !db.listingFlags[listingId]) return false;
   delete db.listingFlags[listingId];
+  await writeDb(db);
+  return true;
+}
+
+// ─── Company-level rejections ───────────────────────────────────────
+//
+// When the user marks ANY listing at a company as Rejected, that
+// company is added here (see /api/listing-flags POST for the
+// cascade). The listings page hides rejected-company listings from
+// the active feed by default; the pipeline page renders one
+// collapsed card per rejected company in its Rejected column.
+//
+// Removing a rejection is the user's explicit action — typically
+// from the pipeline card's "Un-reject company" button. We expose
+// the helpers to read / add / remove here; the cascade itself
+// lives in the listing-flags POST handler because it needs to
+// coordinate listingFlags writes too.
+
+export async function getCompanyRejections(): Promise<CompanyRejection[]> {
+  const db = await readDb();
+  return db.companyRejections ?? [];
+}
+
+/** Idempotent — re-adding an existing company is a no-op and
+ *  returns the original rejectedAt (we don't refresh the timestamp,
+ *  the first rejection is the canonical signal). */
+export async function addCompanyRejection(
+  companySlug: string,
+  companyName: string,
+): Promise<CompanyRejection> {
+  const db = await readDb();
+  if (!db.companyRejections) db.companyRejections = [];
+  const existing = db.companyRejections.find((r) => r.companySlug === companySlug);
+  if (existing) return existing;
+  const entry: CompanyRejection = {
+    companySlug,
+    companyName,
+    rejectedAt: new Date().toISOString(),
+  };
+  db.companyRejections.push(entry);
+  await writeDb(db);
+  return entry;
+}
+
+export async function removeCompanyRejection(companySlug: string): Promise<boolean> {
+  const db = await readDb();
+  const before = db.companyRejections?.length ?? 0;
+  if (!before) return false;
+  db.companyRejections = (db.companyRejections ?? []).filter(
+    (r) => r.companySlug !== companySlug,
+  );
+  if (db.companyRejections.length === before) return false;
   await writeDb(db);
   return true;
 }

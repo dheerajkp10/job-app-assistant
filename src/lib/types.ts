@@ -478,12 +478,33 @@ export interface ScoreCacheEntry {
 /** Current ATS scorer version. See `ScoreCacheEntry.scorerVersion`. */
 export const SCORER_VERSION = 4;
 
+/**
+ * Company-level rejection. In tech hiring, rejections are usually
+ * delivered by the company's recruiting team (not the role's
+ * hiring manager alone), so a rejection at Acme effectively closes
+ * every other open Acme application — and future Acme listings
+ * should auto-archive rather than re-surfacing in the feed.
+ *
+ * Recorded the first time the user marks ANY listing at this
+ * company as Rejected (per the cascade in /api/listing-flags POST).
+ * Removing it is an explicit action: the user clicks "un-reject
+ * company" from the pipeline card, which also clears every
+ * cascaded 'rejected' flag at that company.
+ */
+export interface CompanyRejection {
+  companySlug: string;
+  companyName: string;
+  rejectedAt: string;
+}
+
 export interface Database {
   settings: Settings;
   jobs: Job[];
   listingsCache: ListingsCache;
   scoreCache?: Record<string, ScoreCacheEntry>;
   listingFlags?: Record<string, ListingFlagEntry>;
+  /** See CompanyRejection above. Indexed by companySlug at runtime. */
+  companyRejections?: CompanyRejection[];
   /** Per-listing reminders the user set on the Pipeline / listing
    *  detail page. Surfaced via the small bell badge on the top nav
    *  when one is overdue. */

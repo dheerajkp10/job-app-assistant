@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getListingFlags, setListingFlag, clearListingFlag, readDb, writeDb, getSettings } from '@/lib/db';
-import type { ListingFlag, Reminder } from '@/lib/types';
+import {
+  getListingFlags, setListingFlag, clearListingFlag, readDb, writeDb,
+  getSettings, addCompanyRejection,
+} from '@/lib/db';
+import type {
+  ListingFlag, ListingFlagEntry, Reminder, CompanyRejection,
+} from '@/lib/types';
 import { randomUUID } from 'crypto';
 
 // The full set of accepted flag values. Was previously
@@ -60,7 +65,44 @@ export async function POST(req: NextRequest) {
     autoReminder = await maybeScheduleApplyReminder(listingId);
   }
 
-  return NextResponse.json({ ...entry, autoReminder });
+  // Company-level rejection cascade. When ANY listing is marked
+  // Rejected, mark every sibling listing at the same company as
+  // Rejected too AND record the company in companyRejections so
+  // future scraped listings from this employer auto-archive
+  // rather than re-surfacing. Recruiters typically reject at the
+  // company level, not the role level — this preserves that
+  // signal across all of the user's pipeline. User explicitly
+  // confirmed "always cascade silently + persist company" as the
+  // preferred default for this app.
+  let companyRejection: CompanyRejection | undefined;
+  let cascadedFlags: ListingFlagEntry[] = [];
+  if (flag === 'rejected') {
+    const db = await readDb();
+    const triggerListing = db.listingsCache.listings.find((l) => l.id === listingId);
+    if (triggerListing) {
+      const slug = triggerListing.companySlug || triggerListing.company.trim().toLowerCase();
+      companyRejection = await addCompanyRejection(slug, triggerListing.company);
+      // Cascade flag to all OTHER listings at this company that
+      // aren't already marked rejected. Skips Offer (terminal-
+      // positive — user shouldn't lose that if they decline a
+      // single role) and the two non-pipeline triage flags
+      // ('incorrect' / 'not-applicable' — those are already noise
+      // filters, not pipeline states).
+      const currentFlags = await getListingFlags();
+      for (const sibling of db.listingsCache.listings) {
+        if (sibling.id === listingId) continue;
+        const sSlug = sibling.companySlug || sibling.company.trim().toLowerCase();
+        if (sSlug !== slug) continue;
+        const cur = currentFlags[sibling.id]?.flag;
+        if (cur === 'rejected') continue; // already there
+        if (cur === 'offer') continue;     // preserve offers
+        const newEntry = await setListingFlag(sibling.id, 'rejected');
+        cascadedFlags.push(newEntry);
+      }
+    }
+  }
+
+  return NextResponse.json({ ...entry, autoReminder, companyRejection, cascadedFlags });
 }
 
 /**
