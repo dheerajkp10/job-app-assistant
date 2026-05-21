@@ -17,6 +17,7 @@
 
 import type { CompanySource, JobListing } from './types';
 import { extractSalary } from './salary-parser';
+import { fetchWithRetry, HttpError } from './fetch-with-retry';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -1110,7 +1111,15 @@ interface EightfoldResponse {
 
 const EIGHTFOLD_PAGE_SIZE = 10;       // server-enforced cap
 const EIGHTFOLD_MAX_JOBS = 5000;      // safety net per tenant
-const EIGHTFOLD_CONCURRENCY = 4;
+// Lowered from 4 → 2: large Eightfold tenants (Netflix has 700+
+// listings) were tripping the CDN's burst rate limit at 4 ×
+// rapid-fire requests/wave with no inter-wave pause. The 429s
+// surfaced as "Netflix: Eightfold HTTP 429" because the raw
+// `fetch()` call didn't retry. We now go through fetchWithRetry
+// (honors Retry-After + exponential backoff on 429/5xx) AND pace
+// the waves so we don't trip the limiter in the first place.
+const EIGHTFOLD_CONCURRENCY = 2;
+const EIGHTFOLD_WAVE_DELAY_MS = 200;
 
 export async function fetchEightfoldJobs(source: CompanySource): Promise<JobListing[]> {
   if (!source.eightfoldHost || !source.eightfoldDomain) {
@@ -1124,14 +1133,31 @@ export async function fetchEightfoldJobs(source: CompanySource): Promise<JobList
     const url =
       `${listApi}?domain=${encodeURIComponent(domain)}` +
       `&num=${EIGHTFOLD_PAGE_SIZE}&start=${start}&sort_by=relevance&query=`;
-    const res = await fetch(url, {
-      headers: JSON_HEADERS,
-      signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      if (start === 0) throw new Error(`Eightfold HTTP ${res.status}`);
+    let res: Response;
+    try {
+      res = await fetchWithRetry(url, {
+        timeoutMs: PAGE_TIMEOUT_MS,
+        retries: 2,           // 3 attempts total — enough to ride out a brief CDN throttle
+        backoffMs: 500,
+        sourceName: source.name,
+        atsName: 'Eightfold',
+        headers: JSON_HEADERS,
+      });
+    } catch (err) {
+      // After-all-retries failure: same fall-through behavior the
+      // raw fetch had. Subsequent pages just return null so the
+      // wave breaks early; page 0 rethrows so the source-level
+      // error surfaces in the UI.
+      if (start === 0) {
+        if (err instanceof HttpError) {
+          throw new Error(`Eightfold HTTP ${err.status}: ${err.message}`);
+        }
+        throw err;
+      }
       return null;
     }
+    // fetchWithRetry only returns ok responses; the headers + body
+    // parsing below mirrors the original semantics.
     try {
       return (await res.json()) as EightfoldResponse;
     } catch {
@@ -1194,6 +1220,7 @@ export async function fetchEightfoldJobs(source: CompanySource): Promise<JobList
   let nextStart = EIGHTFOLD_PAGE_SIZE;
   let exhausted = false;
 
+  let isFirstWave = true;
   while (!exhausted && nextStart < hardCap && listings.length < EIGHTFOLD_MAX_JOBS) {
     const wave: number[] = [];
     for (let i = 0; i < EIGHTFOLD_CONCURRENCY && nextStart < hardCap; i++) {
@@ -1201,6 +1228,15 @@ export async function fetchEightfoldJobs(source: CompanySource): Promise<JobList
       nextStart += EIGHTFOLD_PAGE_SIZE;
     }
     if (wave.length === 0) break;
+
+    // Pace the waves so a large tenant's full crawl doesn't look
+    // like a burst attack to the CDN. 200ms × ~35 waves (Netflix-
+    // sized tenant at concurrency=2, page=10, 700 listings) adds
+    // ~7s of total wait — invisible relative to the network time.
+    if (!isFirstWave) {
+      await new Promise((r) => setTimeout(r, EIGHTFOLD_WAVE_DELAY_MS));
+    }
+    isFirstWave = false;
 
     const results = await Promise.allSettled(wave.map((s) => fetchPage(s)));
     for (const r of results) {
@@ -1232,11 +1268,23 @@ export async function fetchEightfoldJobDetail(
   positionId: string
 ): Promise<EightfoldPosition | null> {
   const url = `https://${host}/api/apply/v2/jobs/${encodeURIComponent(positionId)}`;
-  const res = await fetch(url, {
-    headers: JSON_HEADERS,
-    signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
-  });
-  if (!res.ok) return null;
+  let res: Response;
+  try {
+    // Per-listing detail fetches run en-masse during scoring (one
+    // per visible listing). Going through fetchWithRetry gives us
+    // the same 429 / Retry-After handling the list-API path uses.
+    // Lower retry count (1 vs 2) — these are noisier and we can
+    // afford to drop one rather than slow the whole batch.
+    res = await fetchWithRetry(url, {
+      timeoutMs: PAGE_TIMEOUT_MS,
+      retries: 1,
+      backoffMs: 400,
+      atsName: 'Eightfold',
+      headers: JSON_HEADERS,
+    });
+  } catch {
+    return null;
+  }
   try {
     return (await res.json()) as EightfoldPosition;
   } catch {

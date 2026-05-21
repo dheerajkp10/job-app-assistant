@@ -56,6 +56,11 @@ export interface FetchWithRetryOptions {
   /** Optional ATS family — used to hint at the likely cause when a
    *  board returns 404 ("looks like <name> migrated off <ats>"). */
   atsName?: string;
+  /** Request headers passed through to `fetch()`. Defaults to none.
+   *  Some ATS CDNs reject requests without a User-Agent / Accept
+   *  header pair, so callers like the Eightfold + Greenhouse paths
+   *  pass their browser-style header bag here. */
+  headers?: HeadersInit;
 }
 
 /** Status codes that justify a retry. Anything else (or a thrown
@@ -101,6 +106,30 @@ function jitter(ms: number): number {
 }
 
 /**
+ * Parse a Retry-After header value. Per RFC 7231 it's either a
+ * non-negative integer (seconds) OR an HTTP-date. Returns the
+ * delay in MILLISECONDS, clamped to a sane ceiling so a hostile
+ * CDN can't park us for an hour. Returns null when the header is
+ * absent or unparseable.
+ */
+function parseRetryAfter(value: string | null): number | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  // Integer seconds path — the common case (CloudFront, GCP LB).
+  const asInt = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : NaN;
+  if (Number.isFinite(asInt) && asInt >= 0) {
+    return Math.min(asInt, 30) * 1000; // clamp to 30s
+  }
+  // HTTP-date path — rare but spec-compliant.
+  const asDate = Date.parse(trimmed);
+  if (Number.isFinite(asDate)) {
+    const delta = asDate - Date.now();
+    if (delta > 0) return Math.min(delta, 30_000);
+  }
+  return null;
+}
+
+/**
  * Drop-in replacement for `fetch(url, { signal: AbortSignal.timeout(...) })`
  * with retry on transient failures and structured error messages on
  * permanent failures.
@@ -121,6 +150,7 @@ export async function fetchWithRetry(
     signal: callerSignal,
     sourceName,
     atsName,
+    headers,
   } = opts;
 
   let lastError: Error | null = null;
@@ -136,7 +166,7 @@ export async function fetchWithRetry(
       : timeoutSignal;
 
     try {
-      const res = await fetch(url, { signal });
+      const res = await fetch(url, { signal, headers });
       if (res.ok) return res;
 
       // Permanent failure: 4xx (except 408/429) → throw immediately,
@@ -150,11 +180,20 @@ export async function fetchWithRetry(
       }
 
       // Transient HTTP status — fall through to retry path.
-      lastError = new HttpError(
+      // On 429 specifically, the server may have told us how long
+      // to wait via Retry-After; honor it (clamped, see parser).
+      // Stash the suggested delay on the error so the loop below
+      // can use it instead of the default exponential backoff.
+      const httpErr = new HttpError(
         res.status,
         describeStatus(res.status, sourceName, atsName),
         false,
       );
+      if (res.status === 429) {
+        const ra = parseRetryAfter(res.headers.get('Retry-After'));
+        if (ra != null) (httpErr as HttpError & { retryAfterMs?: number }).retryAfterMs = ra;
+      }
+      lastError = httpErr;
     } catch (err) {
       // Permanent errors bubble up immediately.
       if (err instanceof HttpError && !TRANSIENT_STATUSES.has(err.status)) {
@@ -170,7 +209,15 @@ export async function fetchWithRetry(
     // Last attempt? Don't sleep again, just bail.
     if (attempt === totalAttempts - 1) break;
 
-    const delay = jitter(backoffMs * Math.pow(2, attempt));
+    // Prefer Retry-After when the server offered one (429 path).
+    // Otherwise use jittered exponential backoff. Both paths share
+    // the same upper bound so a misconfigured CDN can't stall the
+    // pipeline.
+    const suggested =
+      lastError instanceof HttpError
+        ? (lastError as HttpError & { retryAfterMs?: number }).retryAfterMs
+        : undefined;
+    const delay = suggested ?? jitter(backoffMs * Math.pow(2, attempt));
     await new Promise((r) => setTimeout(r, delay));
   }
 
