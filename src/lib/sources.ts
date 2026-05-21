@@ -97,6 +97,7 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'Highspot', slug: 'highspot', ats: 'lever', boardToken: 'highspot', logoColor: '#3361FF', region: 'Seattle' },
   { name: 'Plaid', slug: 'plaid', ats: 'lever', boardToken: 'plaid', logoColor: '#000000' },
   { name: 'Palantir', slug: 'palantir', ats: 'lever', boardToken: 'palantir', logoColor: '#000000' },
+  { name: 'Mistral AI', slug: 'mistral', ats: 'lever', boardToken: 'mistral', logoColor: '#FF7000' },
   // Docker moved off Lever to Ashby (verified, ~43 jobs).
   { name: 'Docker', slug: 'docker', ats: 'ashby', boardToken: 'docker', logoColor: '#2496ED' },
 
@@ -113,7 +114,11 @@ export const COMPANY_SOURCES: CompanySource[] = [
   { name: 'Ashby', slug: 'ashby', ats: 'ashby', boardToken: 'ashby', logoColor: '#000000' },
   // ─── Ashby (popular AI / dev-tools companies) ───
   { name: 'Cohere', slug: 'cohere', ats: 'ashby', boardToken: 'cohere', logoColor: '#39594D' },
-  { name: 'Mistral AI', slug: 'mistral', ats: 'ashby', boardToken: 'mistral', logoColor: '#FF7000' },
+  // Mistral AI moved off Ashby (board returns 404) — they're now
+  // on Lever at jobs.lever.co/mistral. Verified live 2026-05-21.
+  // Left in the Ashby section comment block for history; the entry
+  // itself is the Lever one below.
+
   { name: 'Perplexity', slug: 'perplexity', ats: 'ashby', boardToken: 'perplexity', logoColor: '#1FB8CD' },
   { name: 'ElevenLabs', slug: 'elevenlabs', ats: 'ashby', boardToken: 'elevenlabs', logoColor: '#000000' },
   { name: 'Supabase', slug: 'supabase', ats: 'ashby', boardToken: 'supabase', logoColor: '#3ECF8E' },
