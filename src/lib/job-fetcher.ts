@@ -58,6 +58,29 @@ async function fetchGreenhouseJobs(source: CompanySource): Promise<JobListing[]>
   const data = await res.json();
   const jobs: (GreenhouseJob & { content?: string })[] = data.jobs || [];
 
+  // Some companies (Stripe is the canonical example) return
+  // `location: { name: 'N/A' }` on every job and put the actual
+  // location signal in `offices` instead. The previous mapping
+  // (`location: job.location?.name || 'Not specified'`) treated
+  // 'N/A' as a truthy value and stored it literally, which then
+  // tripped the listings page's work-auth filter (no detectable
+  // country, no anywhere-marker → dropped). Now we treat any of
+  // the common placeholder values as missing and fall back to the
+  // first `offices[].name` before giving up.
+  const PLACEHOLDER_LOC = /^\s*(n\/?a|tbd|tbc|unknown|undisclosed|not\s+(?:specified|listed|disclosed|available))\s*$/i;
+  const cleanGhLocation = (job: GreenhouseJob): string => {
+    const primary = job.location?.name?.trim();
+    if (primary && !PLACEHOLDER_LOC.test(primary)) return primary;
+    // Fall back to offices — Stripe uses 'US', other companies
+    // sometimes use city names. Join multiple offices with ' · '
+    // matching the Eightfold formatter so the UI stays consistent.
+    const offices = (job.offices ?? [])
+      .map((o) => o?.name?.trim())
+      .filter((n): n is string => !!n && !PLACEHOLDER_LOC.test(n));
+    if (offices.length > 0) return offices.join(' · ');
+    return 'Not specified';
+  };
+
   return jobs.map((job) => {
     const content = job.content ? unescapeHtml(job.content) : '';
     const salaryInfo = content ? extractSalary(content) : null;
@@ -67,7 +90,7 @@ async function fetchGreenhouseJobs(source: CompanySource): Promise<JobListing[]>
       company: source.name,
       companySlug: source.slug,
       title: job.title,
-      location: job.location?.name || 'Not specified',
+      location: cleanGhLocation(job),
       department: job.departments?.[0]?.name || '',
       salary: salaryInfo?.display || null,
       salaryMin: salaryInfo?.min || null,
