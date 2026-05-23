@@ -379,33 +379,30 @@ body {
 [data-theme="dark"] .border-yellow-100         { border-color: rgba(234, 179, 8, 0.42); }
 [data-theme="dark"] .text-yellow-700           { color: #FDE68A; }
 
-/* ─── Gradient overrides ───────────────────────────────────────────
-   Tailwind 4's gradient utilities (from-*/via-*/to-*) set chained
-   CSS variables that compose into --tw-gradient-stops. Overriding
-   individual stop vars under [data-theme="dark"] is fragile —
-   whichever utility writes --tw-gradient-stops LAST in source order
-   wins, and the var() chain doesn't always re-resolve once we
-   override a single from/via/to. So instead of fighting the
-   variable cascade we override the FINAL `background-image`
-   directly via compound selectors that match the actual gradient
-   combinations the app uses. This is robust against Tailwind
-   internals + survives utility-class reordering. */
+/* === Gradient overrides ===========================================
+   Tailwind 4 gradient utilities compose chained CSS vars into
+   --tw-gradient-stops. Overriding individual stop vars under
+   [data-theme="dark"] is fragile: whichever utility writes
+   --tw-gradient-stops LAST in source order wins, and the var
+   chain does not always re-resolve when only one stop is
+   overridden. So instead of fighting the variable cascade we
+   override the final background-image directly via compound
+   selectors. Robust + survives utility-class reordering.
+   =================================================================== */
 
-/* H1 brand gradient — dashboard / pipeline / listings / network
-   / compare all use `bg-gradient-to-r from-slate-800 via-indigo-600
-   to-violet-600` on the page-title H1, clipped to text via
-   `bg-clip-text text-transparent`. The light-mode start is dark-
-   slate (#1E293B) which goes invisible on the dark canvas. We
-   substitute a near-white → indigo → violet wash. */
+/* H1 brand wash. Used by the page-title H1 on dashboard,
+   pipeline, listings, network, and compare. Light: dark-slate
+   to indigo to violet, clipped to text. Dark: near-white to
+   indigo to violet so the H1 stays legible on the dark canvas. */
 [data-theme="dark"] .bg-gradient-to-r.from-slate-800.via-indigo-600.to-violet-600,
 [data-theme="dark"] .bg-gradient-to-r.from-slate-900.via-indigo-600.to-violet-600 {
   background-image: linear-gradient(to right, #F4F6FB 0%, #A5B4FC 50%, #C4B5FD 100%);
 }
 
-/* Refresh bar (listings) + similar "in-progress" status banners
-   that use from-indigo-50 via-violet-50 to-indigo-50. Light-mode
-   pastels render as a near-white card on dark — replace with a
-   low-opacity indigo/violet wash on top of the dark canvas. */
+/* Refresh-bar card + similar in-progress status banners using
+   from-indigo-50 via-violet-50 to-indigo-50. Light: near-white
+   pastels. Dark: low-opacity indigo/violet wash so the bar
+   reads as a tinted dark surface, not a white strip. */
 [data-theme="dark"] .bg-gradient-to-r.from-indigo-50.via-violet-50.to-indigo-50,
 [data-theme="dark"] .bg-gradient-to-r.from-violet-50.via-indigo-50.to-violet-50 {
   background-image: linear-gradient(to right,
@@ -414,24 +411,22 @@ body {
     rgba(99, 102, 241, 0.16) 100%);
 }
 
-/* Refresh bar's inner progress fill — vivid indigo→violet→fuchsia
-   stays vivid in dark too (it's a status bar, saturation is the
-   point), but we slightly lift the start so it doesn't sink into
+/* Refresh-bar inner progress fill: vivid indigo to violet to
+   fuchsia. Stays saturated in dark too (status color is the
+   signal); start is slightly lifted so it does not sink into
    the dark track. */
 [data-theme="dark"] .bg-gradient-to-r.from-indigo-500.via-violet-500.to-fuchsia-500 {
   background-image: linear-gradient(to right, #818CF8 0%, #A78BFA 50%, #E879F9 100%);
 }
 
-/* Brand mark + primary buttons (indigo-500 → violet-500). Already
-   read fine on dark — explicit so it doesn't get caught by other
-   gradient overrides. */
+/* Brand mark + primary buttons (indigo-500 to violet-500). */
 [data-theme="dark"] .bg-gradient-to-br.from-indigo-500.to-violet-500,
 [data-theme="dark"] .bg-gradient-to-r.from-indigo-500.to-violet-500 {
   background-image: linear-gradient(to bottom right, #6366F1, #8B5CF6);
 }
 
-/* Score-ring progress arcs (emerald/teal, amber/orange,
-   rose/pink). Keep saturated — status color is the signal. */
+/* Score-ring progress arcs. Status color is the signal so we
+   keep these saturated. */
 [data-theme="dark"] .bg-gradient-to-r.from-emerald-500.to-teal-500 {
   background-image: linear-gradient(to right, #10B981, #14B8A6);
 }
@@ -442,8 +437,8 @@ body {
   background-image: linear-gradient(to right, #FB7185, #F472B6);
 }
 
-/* Destructive primary button (Mark-all-rejected on the pipeline
-   page). Stays warm. */
+/* Destructive primary button (Mark-all-rejected on the
+   pipeline page). */
 [data-theme="dark"] .bg-gradient-to-r.from-rose-500.to-pink-500 {
   background-image: linear-gradient(to right, #F43F5E, #EC4899);
 }
