@@ -379,71 +379,74 @@ body {
 [data-theme="dark"] .border-yellow-100         { border-color: rgba(234, 179, 8, 0.42); }
 [data-theme="dark"] .text-yellow-700           { color: #FDE68A; }
 
-/* ─── Gradient stops ────────────────────────────────────────────── */
-/* Tailwind sets per-stop CSS variables (--tw-gradient-from etc.)
-   that the composed --tw-gradient-stops references via var().
-   None of the .text-* / .bg-* dark mode overrides above touch
-   these, so any element using `bg-gradient-to-r from-* via-* to-*`
-   keeps its LIGHT-MODE gradient stops in dark mode — meaning
-   things like:
-     • the welcome H1 (from-slate-800 via-indigo-600 to-violet-600)
-       has a near-black start that's invisible on the dark canvas
-     • the listings refresh bar (from-indigo-50 via-violet-50 …)
-       renders as a near-white card on the dark canvas
-   We remap each stop to a dark-mode-appropriate value. Including
-   the position-slot value `var(--tw-gradient-…-position)` so the
-   Tailwind 4 gradient composition still works. */
+/* ─── Gradient overrides ───────────────────────────────────────────
+   Tailwind 4's gradient utilities (from-*/via-*/to-*) set chained
+   CSS variables that compose into --tw-gradient-stops. Overriding
+   individual stop vars under [data-theme="dark"] is fragile —
+   whichever utility writes --tw-gradient-stops LAST in source order
+   wins, and the var() chain doesn't always re-resolve once we
+   override a single from/via/to. So instead of fighting the
+   variable cascade we override the FINAL `background-image`
+   directly via compound selectors that match the actual gradient
+   combinations the app uses. This is robust against Tailwind
+   internals + survives utility-class reordering. */
 
-/* Page header gradients (h1 on Dashboard / Pipeline / Listings /
-   Network / Compare). The light-mode gradient is dark-slate →
-   indigo → violet for a brand-y wash on warm off-white. In dark
-   we lift the start to a near-white and brighten the mid + end
-   so the gradient still reads as indigo→violet but sits on the
-   dark canvas at >7:1 contrast. */
-[data-theme="dark"] .from-slate-800            { --tw-gradient-from: #F4F6FB var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .from-slate-900            { --tw-gradient-from: #F4F6FB var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .via-indigo-600            { --tw-gradient-via: #A5B4FC var(--tw-gradient-via-position); --tw-gradient-via-stops: var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-via) var(--tw-gradient-via-position); --tw-gradient-stops: var(--tw-gradient-via-stops), var(--tw-gradient-to) var(--tw-gradient-to-position); }
-[data-theme="dark"] .to-violet-600             { --tw-gradient-to: #C4B5FD var(--tw-gradient-to-position); }
+/* H1 brand gradient — dashboard / pipeline / listings / network
+   / compare all use `bg-gradient-to-r from-slate-800 via-indigo-600
+   to-violet-600` on the page-title H1, clipped to text via
+   `bg-clip-text text-transparent`. The light-mode start is dark-
+   slate (#1E293B) which goes invisible on the dark canvas. We
+   substitute a near-white → indigo → violet wash. */
+[data-theme="dark"] .bg-gradient-to-r.from-slate-800.via-indigo-600.to-violet-600,
+[data-theme="dark"] .bg-gradient-to-r.from-slate-900.via-indigo-600.to-violet-600 {
+  background-image: linear-gradient(to right, #F4F6FB 0%, #A5B4FC 50%, #C4B5FD 100%);
+}
 
-/* Brand mark + primary buttons (indigo-500 → violet-500). Keep
-   the brand colors saturated; they're already on a tinted surface
-   so they read fine against dark mode. Just make sure the stops
-   don't accidentally inherit the heading remaps above by being
-   explicit. */
-[data-theme="dark"] .from-indigo-500           { --tw-gradient-from: #6366F1 var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .to-violet-500             { --tw-gradient-to: #8B5CF6 var(--tw-gradient-to-position); }
+/* Refresh bar (listings) + similar "in-progress" status banners
+   that use from-indigo-50 via-violet-50 to-indigo-50. Light-mode
+   pastels render as a near-white card on dark — replace with a
+   low-opacity indigo/violet wash on top of the dark canvas. */
+[data-theme="dark"] .bg-gradient-to-r.from-indigo-50.via-violet-50.to-indigo-50,
+[data-theme="dark"] .bg-gradient-to-r.from-violet-50.via-indigo-50.to-violet-50 {
+  background-image: linear-gradient(to right,
+    rgba(99, 102, 241, 0.16) 0%,
+    rgba(139, 92, 246, 0.20) 50%,
+    rgba(99, 102, 241, 0.16) 100%);
+}
 
-/* Soft pastel cards used as "in-progress" banners (refresh bar,
-   status pills): from-indigo-50 via-violet-50 to-indigo-50.
-   Light-mode pastels are way too bright on dark canvas — render
-   as visibly white strips against #0B0F1A. Map to the same
-   indigo / violet alpha overlay the bg-indigo-50 override uses
-   so the strip reads as a tinted but dark surface. */
-[data-theme="dark"] .from-indigo-50            { --tw-gradient-from: rgba(99, 102, 241, 0.16) var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .via-violet-50             { --tw-gradient-via: rgba(139, 92, 246, 0.18) var(--tw-gradient-via-position); --tw-gradient-via-stops: var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-via) var(--tw-gradient-via-position); --tw-gradient-stops: var(--tw-gradient-via-stops), var(--tw-gradient-to) var(--tw-gradient-to-position); }
-[data-theme="dark"] .to-indigo-50              { --tw-gradient-to: rgba(99, 102, 241, 0.16) var(--tw-gradient-to-position); }
-[data-theme="dark"] .from-violet-50            { --tw-gradient-from: rgba(139, 92, 246, 0.16) var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .via-indigo-50             { --tw-gradient-via: rgba(99, 102, 241, 0.16) var(--tw-gradient-via-position); --tw-gradient-via-stops: var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-via) var(--tw-gradient-via-position); --tw-gradient-stops: var(--tw-gradient-via-stops), var(--tw-gradient-to) var(--tw-gradient-to-position); }
+/* Refresh bar's inner progress fill — vivid indigo→violet→fuchsia
+   stays vivid in dark too (it's a status bar, saturation is the
+   point), but we slightly lift the start so it doesn't sink into
+   the dark track. */
+[data-theme="dark"] .bg-gradient-to-r.from-indigo-500.via-violet-500.to-fuchsia-500 {
+  background-image: linear-gradient(to right, #818CF8 0%, #A78BFA 50%, #E879F9 100%);
+}
 
-/* Score-ring + primary-button mid-color gradients used elsewhere
-   (rose → pink for the destructive Mark-all-rejected button, etc.).
-   Map the warm pastel pair to muted dark-friendly fills.  */
-[data-theme="dark"] .from-rose-500             { --tw-gradient-from: #F43F5E var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .to-pink-500               { --tw-gradient-to: #EC4899 var(--tw-gradient-to-position); }
+/* Brand mark + primary buttons (indigo-500 → violet-500). Already
+   read fine on dark — explicit so it doesn't get caught by other
+   gradient overrides. */
+[data-theme="dark"] .bg-gradient-to-br.from-indigo-500.to-violet-500,
+[data-theme="dark"] .bg-gradient-to-r.from-indigo-500.to-violet-500 {
+  background-image: linear-gradient(to bottom right, #6366F1, #8B5CF6);
+}
 
-/* Score-ring progress gradients (emerald/teal, amber/orange,
-   rose/pink) and the work-experience footer fuchsia stop used
-   in the refresh bar. These render the ring's progress arc on
-   top of the dark canvas; keep saturated, just brighten a bit
-   for visibility. */
-[data-theme="dark"] .from-emerald-500          { --tw-gradient-from: #34D399 var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .to-teal-500               { --tw-gradient-to: #2DD4BF var(--tw-gradient-to-position); }
-[data-theme="dark"] .from-amber-400            { --tw-gradient-from: #FBBF24 var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .to-orange-400             { --tw-gradient-to: #FB923C var(--tw-gradient-to-position); }
-[data-theme="dark"] .from-rose-400             { --tw-gradient-from: #FB7185 var(--tw-gradient-from-position); --tw-gradient-stops: var(--tw-gradient-via-stops, var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-to) var(--tw-gradient-to-position)); }
-[data-theme="dark"] .to-pink-400               { --tw-gradient-to: #F472B6 var(--tw-gradient-to-position); }
-[data-theme="dark"] .to-fuchsia-500            { --tw-gradient-to: #D946EF var(--tw-gradient-to-position); }
-[data-theme="dark"] .via-violet-500            { --tw-gradient-via: #8B5CF6 var(--tw-gradient-via-position); --tw-gradient-via-stops: var(--tw-gradient-position), var(--tw-gradient-from) var(--tw-gradient-from-position), var(--tw-gradient-via) var(--tw-gradient-via-position); --tw-gradient-stops: var(--tw-gradient-via-stops), var(--tw-gradient-to) var(--tw-gradient-to-position); }
+/* Score-ring progress arcs (emerald/teal, amber/orange,
+   rose/pink). Keep saturated — status color is the signal. */
+[data-theme="dark"] .bg-gradient-to-r.from-emerald-500.to-teal-500 {
+  background-image: linear-gradient(to right, #10B981, #14B8A6);
+}
+[data-theme="dark"] .bg-gradient-to-r.from-amber-400.to-orange-400 {
+  background-image: linear-gradient(to right, #FBBF24, #FB923C);
+}
+[data-theme="dark"] .bg-gradient-to-r.from-rose-400.to-pink-400 {
+  background-image: linear-gradient(to right, #FB7185, #F472B6);
+}
+
+/* Destructive primary button (Mark-all-rejected on the pipeline
+   page). Stays warm. */
+[data-theme="dark"] .bg-gradient-to-r.from-rose-500.to-pink-500 {
+  background-image: linear-gradient(to right, #F43F5E, #EC4899);
+}
 
 /* The refresh bar uses ring-indigo-200/70 (a translucent ring
    border in light mode) which can read as a bright halo on dark.
