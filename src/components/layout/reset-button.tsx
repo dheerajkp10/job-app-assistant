@@ -4,14 +4,22 @@ import { useState } from 'react';
 import { RotateCcw, AlertTriangle, X } from 'lucide-react';
 
 /**
- * Fixed top-right button that wipes all local app state and sends the user
- * back through onboarding. Hidden until onboarding is complete (so it doesn't
+ * Resets all local app state and sends the user back through
+ * onboarding. Hidden until onboarding is complete (so it doesn't
  * appear on the onboarding wizard itself).
  *
- * Shows a confirmation modal because the action is irreversible — db.json and
- * the uploaded resume files are deleted.
+ * Layout: `inline` mode (default true) renders as a regular nav
+ * button so it can live inside the TopNav alongside the theme
+ * toggle. Without `inline` it falls back to the legacy fixed-
+ * positioned floating chip — kept for back-compat in case any
+ * caller still expects the float behavior. Previously the float
+ * sat at `top-4 right-4` and overlapped the TopNav's theme
+ * toggle, hiding it behind the Reset chip.
+ *
+ * Shows a confirmation modal because the action is irreversible —
+ * db.json and the uploaded resume files are deleted.
  */
-export default function ResetButton() {
+export default function ResetButton({ inline = false }: { inline?: boolean }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,17 +44,30 @@ export default function ResetButton() {
     }
   }
 
+  // Inline rendering: a small icon-only chip in the nav row,
+  // mirroring the ThemeToggle's footprint. Mobile keeps the icon
+  // only; sm: and above shows the "Reset" label.
+  const inlineClasses =
+    'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-slate-500 ' +
+    'hover:bg-rose-50 hover:text-rose-700 transition-colors';
+  // Legacy floating chip — kept behind the explicit `inline={false}`
+  // opt-out so older callers (if any remained) still work. Pre-fix
+  // this caused the overlap-with-theme-toggle bug.
+  const floatingClasses =
+    'fixed top-4 right-4 z-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full ' +
+    'bg-white/90 backdrop-blur border border-slate-200 text-xs font-medium text-slate-700 ' +
+    'shadow-sm hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors';
   return (
     <>
       <button
         type="button"
         onClick={() => setShowConfirm(true)}
-        className="fixed top-4 right-4 z-40 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/90 backdrop-blur border border-slate-200 text-xs font-medium text-slate-700 shadow-sm hover:bg-red-50 hover:text-red-700 hover:border-red-200 transition-colors"
+        className={inline ? inlineClasses : floatingClasses}
         aria-label="Reset app and restart onboarding"
         title="Reset app state and restart onboarding"
       >
         <RotateCcw className="w-3.5 h-3.5" />
-        Reset
+        <span className={inline ? 'hidden sm:inline' : ''}>Reset</span>
       </button>
 
       {showConfirm && (

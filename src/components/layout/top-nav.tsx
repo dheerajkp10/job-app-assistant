@@ -12,6 +12,7 @@ import {
   Users,
 } from 'lucide-react';
 import ThemeToggle from './theme-toggle';
+import ResetButton from './reset-button';
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -66,7 +67,16 @@ export default function TopNav() {
             );
           })}
         </nav>
-        <ThemeToggle />
+        {/* Trailing controls — theme toggle + reset chip. Both
+            live inside the nav row so they share the same vertical
+            anchor and never overlap (the old floating Reset chip
+            sat at top-4 right-4 and hid the theme toggle on top
+            of it). Right-side divider keeps them visually grouped
+            apart from the nav links. */}
+        <div className="flex items-center gap-1 sm:gap-2 pl-2 sm:pl-3 sm:border-l border-slate-100 shrink-0">
+          <ThemeToggle />
+          <ResetButton inline />
+        </div>
       </div>
     </header>
   );

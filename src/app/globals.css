@@ -167,133 +167,255 @@ body {
 }
 
 /* ──────────────────────────────────────────────────────────────────
-   Dark mode (2026-05 refresh)
+   Dark mode (2026-05-22 polish refresh)
    ──────────────────────────────────────────────────────────────────
-   Strategy: keep the existing Tailwind classes untouched and apply
-   high-specificity overrides under `[data-theme="dark"]`. This is a
-   pragmatic mid-effort dark mode — we redefine the canvas + every
-   slate gray ramp + the soft accent surfaces so the dominant UI
-   chrome flips, without touching every component file with `dark:`
-   variants.
+   Properly-designed dark theme inspired by Linear / Vercel /
+   GitHub: warm-leaning near-black canvas (not pure slate-900),
+   subtly-elevated card surfaces with a hairline accent on top,
+   color-rich but desaturated accent tints, and crisper text
+   contrast than the previous pass.
 
-   The toggle lives in the top nav. Theme preference is persisted in
-   localStorage and applied on mount via `<script>` injected in
-   layout.tsx (so the very first paint is in the right theme — no
-   flash).
+   Strategy: still high-specificity overrides under
+   `[data-theme="dark"]` keyed on the Tailwind classes the rest of
+   the app uses — no need to retrofit every component with `dark:`
+   variants. But the COLORS were rebuilt from scratch with a real
+   palette in mind (see the comment block above each section).
+
+   Theme toggle lives in the top nav. Theme preference is
+   persisted in localStorage and applied on mount via `<script>`
+   injected in layout.tsx (so first paint is in the right theme,
+   no flash).
    ──────────────────────────────────────────────────────────────── */
 
 [data-theme="dark"] {
-  --app-bg: #0F172A;                                        /* slate-900 */
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --shadow-card-hover: 0 12px 32px rgba(99, 102, 241, 0.22);
-  --shadow-btn: 0 8px 16px rgba(99, 102, 241, 0.45);
-  --shadow-btn-hover: 0 12px 24px rgba(99, 102, 241, 0.55);
-  --shadow-modal: 0 32px 80px rgba(0, 0, 0, 0.6);
+  /* Palette anchors. Picked together so they form a coherent
+     elevation ladder rather than three random slate stops.
+       app-bg     #0B0F1A — warm-leaning near-black; less cold
+                  than slate-950 (#020617), avoids the "code editor
+                  late at night" look that pure slates produce.
+       surface-1  #131826 — primary card surface, sits ~5L above
+                  the canvas. Quiet enough to fade into the bg
+                  on long scrolls but distinguishable on hover.
+       surface-2  #1B2233 — elevated/hover surface for cards that
+                  want to lift on interaction.
+       hairline   rgba(255,255,255,0.06) — the inner top border
+                  that gives cards a glass-edge highlight.
+       border     #232B3D — the resting border on cards / dividers.
+     Shadows trade indigo glow for a wider blurred neutral so
+     accent shadows don't double-up with accent surfaces. */
+  --app-bg: #0B0F1A;
+  --dk-surface-1: #131826;
+  --dk-surface-2: #1B2233;
+  --dk-border: #232B3D;
+  --dk-border-strong: #2D3650;
+  --dk-hairline: rgba(255, 255, 255, 0.05);
+
+  --shadow-card: 0 1px 0 0 var(--dk-hairline) inset, 0 6px 16px rgba(0, 0, 0, 0.45);
+  --shadow-card-hover: 0 1px 0 0 rgba(255,255,255,0.08) inset, 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(99, 102, 241, 0.20);
+  --shadow-btn: 0 1px 0 0 rgba(255,255,255,0.10) inset, 0 8px 20px rgba(99, 102, 241, 0.35);
+  --shadow-btn-hover: 0 1px 0 0 rgba(255,255,255,0.14) inset, 0 12px 28px rgba(99, 102, 241, 0.45);
+  --shadow-modal: 0 1px 0 0 var(--dk-hairline) inset, 0 32px 80px rgba(0, 0, 0, 0.65);
+
   color-scheme: dark;
 }
 
 [data-theme="dark"] body {
   background-color: var(--app-bg);
-  color: #E2E8F0;                                           /* slate-200 */
+  /* Subtle radial wash so the canvas doesn't feel flat. Two
+     overlapping low-opacity gradients in indigo + violet,
+     anchored top-left and bottom-right, give the page a quiet
+     depth without competing with content. */
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(900px 500px at 92% 110%, rgba(139, 92, 246, 0.08), transparent 60%);
+  background-attachment: fixed;
+  color: #E5E9F2;
+  /* Smooth the toggle so flipping themes doesn't feel jarring. */
+  transition: background-color 0.25s ease, color 0.25s ease;
 }
 
-/* ─── Surfaces (white + slate background ramp) ──────────────────── */
-[data-theme="dark"] .bg-white                  { background-color: #1E293B; }  /* slate-800 */
-[data-theme="dark"] .bg-white\/70              { background-color: rgba(30,41,59,0.7); }
-[data-theme="dark"] .bg-white\/75              { background-color: rgba(30,41,59,0.75); }
-[data-theme="dark"] .bg-white\/80              { background-color: rgba(30,41,59,0.8); }
-[data-theme="dark"] .bg-white\/60              { background-color: rgba(30,41,59,0.6); }
-[data-theme="dark"] .bg-slate-50               { background-color: #1E293B; }
-[data-theme="dark"] .bg-slate-50\/60           { background-color: rgba(30,41,59,0.6); }
-[data-theme="dark"] .bg-slate-100              { background-color: #334155; }  /* slate-700 */
-[data-theme="dark"] .bg-slate-200              { background-color: #475569; }  /* slate-600 */
+/* Smooth EVERY surface during the toggle so the entire chrome
+   transitions cohesively, not in piecemeal pops. */
+[data-theme="dark"] *,
+[data-theme="dark"] *::before,
+[data-theme="dark"] *::after {
+  transition: background-color 0.20s ease, border-color 0.20s ease, color 0.20s ease;
+}
 
-/* ─── Text ramps ────────────────────────────────────────────────── */
-[data-theme="dark"] .text-slate-800            { color: #F1F5F9; }
-[data-theme="dark"] .text-slate-700            { color: #E2E8F0; }
-[data-theme="dark"] .text-slate-600            { color: #CBD5E1; }
-[data-theme="dark"] .text-slate-500            { color: #94A3B8; }
-[data-theme="dark"] .text-slate-400            { color: #64748B; }
-[data-theme="dark"] .text-slate-300            { color: #64748B; }
+/* ─── Surfaces ──────────────────────────────────────────────────── */
+/* Cards use surface-1; hover bumps to surface-2. The hairline
+   inset is part of --shadow-card so it lands automatically on
+   anything carrying .shadow-card or .card-surface. */
+[data-theme="dark"] .bg-white                  { background-color: var(--dk-surface-1); }
+[data-theme="dark"] .bg-white\/70              { background-color: rgba(19, 24, 38, 0.72); backdrop-filter: blur(12px); }
+[data-theme="dark"] .bg-white\/75              { background-color: rgba(19, 24, 38, 0.78); backdrop-filter: blur(12px); }
+[data-theme="dark"] .bg-white\/80              { background-color: rgba(19, 24, 38, 0.82); backdrop-filter: blur(12px); }
+[data-theme="dark"] .bg-white\/90              { background-color: rgba(19, 24, 38, 0.90); backdrop-filter: blur(12px); }
+[data-theme="dark"] .bg-white\/60              { background-color: rgba(19, 24, 38, 0.62); backdrop-filter: blur(8px); }
+[data-theme="dark"] .bg-slate-50               { background-color: var(--dk-surface-1); }
+[data-theme="dark"] .bg-slate-50\/60           { background-color: rgba(19, 24, 38, 0.6); }
+[data-theme="dark"] .bg-slate-100              { background-color: var(--dk-surface-2); }
+[data-theme="dark"] .bg-slate-200              { background-color: #2C354C; }
+[data-theme="dark"] .card-surface              { background-color: var(--dk-surface-1); border-color: var(--dk-border); }
+[data-theme="dark"] .card-surface:hover        { background-color: var(--dk-surface-2); }
 
-/* ─── Borders ───────────────────────────────────────────────────── */
-[data-theme="dark"] .border-slate-100          { border-color: #334155; }
-[data-theme="dark"] .border-slate-200          { border-color: #475569; }
-[data-theme="dark"] .border-slate-300          { border-color: #64748B; }
-[data-theme="dark"] .divide-slate-100 > * + *  { border-color: #334155; }
-[data-theme="dark"] .divide-slate-200 > * + *  { border-color: #475569; }
+/* ─── Text ramps — calibrated for 7:1 contrast on app-bg ───────── */
+[data-theme="dark"] .text-slate-800            { color: #F4F6FB; }   /* primary, ~14:1 */
+[data-theme="dark"] .text-slate-700            { color: #E5E9F2; }   /* default body */
+[data-theme="dark"] .text-slate-600            { color: #C7CDDB; }
+[data-theme="dark"] .text-slate-500            { color: #98A2B3; }
+[data-theme="dark"] .text-slate-400            { color: #6E7689; }
+[data-theme="dark"] .text-slate-300            { color: #6E7689; }
+[data-theme="dark"] .text-black                { color: #F4F6FB; }
+[data-theme="dark"] .text-white                { color: #FFFFFF; }
 
-/* ─── Hover states use slightly lighter slate ───────────────────── */
-[data-theme="dark"] .hover\:bg-slate-50:hover      { background-color: #334155; }
-[data-theme="dark"] .hover\:bg-slate-100:hover     { background-color: #475569; }
-[data-theme="dark"] .hover\:bg-indigo-50:hover     { background-color: rgba(99,102,241,0.20); }
-[data-theme="dark"] .hover\:bg-indigo-100:hover    { background-color: rgba(99,102,241,0.28); }
-[data-theme="dark"] .hover\:border-slate-300:hover { border-color: #64748B; }
-[data-theme="dark"] .hover\:border-indigo-200:hover { border-color: rgba(99,102,241,0.45); }
-[data-theme="dark"] .hover\:text-slate-800:hover   { color: #F1F5F9; }
-[data-theme="dark"] .hover\:text-slate-700:hover   { color: #E2E8F0; }
+/* ─── Borders + dividers ────────────────────────────────────────── */
+[data-theme="dark"] .border-slate-100          { border-color: var(--dk-border); }
+[data-theme="dark"] .border-slate-200          { border-color: var(--dk-border-strong); }
+[data-theme="dark"] .border-slate-300          { border-color: #3A445E; }
+[data-theme="dark"] .divide-slate-100 > * + *  { border-color: var(--dk-border); }
+[data-theme="dark"] .divide-slate-200 > * + *  { border-color: var(--dk-border-strong); }
 
-/* ─── Soft accent backgrounds (indigo / emerald / amber / rose / 
-       violet / sky / cyan) — keep the tint but raise lightness on
-       the dark canvas. ──────────────────────────────────────────── */
-[data-theme="dark"] .bg-indigo-50              { background-color: rgba(99,102,241,0.15); }
-[data-theme="dark"] .bg-indigo-100             { background-color: rgba(99,102,241,0.22); }
-[data-theme="dark"] .border-indigo-100         { border-color: rgba(99,102,241,0.35); }
-[data-theme="dark"] .border-indigo-200         { border-color: rgba(99,102,241,0.50); }
-[data-theme="dark"] .text-indigo-700           { color: #A5B4FC; }
-[data-theme="dark"] .text-indigo-600           { color: #818CF8; }
+/* ─── Hover states ─────────────────────────────────────────────── */
+[data-theme="dark"] .hover\:bg-slate-50:hover      { background-color: var(--dk-surface-2); }
+[data-theme="dark"] .hover\:bg-slate-100:hover     { background-color: #232B3D; }
+[data-theme="dark"] .hover\:bg-indigo-50:hover     { background-color: rgba(99, 102, 241, 0.18); }
+[data-theme="dark"] .hover\:bg-indigo-100:hover    { background-color: rgba(99, 102, 241, 0.26); }
+[data-theme="dark"] .hover\:border-slate-300:hover { border-color: #3A445E; }
+[data-theme="dark"] .hover\:border-indigo-200:hover { border-color: rgba(99, 102, 241, 0.55); }
+[data-theme="dark"] .hover\:text-slate-800:hover   { color: #F4F6FB; }
+[data-theme="dark"] .hover\:text-slate-700:hover   { color: #E5E9F2; }
 
-[data-theme="dark"] .bg-violet-50              { background-color: rgba(139,92,246,0.15); }
-[data-theme="dark"] .bg-violet-100             { background-color: rgba(139,92,246,0.22); }
-[data-theme="dark"] .border-violet-100         { border-color: rgba(139,92,246,0.35); }
-[data-theme="dark"] .text-violet-700           { color: #C4B5FD; }
-[data-theme="dark"] .text-violet-600           { color: #A78BFA; }
+/* ─── Accent surfaces — desaturated + lifted for dark canvas ───── */
+/* Each tint family uses 16-20% opacity on the surface, 40-50% on
+   borders, and a lighter foreground (~300/400 of the family) so
+   readable contrast survives on the surface-1 background. */
+[data-theme="dark"] .bg-indigo-50              { background-color: rgba(99, 102, 241, 0.14); }
+[data-theme="dark"] .bg-indigo-100             { background-color: rgba(99, 102, 241, 0.22); }
+[data-theme="dark"] .border-indigo-100         { border-color: rgba(99, 102, 241, 0.38); }
+[data-theme="dark"] .border-indigo-200         { border-color: rgba(99, 102, 241, 0.55); }
+[data-theme="dark"] .text-indigo-700           { color: #B4BBFE; }
+[data-theme="dark"] .text-indigo-600           { color: #93A0FB; }
 
-[data-theme="dark"] .bg-emerald-50             { background-color: rgba(16,185,129,0.18); }
-[data-theme="dark"] .bg-emerald-100            { background-color: rgba(16,185,129,0.26); }
-[data-theme="dark"] .border-emerald-100        { border-color: rgba(16,185,129,0.40); }
+[data-theme="dark"] .bg-violet-50              { background-color: rgba(139, 92, 246, 0.14); }
+[data-theme="dark"] .bg-violet-100             { background-color: rgba(139, 92, 246, 0.22); }
+[data-theme="dark"] .border-violet-100         { border-color: rgba(139, 92, 246, 0.40); }
+[data-theme="dark"] .text-violet-700           { color: #D4C7FE; }
+[data-theme="dark"] .text-violet-600           { color: #BAA7FB; }
+
+[data-theme="dark"] .bg-emerald-50             { background-color: rgba(16, 185, 129, 0.16); }
+[data-theme="dark"] .bg-emerald-100            { background-color: rgba(16, 185, 129, 0.24); }
+[data-theme="dark"] .border-emerald-100        { border-color: rgba(16, 185, 129, 0.42); }
 [data-theme="dark"] .text-emerald-700          { color: #6EE7B7; }
 [data-theme="dark"] .text-emerald-600          { color: #34D399; }
 
-[data-theme="dark"] .bg-amber-50               { background-color: rgba(245,158,11,0.18); }
-[data-theme="dark"] .border-amber-100          { border-color: rgba(245,158,11,0.40); }
-[data-theme="dark"] .border-amber-200          { border-color: rgba(245,158,11,0.55); }
+[data-theme="dark"] .bg-amber-50               { background-color: rgba(245, 158, 11, 0.16); }
+[data-theme="dark"] .border-amber-100          { border-color: rgba(245, 158, 11, 0.42); }
+[data-theme="dark"] .border-amber-200          { border-color: rgba(245, 158, 11, 0.58); }
 [data-theme="dark"] .text-amber-700            { color: #FCD34D; }
 [data-theme="dark"] .text-amber-800            { color: #FCD34D; }
 
-[data-theme="dark"] .bg-rose-50                { background-color: rgba(244,63,94,0.18); }
-[data-theme="dark"] .bg-rose-100               { background-color: rgba(244,63,94,0.26); }
-[data-theme="dark"] .border-rose-100           { border-color: rgba(244,63,94,0.40); }
+[data-theme="dark"] .bg-rose-50                { background-color: rgba(244, 63, 94, 0.16); }
+[data-theme="dark"] .bg-rose-100               { background-color: rgba(244, 63, 94, 0.24); }
+[data-theme="dark"] .border-rose-100           { border-color: rgba(244, 63, 94, 0.42); }
 [data-theme="dark"] .text-rose-700             { color: #FDA4AF; }
 [data-theme="dark"] .text-rose-600             { color: #FB7185; }
 [data-theme="dark"] .text-rose-500             { color: #F87171; }
 
-[data-theme="dark"] .bg-sky-50                 { background-color: rgba(14,165,233,0.18); }
-[data-theme="dark"] .border-sky-100            { border-color: rgba(14,165,233,0.40); }
+[data-theme="dark"] .bg-sky-50                 { background-color: rgba(14, 165, 233, 0.16); }
+[data-theme="dark"] .border-sky-100            { border-color: rgba(14, 165, 233, 0.42); }
 [data-theme="dark"] .text-sky-700              { color: #7DD3FC; }
 
-[data-theme="dark"] .bg-cyan-50                { background-color: rgba(6,182,212,0.18); }
-[data-theme="dark"] .border-cyan-100           { border-color: rgba(6,182,212,0.40); }
+[data-theme="dark"] .bg-cyan-50                { background-color: rgba(6, 182, 212, 0.16); }
+[data-theme="dark"] .border-cyan-100           { border-color: rgba(6, 182, 212, 0.42); }
 [data-theme="dark"] .text-cyan-700             { color: #67E8F9; }
+
+[data-theme="dark"] .bg-green-50               { background-color: rgba(34, 197, 94, 0.16); }
+[data-theme="dark"] .bg-green-100              { background-color: rgba(34, 197, 94, 0.24); }
+[data-theme="dark"] .border-green-100          { border-color: rgba(34, 197, 94, 0.42); }
+[data-theme="dark"] .border-green-200          { border-color: rgba(34, 197, 94, 0.58); }
+[data-theme="dark"] .text-green-700            { color: #86EFAC; }
+[data-theme="dark"] .text-green-600            { color: #4ADE80; }
+[data-theme="dark"] .text-green-500            { color: #22C55E; }
+
+[data-theme="dark"] .bg-red-50                 { background-color: rgba(239, 68, 68, 0.16); }
+[data-theme="dark"] .bg-red-100                { background-color: rgba(239, 68, 68, 0.24); }
+[data-theme="dark"] .border-red-100            { border-color: rgba(239, 68, 68, 0.42); }
+[data-theme="dark"] .border-red-200            { border-color: rgba(239, 68, 68, 0.58); }
+[data-theme="dark"] .text-red-700              { color: #FCA5A5; }
+[data-theme="dark"] .text-red-600              { color: #F87171; }
+
+[data-theme="dark"] .bg-yellow-50              { background-color: rgba(234, 179, 8, 0.16); }
+[data-theme="dark"] .bg-yellow-100             { background-color: rgba(234, 179, 8, 0.24); }
+[data-theme="dark"] .border-yellow-100         { border-color: rgba(234, 179, 8, 0.42); }
+[data-theme="dark"] .text-yellow-700           { color: #FDE68A; }
+
+/* Gradient brand mark stays vibrant — slight desaturation so it
+   doesn't out-glow the rest of the chrome. */
+[data-theme="dark"] .from-indigo-500           { --tw-gradient-from: #6366F1; }
+[data-theme="dark"] .to-violet-500             { --tw-gradient-to: #8B5CF6; }
+
+/* ─── Top-nav frosted bar ───────────────────────────────────────── */
+/* The nav uses bg-white/70 in light; in dark we apply a darker
+   tinted glass + thicker blur so the bar reads as a solid frosted
+   chrome against the warm canvas. */
+[data-theme="dark"] header.sticky {
+  background-color: rgba(11, 15, 26, 0.78);
+  backdrop-filter: saturate(140%) blur(14px);
+  -webkit-backdrop-filter: saturate(140%) blur(14px);
+  border-bottom-color: var(--dk-border);
+}
 
 /* ─── Form inputs ───────────────────────────────────────────────── */
 [data-theme="dark"] input[type="text"],
 [data-theme="dark"] input[type="number"],
 [data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="search"],
+[data-theme="dark"] input[type="url"],
 [data-theme="dark"] textarea,
 [data-theme="dark"] select {
-  background-color: #1E293B;
-  color: #E2E8F0;
-  border-color: #475569;
+  background-color: var(--dk-surface-1);
+  color: #E5E9F2;
+  border-color: var(--dk-border-strong);
 }
 [data-theme="dark"] input::placeholder,
 [data-theme="dark"] textarea::placeholder {
-  color: #64748B;
+  color: #6E7689;
+}
+[data-theme="dark"] input:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus {
+  border-color: rgba(99, 102, 241, 0.65);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  outline: none;
 }
 
 /* ─── Scrollbar (dashboard cards) ───────────────────────────────── */
-[data-theme="dark"] .dashboard-scroll::-webkit-scrollbar-thumb         { background-color: rgba(148,163,184,0.30); }
-[data-theme="dark"] .dashboard-scroll:hover::-webkit-scrollbar-thumb   { background-color: rgba(148,163,184,0.50); }
+[data-theme="dark"] .dashboard-scroll {
+  scrollbar-color: rgba(148, 163, 184, 0.30) transparent;
+}
+[data-theme="dark"] .dashboard-scroll::-webkit-scrollbar-thumb         { background-color: rgba(148, 163, 184, 0.30); }
+[data-theme="dark"] .dashboard-scroll:hover::-webkit-scrollbar-thumb   { background-color: rgba(148, 163, 184, 0.50); }
+
+/* Native scrollbar on the body — match the dashboard one so the
+   page scroll feels consistent with the in-card scrolls. */
+[data-theme="dark"] ::-webkit-scrollbar { width: 10px; height: 10px; }
+[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.18);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.35);
+}
+
+/* ─── Selection ─────────────────────────────────────────────────── */
+[data-theme="dark"] ::selection {
+  background-color: rgba(99, 102, 241, 0.40);
+  color: #FFFFFF;
+}
 
 /* Hide scrollbar visually but keep scroll behavior — used by the
    top nav on mobile so the nav can scroll horizontally without a

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import TopNav from "@/components/layout/top-nav";
-import ResetButton from "@/components/layout/reset-button";
 import { getSettings } from "@/lib/db";
 
 const geistSans = Geist({
@@ -83,9 +82,12 @@ export default async function RootLayout({
       <body className="min-h-screen">
         {/* HeroUI v3 components rely on react-aria-components' built-in
             context, so no top-level provider is needed. */}
+        {/* Reset is now inside <TopNav /> so it shares the layout
+            with the theme toggle and never overlaps it. The legacy
+            floating chip is still available via ResetButton without
+            the `inline` prop if needed in a one-off context. */}
         {onboardingDone && <TopNav />}
         <main className="relative">
-          {onboardingDone && <ResetButton />}
           {children}
         </main>
       </body>
