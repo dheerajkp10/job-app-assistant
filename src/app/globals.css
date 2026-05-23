@@ -82,6 +82,31 @@ body {
   animation: pop 0.35s cubic-bezier(.34,1.56,.64,1) both;
 }
 
+/* Respect user motion preferences. macOS / iOS / Windows / Linux
+   all expose a system-level "Reduce motion" toggle for users with
+   vestibular sensitivities; we honor it by disabling our entrance
+   and looping animations entirely. Critical-feedback animations
+   (e.g. a loading spinner that conveys progress) keep their
+   underlying behavior — the CSS spin classes Tailwind ships with
+   are NOT touched here because the spinner's rotation conveys
+   "still working" status that a static icon couldn't. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in,
+  .animate-pop,
+  .animate-pulse-soft,
+  .animate-shimmer {
+    animation: none !important;
+  }
+  /* Also collapse the global 200ms theme-switch transitions so
+     toggling dark mode is instant under reduced-motion. */
+  [data-theme="dark"] *,
+  [data-theme="dark"] *::before,
+  [data-theme="dark"] *::after {
+    transition: none !important;
+  }
+}
+
 /* Slim, low-contrast scrollbar for the Dashboard's scrollable
    cards (Resume Performance / Top Companies / Top Matching Jobs).
    Native scrollbars feel too heavy when three cards are scrolling
@@ -263,9 +288,13 @@ body {
 [data-theme="dark"] .text-slate-800            { color: #F4F6FB; }   /* primary, ~14:1 */
 [data-theme="dark"] .text-slate-700            { color: #E5E9F2; }   /* default body */
 [data-theme="dark"] .text-slate-600            { color: #C7CDDB; }
-[data-theme="dark"] .text-slate-500            { color: #98A2B3; }
-[data-theme="dark"] .text-slate-400            { color: #6E7689; }
-[data-theme="dark"] .text-slate-300            { color: #6E7689; }
+/* Bumped from #98A2B3 (~4.2:1 on surface-1) to #A6B0C2 to clear
+   WCAG AA's 4.5:1 minimum for normal text. */
+[data-theme="dark"] .text-slate-500            { color: #A6B0C2; }
+/* slate-400 / slate-300 are "muted hint" text — only used on large
+   or supporting copy where 3:1 (WCAG AA Large) is acceptable. */
+[data-theme="dark"] .text-slate-400            { color: #8590A5; }
+[data-theme="dark"] .text-slate-300            { color: #8590A5; }
 [data-theme="dark"] .text-black                { color: #F4F6FB; }
 [data-theme="dark"] .text-white                { color: #FFFFFF; }
 

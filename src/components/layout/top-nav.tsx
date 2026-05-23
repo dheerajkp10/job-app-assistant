@@ -34,10 +34,25 @@ export default function TopNav() {
 
   return (
     <header className="sticky top-0 z-30 backdrop-blur-md bg-white/70 border-b border-slate-100">
+      {/* Skip link — invisible until focused via Tab from the URL
+          bar. Keyboard users can jump past the nav directly to the
+          page content without tabbing through every nav link.
+          Requires the page-level <main> wrapper in layout.tsx
+          to carry id="main" (added there).  */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:rounded-md focus:bg-indigo-600 focus:text-white focus:text-sm focus:font-semibold focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      >
+        Skip to main content
+      </a>
       <div className="max-w-[1400px] mx-auto px-3 sm:px-6 h-14 flex items-center gap-3 sm:gap-6">
-        <Link href="/dashboard" className="flex items-center gap-2 group shrink-0">
+        <Link
+          href="/dashboard"
+          aria-label="JobAssist — go to dashboard"
+          className="flex items-center gap-2 group shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-offset-2 rounded-xl"
+        >
           <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center shadow-md shadow-indigo-500/25 group-hover:shadow-lg group-hover:shadow-indigo-500/35 group-hover:-translate-y-0.5 transition-all duration-200">
-            <Briefcase className="w-4 h-4 text-white" />
+            <Briefcase className="w-4 h-4 text-white" aria-hidden="true" />
           </div>
           <span className="hidden sm:inline text-sm font-bold bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent tracking-tight">
             JobAssist

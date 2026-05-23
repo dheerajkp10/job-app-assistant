@@ -33,9 +33,12 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
   const gradientId = `score-ring-${tier}-${size}`;
   const displayColor = colorPair[0];
 
+  const a11yLabel = label
+    ? `${label}: ${score} percent`
+    : `${score} percent match`;
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size }}>
+    <div className="flex flex-col items-center" role="img" aria-label={a11yLabel}>
+      <div className="relative" style={{ width: size, height: size }} aria-hidden="true">
         <svg width={size} height={size} className="-rotate-90">
           <defs>
             <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -59,7 +62,7 @@ function ScoreRing({ score, size = 100, label }: { score: number; size?: number;
           {score}%
         </span>
       </div>
-      {label && <span className="text-xs text-slate-500 mt-1.5 font-medium">{label}</span>}
+      {label && <span aria-hidden="true" className="text-xs text-slate-500 mt-1.5 font-medium">{label}</span>}
     </div>
   );
 }

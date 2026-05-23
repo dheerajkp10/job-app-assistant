@@ -105,10 +105,17 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (score / 100) * circumference;
   const color = score >= 75 ? '#22c55e' : score >= 50 ? '#eab308' : '#ef4444';
+  // role=img + aria-label exposes the meaningful score to screen
+  // readers; the visual ring + percentage are decorative once the
+  // label is announced. Without this, AT users hear nothing for
+  // the SVG and a bare "75%" with no context.
+  const a11yLabel = label
+    ? `${label}: ${score} percent match`
+    : `${score} percent match`;
 
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size }}>
+    <div className="flex flex-col items-center" role="img" aria-label={a11yLabel}>
+      <div className="relative" style={{ width: size, height: size }} aria-hidden="true">
         <svg width={size} height={size} className="-rotate-90">
           <circle cx={size / 2} cy={size / 2} r={radius} stroke="#e5e7eb" strokeWidth="6" fill="none" />
           <circle
@@ -126,7 +133,7 @@ function ScoreRing({ score, size = 80, label }: { score: number; size?: number; 
           {score}%
         </span>
       </div>
-      {label && <span className="text-xs text-slate-500 mt-1">{label}</span>}
+      {label && <span aria-hidden="true" className="text-xs text-slate-500 mt-1">{label}</span>}
     </div>
   );
 }
@@ -2791,13 +2798,21 @@ function ListingCard({
         onClick={onToggle}
         role="button"
         tabIndex={0}
+        // Disclosure pattern: announce open/closed state to AT
+        // users so they know the listing has expandable detail
+        // before activating. aria-controls points at the per-card
+        // expanded body so AT can jump straight to the revealed
+        // content.
+        aria-expanded={isExpanded}
+        aria-controls={`listing-detail-${listing.id}`}
+        aria-label={`${listing.title} at ${listing.company}${score?.totalCount ? `, match ${score.overall}%` : ''} — ${isExpanded ? 'collapse' : 'expand'} details`}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             onToggle();
           }
         }}
-        className="w-full text-left p-4 sm:p-5 cursor-pointer"
+        className="w-full text-left p-4 sm:p-5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 focus-visible:ring-inset rounded-2xl"
       >
         {/* Header — on mobile the title gets its own full-width row
             (so it isn't truncated by the Flag pill + Score badge eating
@@ -3059,7 +3074,12 @@ function ListingCard({
 
       {/* Expanded panel */}
       {isExpanded && (
-        <div className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-5">
+        <div
+          id={`listing-detail-${listing.id}`}
+          role="region"
+          aria-label={`Details for ${listing.title} at ${listing.company}`}
+          className="border-t border-slate-100 px-5 pb-5 pt-4 space-y-5"
+        >
           {/* Action links */}
           <div className="flex gap-3">
             <a

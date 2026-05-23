@@ -87,7 +87,10 @@ export default async function RootLayout({
             floating chip is still available via ResetButton without
             the `inline` prop if needed in a one-off context. */}
         {onboardingDone && <TopNav />}
-        <main className="relative">
+        {/* id="main" is the target of TopNav's skip-link. tabIndex
+            -1 lets the anchor focus the region itself so the next
+            Tab keystroke lands inside actual page content. */}
+        <main id="main" tabIndex={-1} className="relative focus:outline-none">
           {children}
         </main>
       </body>

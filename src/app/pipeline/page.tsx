@@ -372,6 +372,7 @@ export default function PipelinePage() {
                               }
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            aria-label="Move to previous stage"
                             title="Move to previous stage"
                           >
                             <ChevronRight className="w-3.5 h-3.5 rotate-180" />
@@ -387,6 +388,7 @@ export default function PipelinePage() {
                               }
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            aria-label="Move to next stage"
                             title="Move to next stage"
                           >
                             <ChevronRight className="w-3.5 h-3.5" />
@@ -395,6 +397,7 @@ export default function PipelinePage() {
                             type="button"
                             onClick={() => updateFlag(listing.id, null)}
                             className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Remove from pipeline"
                             title="Remove from pipeline"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -447,6 +450,18 @@ export default function PipelinePage() {
           return (
             <section
               key={flagDef.key}
+              // Region role + descriptive label so screen-reader
+              // users can jump between pipeline stages with their
+              // landmark navigation keys ("D" in NVDA, rotor in
+              // VoiceOver). Count is part of the label so they
+              // hear "Interviewing column, 3 applications" without
+              // tabbing into the cards.
+              role="region"
+              aria-label={`${flagDef.label}${
+                flagDef.key === 'rejected'
+                  ? `, ${companyRejections.length} ${companyRejections.length === 1 ? 'company' : 'companies'}`
+                  : `, ${items.length} ${items.length === 1 ? 'application' : 'applications'}`
+              }`}
               className="flex-shrink-0 w-[248px] bg-white/60 rounded-2xl border border-slate-100 shadow-card flex flex-col max-h-[calc(100vh-220px)]"
             >
               <header
@@ -539,6 +554,7 @@ export default function PipelinePage() {
                               if (prev) updateFlag(listing.id, prev.key);
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            aria-label="Move to previous stage"
                             title="Move to previous stage"
                           >
                             <ChevronRight className="w-3.5 h-3.5 rotate-180" />
@@ -551,6 +567,7 @@ export default function PipelinePage() {
                               if (nxt) updateFlag(listing.id, nxt.key);
                             }}
                             className="p-1 rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 disabled:hover:bg-transparent"
+                            aria-label="Move to next stage"
                             title="Move to next stage"
                           >
                             <ChevronRight className="w-3.5 h-3.5" />
@@ -559,6 +576,7 @@ export default function PipelinePage() {
                             type="button"
                             onClick={() => updateFlag(listing.id, null)}
                             className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            aria-label="Remove from pipeline"
                             title="Remove from pipeline"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -711,16 +729,22 @@ function RejectedCompanyCard({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="mt-2 w-full text-left text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
+          aria-expanded={expanded}
+          aria-controls={`rejected-roles-${companySlug}`}
+          className="mt-2 w-full text-left text-[11px] text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 rounded"
         >
           <ChevronRight
             className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            aria-hidden="true"
           />
           {expanded ? 'Hide affected roles' : 'Show affected roles'}
         </button>
       )}
       {expanded && (
-        <ul className="mt-2 pl-4 space-y-1 border-l border-slate-100">
+        <ul
+          id={`rejected-roles-${companySlug}`}
+          className="mt-2 pl-4 space-y-1 border-l border-slate-100"
+        >
           {listings.map((l) => (
             <li
               key={l.listing.id}
