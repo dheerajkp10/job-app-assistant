@@ -11,6 +11,24 @@
   --foreground: #111827;
 }
 
+/* Reserve space for the scrollbar in BOTH themes so toggling
+   light↔dark never reflows the viewport. Without this:
+     • macOS / iOS Safari render the native scrollbar as a 0px
+       overlay in light mode (no width reserved).
+     • In dark mode we apply a 10px ::-webkit-scrollbar style
+       that DOES reserve width.
+     • Toggling shrinks the usable viewport width by 10px →
+       centered content jumps ~5px to the left, exactly what
+       the user reported as "the page slightly shifts on the
+       left" when switching themes.
+   `scrollbar-gutter: stable` is the standardized fix: it asks
+   the browser to keep the gutter reserved regardless of whether
+   the scrollbar is overlay or classic. Applied on <html> so the
+   whole document inherits it. */
+html {
+  scrollbar-gutter: stable;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -504,15 +522,25 @@ body {
 [data-theme="dark"] .dashboard-scroll::-webkit-scrollbar-thumb         { background-color: rgba(148, 163, 184, 0.30); }
 [data-theme="dark"] .dashboard-scroll:hover::-webkit-scrollbar-thumb   { background-color: rgba(148, 163, 184, 0.50); }
 
-/* Native scrollbar on the body — match the dashboard one so the
-   page scroll feels consistent with the in-card scrolls. */
-[data-theme="dark"] ::-webkit-scrollbar { width: 10px; height: 10px; }
-[data-theme="dark"] ::-webkit-scrollbar-track { background: transparent; }
-[data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.18);
+/* Custom scrollbar applied in BOTH themes (was previously dark-
+   only; now light-mode also opts in so the gutter width
+   matches across the toggle and there is zero risk of layout
+   shift left over from scrollbar style differences). The
+   visual differs only in track/thumb color which is theme-
+   scoped below. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.30);
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.50);
+}
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.18);
 }
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
   background-color: rgba(148, 163, 184, 0.35);
