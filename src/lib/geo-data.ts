@@ -263,6 +263,24 @@ for (const [country, states] of Object.entries(STATES_BY_COUNTRY)) {
   for (const s of states) COUNTRY_OF_STATE[s.code] = country;
 }
 
+/**
+ * Inverted city table: lowercase city name → the state code(s) it
+ * belongs to. Most cities map to exactly one state; collision cities
+ * (Portland → OR + ME, Columbus → OH + GA, Kansas City → MO + KS,
+ * Charleston → SC + WV) map to several. The matcher uses this to:
+ *   • state-qualify a city match (so "Portland, OR" does NOT match
+ *     "Portland, ME"),
+ *   • infer a listing's state/country when the listing prints only a
+ *     bare city ("Austin" → TX → US), fixing under-matching.
+ */
+export const CITY_TO_STATES: Record<string, string[]> = {};
+for (const [stateCode, cities] of Object.entries(CITIES_BY_STATE)) {
+  for (const city of cities) {
+    const key = city.toLowerCase();
+    (CITY_TO_STATES[key] ??= []).push(stateCode);
+  }
+}
+
 /** Build the canonical "City, ABBR" display+storage string the
  *  location matcher understands. */
 export function cityDisplay(city: string, stateCode: string): string {
@@ -270,42 +288,55 @@ export function cityDisplay(city: string, stateCode: string): string {
   return st ? `${city}, ${st.abbr}` : city;
 }
 
-/** abbr → state code, built once. Used to resolve "Seattle, WA"
- *  back to the WA state code (and thence its country). */
-const STATE_BY_ABBR: Record<string, string> = {};
-for (const s of Object.values(STATE_BY_CODE)) {
-  // First writer wins; abbrs are unique within our table.
-  if (!(s.abbr in STATE_BY_ABBR)) STATE_BY_ABBR[s.abbr] = s.code;
+/** abbr (postal/short form printed on listings) → state code. Built
+ *  once. Handles both US USPS codes (WA → WA) and non-US short forms
+ *  (BC → CA-BC, England → UK-ENG). */
+const ABBR_TO_STATE_CODE: Record<string, string> = {};
+for (const st of Object.values(STATE_BY_CODE)) {
+  ABBR_TO_STATE_CODE[st.abbr.toLowerCase()] = st.code;
 }
 
 /**
- * Migration helper: given a legacy preferredLocations list of
- * "City, ABBR" strings, derive which COUNTRIES they belong to so
- * the cascade can open in the right place. We deliberately do NOT
- * derive states here — auto-selecting a state would broaden a
- * user's existing city-only matches to the whole state, changing
- * behavior silently. Country derivation is safe (it's only used to
- * reveal the state row in the picker, not as a match filter unless
- * the user keeps it selected).
+ * Derive the cascade's country + state selections implied by a list
+ * of legacy "City, ABBR" preferredLocations strings. Used by the
+ * one-time geo migration (db.getSettings) and the Settings/onboarding
+ * loaders so the cascade opens already reflecting the user's existing
+ * city picks, and so the OLD matcher's implicit city→state breadth is
+ * preserved as explicit, editable state selections.
+ *
+ * Resolution per entry:
+ *   1. trailing ", ABBR" → state code (WA, CA-BC, …) via ABBR table,
+ *   2. else trailing ", FULLNAME" matched against state names,
+ *   3. else city-name lookup (CITY_TO_STATES) when unambiguous.
+ * The state's parent country is added to countries.
  */
 export function deriveCascadeFromLocations(
   locations: string[],
 ): { countries: string[]; states: string[] } {
-  const countries = new Set<string>();
   const states = new Set<string>();
+  const countries = new Set<string>();
+  const nameToCode: Record<string, string> = {};
+  for (const st of Object.values(STATE_BY_CODE)) nameToCode[st.name.toLowerCase()] = st.code;
+
   for (const loc of locations) {
-    const m = loc.match(/,\s*([^,]+)$/);
-    if (!m) continue;
-    const abbr = m[1].trim();
-    const stateCode = STATE_BY_ABBR[abbr];
-    if (!stateCode) continue;
-    states.add(stateCode);
-    const country = COUNTRY_OF_STATE[stateCode];
-    if (country) countries.add(country);
+    if (!loc) continue;
+    let code: string | undefined;
+    const m = loc.match(/,\s*([^,]+)\s*$/);
+    if (m) {
+      const tail = m[1].trim().toLowerCase();
+      code = ABBR_TO_STATE_CODE[tail] ?? nameToCode[tail];
+    }
+    if (!code) {
+      // No usable state suffix — infer from the city name if unique.
+      const cityKey = loc.split(',')[0].trim().toLowerCase();
+      const inferred = CITY_TO_STATES[cityKey];
+      if (inferred && inferred.length === 1) code = inferred[0];
+    }
+    if (code) {
+      states.add(code);
+      const country = COUNTRY_OF_STATE[code];
+      if (country) countries.add(country);
+    }
   }
-  // Return states too so the picker can reveal the city rows that
-  // hold the user's existing cities — but the SETTINGS loader
-  // chooses whether to apply them as a filter (it doesn't, to avoid
-  // broadening). The cascade component uses them only for display.
   return { countries: [...countries], states: [...states] };
 }

@@ -83,6 +83,10 @@ export interface Settings {
   /** Country-level prefs (ISO-2 codes or 'REMOTE'). Selecting "US"
    *  alone = open to anywhere in the US. */
   preferredCountries?: string[];      // e.g. ["US"]
+  /** Set once after the legacy city→state geo migration runs (see
+   *  db.getSettings). Prevents the migration from re-deriving on
+   *  every read or fighting the user's later manual edits. */
+  geoMigrated?: boolean;
   workMode: WorkMode[];               // multi-select
   salaryMin: number | null;           // annual total comp min, e.g. 200000
   salaryMax: number | null;           // annual total comp max, e.g. 350000

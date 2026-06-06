@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir, rename, copyFile, unlink } from 'fs/promise
 import { existsSync } from 'fs';
 import path from 'path';
 import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach, CompanyRejection } from './types';
+import { deriveCascadeFromLocations } from './geo-data';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -258,6 +259,27 @@ export async function deleteJob(id: string): Promise<boolean> {
 // Settings
 export async function getSettings(): Promise<Settings> {
   const db = await readDb();
+  // One-time geo migration. Legacy saves only have city-level
+  // preferredLocations. The OLD matcher broadened a city pref to its
+  // whole state implicitly; the NEW hierarchical matcher does NOT
+  // (a city pref matches only that city). To preserve the user's
+  // effective experience — and surface it as an editable state pick
+  // in the cascade — we derive the parent states + countries from
+  // their existing cities ONCE and persist them. Idempotent: guarded
+  // by `geoMigrated` so it never runs twice or fights later edits.
+  const s = db.settings;
+  if (
+    !s.geoMigrated &&
+    (s.preferredStates?.length ?? 0) === 0 &&
+    (s.preferredCountries?.length ?? 0) === 0 &&
+    (s.preferredLocations?.length ?? 0) > 0
+  ) {
+    const { countries, states } = deriveCascadeFromLocations(s.preferredLocations);
+    s.preferredStates = states;
+    s.preferredCountries = countries;
+    s.geoMigrated = true;
+    await writeDb(db);
+  }
   return db.settings;
 }
 

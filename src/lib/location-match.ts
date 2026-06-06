@@ -29,7 +29,7 @@
  */
 
 import type { WorkMode } from './types';
-import { COUNTRY_OF_STATE } from './geo-data';
+import { COUNTRY_OF_STATE, CITY_TO_STATES } from './geo-data';
 
 // ─── Synonym tables ────────────────────────────────────────────────
 
@@ -336,19 +336,24 @@ export function parseLocation(loc: string): ParsedLocation {
     }
   }
 
-  // Post-pass: reclassify ambiguous city/state collisions. If we
-  // added WA because we saw "Washington", but DC is also in states,
-  // then "Washington" was really the city — drop the bogus WA and
-  // record the city instead. Same for "New York" co-occurring with
-  // NYC airport or any other NY-city signal.
+  // Post-pass: reclassify ambiguous city/state collisions.
   for (const norm of ambiguousHits) {
     const bogusState = ambiguousCityStates.get(norm)!;
-    if (norm === 'washington' && out.states.has('DC')) {
-      out.states.delete(bogusState);
-      out.cities.add('washington');
-    } else if (norm === 'new york' && out.cities.has('new york city')) {
-      // Keep state for "New York, NY" but drop if explicitly NYC-only.
-      // Rare in practice; current behavior is safe to leave as-is.
+    if (norm === 'washington') {
+      // "Washington" is the CITY (Washington, D.C.) when DC is also
+      // present — drop the bogus WA state and record the city.
+      if (out.states.has('DC')) {
+        out.states.delete(bogusState);
+        out.cities.add('washington');
+      }
+      // Otherwise "Washington" = the state WA; leave as-is.
+    } else if (norm === 'new york') {
+      // "New York" is almost always the CITY (NYC) on job boards —
+      // "New York, NY", "New York, United States", etc. Record it as
+      // a city WHILE KEEPING the NY state token, so it matches both
+      // a "New York, NY" city pref AND a "New York" (NY) state pref.
+      // The state stays because NYC is in NY — no accuracy loss.
+      out.cities.add('new york');
     }
   }
 
@@ -369,103 +374,174 @@ export interface LocationMatchInput {
 }
 
 /**
- * Build a matcher closure. The matcher returns true if a listing's
- * location overlaps the user's preferences via city, state, OR
- * remote-friendly country (when workMode includes 'remote').
+ * Build a matcher closure with HIERARCHICAL, accuracy-first semantics.
+ *
+ * The three preference levels are matched independently (a listing
+ * matches if ANY level matches), but each level is matched *precisely*
+ * so we neither under- nor over-match:
+ *
+ *   CITY level (preferredLocations, e.g. "Portland, OR")
+ *     A listing matches only if it names that city AND the state is
+ *     consistent:
+ *       • listing prints a state → it must equal the pref's state
+ *         ("Portland, OR" pref does NOT match "Portland, ME"),
+ *       • listing prints no state → we infer the city's state(s) from
+ *         the geo table; ambiguous/unknown cities match permissively
+ *         (we can't disprove, so we don't hide a possibly-valid job).
+ *     A city pref does NOT promote to its whole state — that's what the
+ *     STATE level is for. (Picking "Seattle, WA" gives Seattle jobs,
+ *     not all of Washington; pick the WA state option for that.)
+ *
+ *   STATE level (preferredStates, e.g. "WA")
+ *     Matches any listing in that state. If the listing prints only a
+ *     bare city ("Austin"), we infer its state from the geo table so
+ *     state prefs still catch state-less city listings.
+ *     "WA" never matches "Washington, DC" (DC is its own code).
+ *
+ *   COUNTRY level (preferredCountries, e.g. "US")
+ *     Matches any listing in that country. Inference climbs the
+ *     hierarchy: country token → state's parent country → city's
+ *     state's parent country, so "Austin, TX" (no country printed)
+ *     still matches a US country pref.
+ *
+ *   REMOTE: explicit "Remote (anywhere)" pick OR the workMode-gated
+ *     remote fallback (auth-country scoped), unchanged.
  */
 export function buildLocationMatcher(
   input: LocationMatchInput,
 ): (location: string) => boolean {
-  // Aggregate the user's preference signal into a single token bag.
-  const userPrefs: ParsedLocation = {
-    cities: new Set(),
-    states: new Set(),
-    countries: new Set(),
-    isRemote: false,
-  };
+  // ─── City prefs: (city, state?) pairs from preferredLocations ────
+  // Each preferredLocation is a single "City, ST" string. We parse it
+  // and pair the city with its state (if the entry carried one). Some
+  // entries parse to a state with no city (a bare "Texas", or "New
+  // York" before the post-pass adds the city) — those fold into the
+  // state-pref set so they still match.
+  const cityPrefs: { city: string; state?: string }[] = [];
+  const prefStateCodes = new Set<string>();
+  const prefCountryCodes = new Set<string>();
+  let prefersRemoteCountry = false;
+
   for (const loc of input.preferredLocations ?? []) {
     const p = parseLocation(loc);
-    p.cities.forEach((c) => userPrefs.cities.add(c));
-    p.states.forEach((s) => userPrefs.states.add(s));
-    p.countries.forEach((c) => userPrefs.countries.add(c));
-    if (p.isRemote) userPrefs.isRemote = true;
+    const cities = [...p.cities];
+    const states = [...p.states];
+    if (cities.length > 0) {
+      // Pair each city with the entry's (single) state when present.
+      const state = states.length === 1 ? states[0] : undefined;
+      for (const c of cities) cityPrefs.push({ city: c, state });
+    } else if (states.length > 0) {
+      // City-less entry that resolved to a state → treat as a state
+      // pref (e.g. someone typed a bare "Texas" into the city box).
+      for (const s of states) prefStateCodes.add(s);
+    } else if (p.isRemote) {
+      prefersRemoteCountry = true;
+    } else {
+      for (const c of p.countries) prefCountryCodes.add(c);
+    }
   }
 
-  // ─── Structured geo prefs (Country → State → City cascade) ───────
-  // These come from the new geo-data picker. They're ADDITIVE to the
-  // freeform preferredLocations parsed above — a listing matches if
-  // it overlaps ANY geo level.
-  //
-  //  • US state codes (2-letter, in STATE_CODE_TO_NAME) match
-  //    parseLocation()'s state set directly — "WA" matches every
-  //    "Bellevue, WA" / "Seattle, WA" listing.
-  //  • Non-US region codes (prefixed: "CA-BC", "UK-ENG", "IN-KA")
-  //    don't appear in listing state tokens, so we widen them to a
-  //    parent-country match instead (selecting "Ontario" matches
-  //    Canada listings). Never wrongly excludes; just less precise
-  //    for international, which the city picker covers when needed.
-  const prefStateCodes = new Set<string>();
-  const prefCountryCodes = new Set<string>(
-    (input.preferredCountries ?? [])
-      .filter((c) => c !== 'REMOTE')
-      .map((c) => c.toLowerCase()),
-  );
-  let prefersRemoteCountry = (input.preferredCountries ?? []).includes('REMOTE');
+  // ─── Structured state prefs (cascade picker) ─────────────────────
+  // Track which countries have an explicit state drilled in under
+  // them. A country with a selected state is a NAVIGATION SCOPE, not
+  // a broad "all of this country" match — so we exclude it from the
+  // country-match filter below. (Picking US → WA matches only WA, not
+  // every US job; picking US alone matches all US.)
+  const scopedCountries = new Set<string>();
   for (const code of input.preferredStates ?? []) {
     if (STATE_CODE_TO_NAME[code]) {
-      // US USPS code — exact state match.
-      prefStateCodes.add(code);
+      prefStateCodes.add(code); // US USPS code — exact state match.
+      scopedCountries.add('US');
     } else {
-      // Non-US region — widen to its parent country.
+      // Non-US region code (CA-BC, UK-ENG, IN-KA): listing state
+      // tokens won't carry it, so widen to its parent country. This
+      // is an explicit match (we can't do better for non-US regions
+      // without city tokens), so it is NOT treated as merely scoped.
       const parent = COUNTRY_OF_STATE[code];
       if (parent === 'REMOTE') prefersRemoteCountry = true;
       else if (parent) prefCountryCodes.add(parent.toLowerCase());
     }
   }
 
+  // ─── Structured country prefs (cascade picker) ───────────────────
+  // A selected country matches the whole country UNLESS the user has
+  // drilled into states under it (scopedCountries) — then it's just a
+  // navigation parent and contributes no broad match.
+  for (const c of input.preferredCountries ?? []) {
+    if (c === 'REMOTE') { prefersRemoteCountry = true; continue; }
+    if (scopedCountries.has(c)) continue; // drilled into states → scope only
+    prefCountryCodes.add(c.toLowerCase());
+  }
+
   const remoteOK = (input.workModes ?? []).includes('remote');
   const authCountries = new Set(
     (input.workAuthCountries ?? []).map((c) => c.toLowerCase()),
   );
-  // Default to US authorization if unset (matches the rest of the
-  // app's defaulting behavior).
   if (authCountries.size === 0) authCountries.add('us');
 
   return (listingLocation: string) => {
     if (!listingLocation) return false;
-    const parsed = parseLocation(listingLocation);
+    const L = parseLocation(listingLocation);
 
-    // City overlap (freeform preferredLocations + cascade cities,
-    // both stored in preferredLocations).
-    for (const c of parsed.cities) if (userPrefs.cities.has(c)) return true;
-
-    // State overlap — freeform-derived states OR explicit cascade
-    // state picks.
-    for (const s of parsed.states) {
-      if (userPrefs.states.has(s)) return true;
-      if (prefStateCodes.has(s)) return true;
+    // ── 1. CITY level (state-qualified) ──────────────────────────
+    for (const pref of cityPrefs) {
+      if (!L.cities.has(pref.city)) continue;
+      if (!pref.state) return true; // pref had no state qualifier → name match
+      if (L.states.size > 0) {
+        // Listing printed a state — require it to match the pref's.
+        // This is the over-match fix: Portland-OR pref vs Portland-ME
+        // listing fails here because L.states = {ME} lacks OR.
+        if (L.states.has(pref.state)) return true;
+      } else {
+        // Listing printed no state — infer from the city name.
+        const inferred = CITY_TO_STATES[pref.city];
+        if (!inferred) return true;                 // unknown city → can't disprove
+        if (inferred.includes(pref.state)) return true;
+        // City is known to belong to OTHER state(s) only → genuinely
+        // a different-state same-name city → no match.
+      }
     }
 
-    // Country overlap — freeform-derived OR explicit cascade country
-    // picks (incl. non-US states widened to their country).
-    for (const c of parsed.countries) {
-      if (userPrefs.countries.has(c)) return true;
-      if (prefCountryCodes.has(c)) return true;
+    // ── 2. STATE level ───────────────────────────────────────────
+    if (prefStateCodes.size > 0) {
+      for (const s of L.states) if (prefStateCodes.has(s)) return true;
+      // Listing printed no state but has a city → infer its state.
+      if (L.states.size === 0) {
+        for (const c of L.cities) {
+          const inferred = CITY_TO_STATES[c];
+          if (inferred) for (const s of inferred) if (prefStateCodes.has(s)) return true;
+        }
+      }
     }
 
-    // Explicit "Remote (anywhere)" country pick — accept any listing
-    // the parser flagged as remote, regardless of country.
-    if (prefersRemoteCountry && parsed.isRemote) return true;
+    // ── 3. COUNTRY level (with upward inference) ─────────────────
+    if (prefCountryCodes.size > 0) {
+      for (const c of L.countries) if (prefCountryCodes.has(c)) return true;
+      // Infer country from any state token (US state → "us").
+      for (const s of L.states) {
+        const parent = COUNTRY_OF_STATE[s];
+        if (parent && prefCountryCodes.has(parent.toLowerCase())) return true;
+      }
+      // Infer country from a bare city (city → state → country).
+      if (L.states.size === 0) {
+        for (const c of L.cities) {
+          const inferred = CITY_TO_STATES[c];
+          if (!inferred) continue;
+          for (const s of inferred) {
+            const parent = COUNTRY_OF_STATE[s];
+            if (parent && prefCountryCodes.has(parent.toLowerCase())) return true;
+          }
+        }
+      }
+    }
 
-    // Remote-friendly fallback. If the user is OK with Remote AND the
-    // listing is Remote, accept it as long as the country is one
-    // they're authorized to work in. Listings with no country tag
-    // (just "Remote") are assumed to be in the user's primary
-    // authorization country — covers "Remote", "Remote - All
-    // locations", and similar undefined-country shorthands.
-    if (remoteOK && parsed.isRemote) {
-      if (parsed.countries.size === 0) return true;
-      for (const c of parsed.countries) if (authCountries.has(c)) return true;
+    // ── 4. Remote ────────────────────────────────────────────────
+    // Explicit "Remote (anywhere)" pick.
+    if (prefersRemoteCountry && L.isRemote) return true;
+    // workMode-gated fallback: remote listing in an authorized country
+    // (or no country tag → assumed primary auth country).
+    if (remoteOK && L.isRemote) {
+      if (L.countries.size === 0) return true;
+      for (const c of L.countries) if (authCountries.has(c)) return true;
     }
 
     return false;
