@@ -11,6 +11,7 @@ import type { WorkMode } from '@/lib/types';
 import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
+import { LocationCascader } from '@/components/location-cascader';
 
 const STEPS = ['Role & Level', 'Location', 'Salary', 'Resume', 'Companies', 'Fetch Jobs'] as const;
 
@@ -47,20 +48,6 @@ const SUGGESTED_ROLES = [
   'DevOps Engineer',
   'Site Reliability Engineer',
   'UX Designer',
-];
-
-const SUGGESTED_LOCATIONS = [
-  'Seattle, WA',
-  'San Francisco, CA',
-  'New York, NY',
-  'Austin, TX',
-  'Los Angeles, CA',
-  'Boston, MA',
-  'Denver, CO',
-  'Chicago, IL',
-  'Portland, OR',
-  'Washington, DC',
-  'Remote',
 ];
 
 const WORK_MODES: { key: WorkMode; label: string; desc: string }[] = [
@@ -101,6 +88,8 @@ export default function OnboardingWizard() {
   const [customRole, setCustomRole] = useState('');
   const [levels, setLevels] = useState<string[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
+  const [locStates, setLocStates] = useState<string[]>([]);
+  const [locCountries, setLocCountries] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   // Default to US — most users land here from the US, and the listings
   // filter is "show countries the user is authorized to work in".
@@ -152,6 +141,8 @@ export default function OnboardingWizard() {
         if (s.preferredRoles?.length) setRoles(s.preferredRoles);
         if (s.preferredLevels?.length) setLevels(s.preferredLevels);
         if (s.preferredLocations?.length) setLocations(s.preferredLocations);
+        if (s.preferredStates?.length) setLocStates(s.preferredStates);
+        if (s.preferredCountries?.length) setLocCountries(s.preferredCountries);
         if (s.workMode?.length) setWorkMode(s.workMode);
         if (s.workAuthCountries?.length) setWorkAuthCountries(s.workAuthCountries);
         if (s.salaryMin) setSalaryMin(String(s.salaryMin));
@@ -280,6 +271,8 @@ export default function OnboardingWizard() {
           preferredRoles: roles,
           preferredLevels: levels,
           preferredLocations: locations,
+          preferredStates: locStates,
+          preferredCountries: locCountries,
           workMode,
           workAuthCountries,
           salaryMin: salaryMin ? Number(salaryMin) : null,
@@ -381,7 +374,7 @@ export default function OnboardingWizard() {
 
   const canProceed = () => {
     if (step === STEP_ROLE) return roles.length > 0;
-    if (step === STEP_LOCATION) return locations.length > 0 || workMode.length > 0;
+    if (step === STEP_LOCATION) return locations.length > 0 || locStates.length > 0 || locCountries.length > 0 || workMode.length > 0;
     return true; // salary & resume are optional
   };
 
@@ -631,59 +624,58 @@ export default function OnboardingWizard() {
                 </div>
               </div>
 
-              {/* Location chips */}
+              {/* Cascading Country → State → City picker. Pick a
+                  state (e.g. California) to match every city in it,
+                  or drill into specific cities. */}
               <div className="mb-4">
                 <label className="block text-xs font-medium text-slate-500 mb-2">
-                  Preferred Locations ({locations.length} selected)
+                  Preferred Locations
                 </label>
-                <div className="flex flex-wrap gap-2">
-                  {SUGGESTED_LOCATIONS.map((loc) => {
-                    const on = locations.includes(loc);
-                    return (
-                      <button
-                        key={loc}
-                        type="button"
-                        onClick={() => toggleLocation(loc)}
-                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                          on
-                            ? 'bg-indigo-500 text-white border-indigo-500'
-                            : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-indigo-50'
-                        }`}
-                      >
-                        {loc}
-                      </button>
-                    );
-                  })}
-                </div>
+                <LocationCascader
+                  countries={locCountries}
+                  states={locStates}
+                  cities={locations}
+                  onChange={({ countries, states, cities }) => {
+                    setLocCountries(countries);
+                    setLocStates(states);
+                    setLocations(cities);
+                  }}
+                />
               </div>
 
-              {/* Custom location with global tech-hub autocomplete */}
-              <LocationAutocomplete
-                existing={locations}
-                onSelect={(loc) => {
-                  if (!locations.includes(loc)) {
-                    setLocations((prev) => [...prev, loc]);
-                  }
-                }}
-              />
+              {/* Custom location with global tech-hub autocomplete —
+                  for any city not in the curated cascade list. */}
+              <div className="pt-4 border-t border-slate-100">
+                <label className="block text-xs font-medium text-slate-500 mb-2">
+                  Add a specific city
+                  <span className="font-normal text-slate-400"> (not in the list above?)</span>
+                </label>
+                <LocationAutocomplete
+                  existing={locations}
+                  onSelect={(loc) => {
+                    if (!locations.includes(loc)) {
+                      setLocations((prev) => [...prev, loc]);
+                    }
+                  }}
+                />
+              </div>
 
               {/* Selected custom locations (non-suggested) — e.g. "Bellevue, WA"
-                  added via the autocomplete. Shown as removable chips so the
-                  user can see that their pick registered. */}
-              {locations.filter((l) => !SUGGESTED_LOCATIONS.includes(l)).length > 0 && (
+                  added via the autocomplete OR ticked in the cascade.
+                  Single removable summary of every city pick. */}
+              {locations.length > 0 && (
                 <div className="mt-3">
                   <label className="block text-xs font-medium text-slate-500 mb-2">
-                    Added locations
+                    Selected cities ({locations.length})
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {locations
-                      .filter((l) => !SUGGESTED_LOCATIONS.includes(l))
                       .map((l) => (
                         <span
                           key={l}
                           className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium"
                         >
-                          <MapPin className="w-3 h-3" />
+                          <MapPin className="w-3 h-3" aria-hidden="true" />
                           {l}
                           <button
                             type="button"
@@ -691,7 +683,7 @@ export default function OnboardingWizard() {
                             className="hover:text-indigo-900"
                             aria-label={`Remove ${l}`}
                           >
-                            <X className="w-3 h-3" />
+                            <X className="w-3 h-3" aria-hidden="true" />
                           </button>
                         </span>
                       ))}

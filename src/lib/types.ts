@@ -73,7 +73,16 @@ export interface Settings {
   // ─── User preferences (set during onboarding) ───
   preferredRoles: string[];           // e.g. ["Engineering Manager", "Software Dev Manager"]
   preferredLevels: string[];          // e.g. ["L6 / EM / Senior Manager", "L5 / Senior SDE"]
-  preferredLocations: string[];       // e.g. ["Seattle, WA", "San Francisco, CA"]
+  preferredLocations: string[];       // city-level prefs, e.g. ["Seattle, WA", "San Francisco, CA"]
+  /** State/province/region-level prefs (globally-unique geo codes from
+   *  src/lib/geo-data.ts). Selecting "WA" matches every WA listing,
+   *  "CA" matches every California listing, etc. Independent of
+   *  preferredLocations — a listing matches if it overlaps ANY of the
+   *  three geo levels. Optional for back-compat with pre-cascade saves. */
+  preferredStates?: string[];         // e.g. ["WA", "CA"]
+  /** Country-level prefs (ISO-2 codes or 'REMOTE'). Selecting "US"
+   *  alone = open to anywhere in the US. */
+  preferredCountries?: string[];      // e.g. ["US"]
   workMode: WorkMode[];               // multi-select
   salaryMin: number | null;           // annual total comp min, e.g. 200000
   salaryMax: number | null;           // annual total comp max, e.g. 350000

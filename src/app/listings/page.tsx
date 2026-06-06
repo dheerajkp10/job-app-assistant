@@ -329,10 +329,12 @@ export default function ListingsPage() {
   const locationMatcher = useMemo(
     () => buildLocationMatcher({
       preferredLocations: prefs.preferredLocations ?? [],
+      preferredStates: prefs.preferredStates ?? [],
+      preferredCountries: prefs.preferredCountries ?? [],
       workModes: prefs.workMode ?? [],
       workAuthCountries: prefs.workAuthCountries ?? ['US'],
     }),
-    [prefs.preferredLocations, prefs.workMode, prefs.workAuthCountries],
+    [prefs.preferredLocations, prefs.preferredStates, prefs.preferredCountries, prefs.workMode, prefs.workAuthCountries],
   );
 
   // User-set flags (applied / incorrect / not-applicable) on listings.

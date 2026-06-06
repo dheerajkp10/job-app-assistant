@@ -29,6 +29,7 @@
  */
 
 import type { WorkMode } from './types';
+import { COUNTRY_OF_STATE } from './geo-data';
 
 // ─── Synonym tables ────────────────────────────────────────────────
 
@@ -358,6 +359,11 @@ export function parseLocation(loc: string): ParsedLocation {
 
 export interface LocationMatchInput {
   preferredLocations: string[];
+  /** State/region geo codes from geo-data (e.g. "WA", "CA",
+   *  "CA-BC"). Optional — older saves don't have it. */
+  preferredStates?: string[];
+  /** Country geo codes (e.g. "US", "REMOTE"). Optional. */
+  preferredCountries?: string[];
   workModes: WorkMode[];
   workAuthCountries: string[];
 }
@@ -385,6 +391,38 @@ export function buildLocationMatcher(
     if (p.isRemote) userPrefs.isRemote = true;
   }
 
+  // ─── Structured geo prefs (Country → State → City cascade) ───────
+  // These come from the new geo-data picker. They're ADDITIVE to the
+  // freeform preferredLocations parsed above — a listing matches if
+  // it overlaps ANY geo level.
+  //
+  //  • US state codes (2-letter, in STATE_CODE_TO_NAME) match
+  //    parseLocation()'s state set directly — "WA" matches every
+  //    "Bellevue, WA" / "Seattle, WA" listing.
+  //  • Non-US region codes (prefixed: "CA-BC", "UK-ENG", "IN-KA")
+  //    don't appear in listing state tokens, so we widen them to a
+  //    parent-country match instead (selecting "Ontario" matches
+  //    Canada listings). Never wrongly excludes; just less precise
+  //    for international, which the city picker covers when needed.
+  const prefStateCodes = new Set<string>();
+  const prefCountryCodes = new Set<string>(
+    (input.preferredCountries ?? [])
+      .filter((c) => c !== 'REMOTE')
+      .map((c) => c.toLowerCase()),
+  );
+  let prefersRemoteCountry = (input.preferredCountries ?? []).includes('REMOTE');
+  for (const code of input.preferredStates ?? []) {
+    if (STATE_CODE_TO_NAME[code]) {
+      // US USPS code — exact state match.
+      prefStateCodes.add(code);
+    } else {
+      // Non-US region — widen to its parent country.
+      const parent = COUNTRY_OF_STATE[code];
+      if (parent === 'REMOTE') prefersRemoteCountry = true;
+      else if (parent) prefCountryCodes.add(parent.toLowerCase());
+    }
+  }
+
   const remoteOK = (input.workModes ?? []).includes('remote');
   const authCountries = new Set(
     (input.workAuthCountries ?? []).map((c) => c.toLowerCase()),
@@ -397,14 +435,27 @@ export function buildLocationMatcher(
     if (!listingLocation) return false;
     const parsed = parseLocation(listingLocation);
 
-    // City overlap.
+    // City overlap (freeform preferredLocations + cascade cities,
+    // both stored in preferredLocations).
     for (const c of parsed.cities) if (userPrefs.cities.has(c)) return true;
 
-    // State overlap.
-    for (const s of parsed.states) if (userPrefs.states.has(s)) return true;
+    // State overlap — freeform-derived states OR explicit cascade
+    // state picks.
+    for (const s of parsed.states) {
+      if (userPrefs.states.has(s)) return true;
+      if (prefStateCodes.has(s)) return true;
+    }
 
-    // Country overlap (only when user explicitly has country-level prefs).
-    for (const c of parsed.countries) if (userPrefs.countries.has(c)) return true;
+    // Country overlap — freeform-derived OR explicit cascade country
+    // picks (incl. non-US states widened to their country).
+    for (const c of parsed.countries) {
+      if (userPrefs.countries.has(c)) return true;
+      if (prefCountryCodes.has(c)) return true;
+    }
+
+    // Explicit "Remote (anywhere)" country pick — accept any listing
+    // the parser flagged as remote, regardless of country.
+    if (prefersRemoteCountry && parsed.isRemote) return true;
 
     // Remote-friendly fallback. If the user is OK with Remote AND the
     // listing is Remote, accept it as long as the country is one

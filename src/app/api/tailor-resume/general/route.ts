@@ -236,10 +236,19 @@ function applyPreferenceFilters(
     );
   }
 
-  // Location — same synonym-aware matcher the listings page uses
-  if (settings.preferredLocations && settings.preferredLocations.length > 0) {
+  // Location — same synonym-aware matcher the listings page uses.
+  // Includes the structured Country/State/City prefs so a user who
+  // selected "California" (state) gets every CA listing in their
+  // master-resume cohort, not just explicit cities.
+  const hasGeoPref =
+    (settings.preferredLocations?.length ?? 0) > 0 ||
+    (settings.preferredStates?.length ?? 0) > 0 ||
+    (settings.preferredCountries?.length ?? 0) > 0;
+  if (hasGeoPref) {
     const matcher = buildLocationMatcher({
-      preferredLocations: settings.preferredLocations,
+      preferredLocations: settings.preferredLocations ?? [],
+      preferredStates: settings.preferredStates ?? [],
+      preferredCountries: settings.preferredCountries ?? [],
       workModes: settings.workMode ?? [],
       workAuthCountries: settings.workAuthCountries ?? ['US'],
     });

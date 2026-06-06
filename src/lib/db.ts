@@ -27,6 +27,8 @@ const DEFAULT_DB: Database = {
     preferredRoles: [],
     preferredLevels: [],
     preferredLocations: [],
+    preferredStates: [],
+    preferredCountries: [],
     workMode: [],
     salaryMin: null,
     salaryMax: null,

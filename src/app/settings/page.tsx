@@ -7,6 +7,8 @@ import { NetworkImportPanel } from '@/components/settings/network-import';
 import type { WorkMode } from '@/lib/types';
 import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
+import { LocationCascader } from '@/components/location-cascader';
+import { deriveCascadeFromLocations } from '@/lib/geo-data';
 
 const WORK_MODES: { key: WorkMode; label: string }[] = [
   { key: 'remote', label: 'Remote' },
@@ -34,6 +36,8 @@ export default function SettingsPage() {
   const [customRole, setCustomRole] = useState('');
   const [preferredLevels, setPreferredLevels] = useState<string[]>([]);
   const [preferredLocations, setPreferredLocations] = useState<string[]>([]);
+  const [preferredStates, setPreferredStates] = useState<string[]>([]);
+  const [preferredCountries, setPreferredCountries] = useState<string[]>([]);
   const [workMode, setWorkMode] = useState<WorkMode[]>([]);
   const [workAuthCountries, setWorkAuthCountries] = useState<string[]>(['US']);
   const [needsVisaSponsorship, setNeedsVisaSponsorship] = useState(false);
@@ -70,6 +74,18 @@ export default function SettingsPage() {
         setPreferredRoles(s.preferredRoles || []);
         setPreferredLevels(s.preferredLevels || []);
         setPreferredLocations(s.preferredLocations || []);
+        // Structured geo prefs. If absent (pre-cascade save), derive
+        // the country set from the existing city list so the cascade
+        // opens in the right place; leave states empty so we don't
+        // silently broaden the user's existing city-only matches.
+        if (s.preferredCountries || s.preferredStates) {
+          setPreferredCountries(s.preferredCountries || []);
+          setPreferredStates(s.preferredStates || []);
+        } else {
+          const derived = deriveCascadeFromLocations(s.preferredLocations || []);
+          setPreferredCountries(derived.countries);
+          setPreferredStates([]);
+        }
         setWorkMode(s.workMode || []);
         setWorkAuthCountries(
           s.workAuthCountries && s.workAuthCountries.length > 0 ? s.workAuthCountries : ['US']
@@ -200,6 +216,8 @@ export default function SettingsPage() {
           preferredRoles,
           preferredLevels,
           preferredLocations,
+          preferredStates,
+          preferredCountries,
           workMode,
           workAuthCountries,
           needsVisaSponsorship,
@@ -367,25 +385,61 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Locations */}
-        <div className="flex flex-wrap gap-2 mb-3">
-          {preferredLocations.map((loc) => (
-            <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
-              {loc}
-              <button type="button" onClick={() => removeLocation(loc)} className="hover:text-indigo-900">
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
+        {/* Cascading Country → State → City picker. Selecting a
+            state matches every city in it (e.g. California → SF,
+            LA, San Jose, …); cities are an optional narrower pick.
+            City selections are merged into preferredLocations so
+            the matcher parses them like any "City, ST" string. */}
+        <div className="mb-5">
+          <label className="block text-xs font-medium text-slate-500 mb-2">
+            Preferred Locations
+          </label>
+          <LocationCascader
+            countries={preferredCountries}
+            states={preferredStates}
+            cities={preferredLocations}
+            onChange={({ countries, states, cities }) => {
+              setPreferredCountries(countries);
+              setPreferredStates(states);
+              setPreferredLocations(cities);
+            }}
+          />
         </div>
-        <LocationAutocomplete
-          existing={preferredLocations}
-          onSelect={(loc) => {
-            if (!preferredLocations.includes(loc)) {
-              setPreferredLocations((prev) => [...prev, loc]);
-            }
-          }}
-        />
+
+        {/* Specific-city chips + autocomplete. Covers cities not in
+            the curated cascade list (e.g. "Austin, TX" without
+            selecting all of Texas). These are the same
+            preferredLocations array the cascade's city level writes
+            to, so removing here also unticks the cascade pill. */}
+        <div className="pt-4 border-t border-slate-100">
+          <label className="block text-xs font-medium text-slate-500 mb-2">
+            Add a specific city
+            <span className="font-normal text-slate-400"> (not in the list above?)</span>
+          </label>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {preferredLocations.map((loc) => (
+              <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
+                {loc}
+                <button
+                  type="button"
+                  onClick={() => removeLocation(loc)}
+                  aria-label={`Remove ${loc}`}
+                  className="hover:text-indigo-900"
+                >
+                  <X className="w-3 h-3" aria-hidden="true" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <LocationAutocomplete
+            existing={preferredLocations}
+            onSelect={(loc) => {
+              if (!preferredLocations.includes(loc)) {
+                setPreferredLocations((prev) => [...prev, loc]);
+              }
+            }}
+          />
+        </div>
 
         {/* Work authorization. Drives the listings filter — jobs in countries
             outside this list are hidden so the user only sees roles they could
