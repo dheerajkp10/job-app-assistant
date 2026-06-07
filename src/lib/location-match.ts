@@ -447,9 +447,20 @@ export function buildLocationMatcher(
   // country-match filter below. (Picking US → WA matches only WA, not
   // every US job; picking US alone matches all US.)
   const scopedCountries = new Set<string>();
+  // Which selected states have specific city picks under them. Such a
+  // state is "narrowed": we match only those cities (already in
+  // cityPrefs), NOT the whole state. A selected state with no city
+  // picks matches the whole state. (Design: "narrow to specific
+  // cities, or leave empty to keep the whole state.")
+  const statesWithCityPicks = new Set<string>();
+  for (const pref of cityPrefs) {
+    if (pref.state) statesWithCityPicks.add(pref.state);
+  }
   for (const code of input.preferredStates ?? []) {
     if (STATE_CODE_TO_NAME[code]) {
-      prefStateCodes.add(code); // US USPS code — exact state match.
+      // US USPS code. Whole-state match only when NOT narrowed by
+      // specific city picks.
+      if (!statesWithCityPicks.has(code)) prefStateCodes.add(code);
       scopedCountries.add('US');
     } else {
       // Non-US region code (CA-BC, UK-ENG, IN-KA): listing state

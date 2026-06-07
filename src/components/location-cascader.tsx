@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import {
   COUNTRIES, STATES_BY_COUNTRY, CITIES_BY_STATE, STATE_BY_CODE,
-  COUNTRY_OF_STATE, cityDisplay,
+  COUNTRY_OF_STATE, cityDisplay, stateCodeOfCityDisplay,
 } from '@/lib/geo-data';
 import { MultiSelectCombobox, type ComboOption } from './multi-select-combobox';
 
@@ -164,14 +164,4 @@ export function LocationCascader({
   );
 }
 
-/** Recover the state code from a stored "City, ABBR" display string
- *  by matching the trailing abbreviation against the geo table. */
-function cityStateOf(display: string): string | null {
-  const m = display.match(/,\s*([^,]+)$/);
-  if (!m) return null;
-  const abbr = m[1].trim();
-  for (const code of Object.keys(STATE_BY_CODE)) {
-    if (STATE_BY_CODE[code].abbr === abbr) return code;
-  }
-  return null;
-}
+const cityStateOf = stateCodeOfCityDisplay;

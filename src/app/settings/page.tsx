@@ -8,7 +8,7 @@ import type { WorkMode } from '@/lib/types';
 import { LEVEL_TIERS, WORK_AUTH_COUNTRIES } from '@/lib/types';
 import { LocationAutocomplete } from '@/components/location-autocomplete';
 import { LocationCascader } from '@/components/location-cascader';
-import { deriveCascadeFromLocations } from '@/lib/geo-data';
+import { deriveCascadeFromLocations, stateCodeOfCityDisplay } from '@/lib/geo-data';
 
 const WORK_MODES: { key: WorkMode; label: string }[] = [
   { key: 'remote', label: 'Remote' },
@@ -406,40 +406,52 @@ export default function SettingsPage() {
           />
         </div>
 
-        {/* Specific-city chips + autocomplete. Covers cities not in
-            the curated cascade list (e.g. "Austin, TX" without
-            selecting all of Texas). These are the same
-            preferredLocations array the cascade's city level writes
-            to, so removing here also unticks the cascade pill. */}
-        <div className="pt-4 border-t border-slate-100">
-          <label className="block text-xs font-medium text-slate-500 mb-2">
-            Add a specific city
-            <span className="font-normal text-slate-400"> (not in the list above?)</span>
-          </label>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {preferredLocations.map((loc) => (
-              <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
-                {loc}
-                <button
-                  type="button"
-                  onClick={() => removeLocation(loc)}
-                  aria-label={`Remove ${loc}`}
-                  className="hover:text-indigo-900"
-                >
-                  <X className="w-3 h-3" aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-          </div>
-          <LocationAutocomplete
-            existing={preferredLocations}
-            onSelect={(loc) => {
-              if (!preferredLocations.includes(loc)) {
-                setPreferredLocations((prev) => [...prev, loc]);
-              }
-            }}
-          />
-        </div>
+        {/* Specific-city autocomplete. Covers cities NOT representable
+            by the cascade — off-list towns, or cities in a state the
+            user hasn't selected as a whole (e.g. "Austin, TX" without
+            picking all of Texas). Cities whose state IS selected are
+            shown + managed by the cascade's City control above, so we
+            filter those out here to avoid showing every chip twice. */}
+        {(() => {
+          const stateSet = new Set(preferredStates);
+          const offScopeCities = preferredLocations.filter((loc) => {
+            const st = stateCodeOfCityDisplay(loc);
+            return !(st !== null && stateSet.has(st));
+          });
+          return (
+            <div className="pt-4 border-t border-slate-100">
+              <label className="block text-xs font-medium text-slate-500 mb-2">
+                Add a specific city
+                <span className="font-normal text-slate-400"> (not in the list above?)</span>
+              </label>
+              {offScopeCities.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-3">
+                  {offScopeCities.map((loc) => (
+                    <span key={loc} className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-indigo-700 rounded-lg text-sm font-medium">
+                      {loc}
+                      <button
+                        type="button"
+                        onClick={() => removeLocation(loc)}
+                        aria-label={`Remove ${loc}`}
+                        className="hover:text-indigo-900"
+                      >
+                        <X className="w-3 h-3" aria-hidden="true" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <LocationAutocomplete
+                existing={preferredLocations}
+                onSelect={(loc) => {
+                  if (!preferredLocations.includes(loc)) {
+                    setPreferredLocations((prev) => [...prev, loc]);
+                  }
+                }}
+              />
+            </div>
+          );
+        })()}
 
         {/* Work authorization. Drives the listings filter — jobs in countries
             outside this list are hidden so the user only sees roles they could

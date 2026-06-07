@@ -288,6 +288,20 @@ export function cityDisplay(city: string, stateCode: string): string {
   return st ? `${city}, ${st.abbr}` : city;
 }
 
+/** Recover the state code from a stored "City, ABBR" display string
+ *  (inverse of cityDisplay). Matches the trailing abbreviation
+ *  against the geo table. Returns null for off-table / foreign
+ *  city strings. */
+export function stateCodeOfCityDisplay(display: string): string | null {
+  const m = display.match(/,\s*([^,]+)\s*$/);
+  if (!m) return null;
+  const abbr = m[1].trim().toLowerCase();
+  for (const st of Object.values(STATE_BY_CODE)) {
+    if (st.abbr.toLowerCase() === abbr) return st.code;
+  }
+  return null;
+}
+
 /** abbr (postal/short form printed on listings) → state code. Built
  *  once. Handles both US USPS codes (WA → WA) and non-US short forms
  *  (BC → CA-BC, England → UK-ENG). */

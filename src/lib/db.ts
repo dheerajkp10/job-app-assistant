@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, rename, copyFile, unlink } from 'fs/promise
 import { existsSync } from 'fs';
 import path from 'path';
 import type { Database, Job, Settings, JobListing, ListingsCache, ScoreCacheEntry, ListingFlag, ListingFlagEntry, ListingNote, Resume, CoverLetterTemplate, NetworkOutreach, CompanyRejection } from './types';
-import { deriveCascadeFromLocations } from './geo-data';
+import { deriveCascadeFromLocations, stateCodeOfCityDisplay } from './geo-data';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
@@ -277,6 +277,18 @@ export async function getSettings(): Promise<Settings> {
     const { countries, states } = deriveCascadeFromLocations(s.preferredLocations);
     s.preferredStates = states;
     s.preferredCountries = countries;
+    // The derived states subsume every city they were derived from
+    // (old matcher broadened city → whole state). Keeping both leaves
+    // the cascade showing each city twice AND would, under the new
+    // "narrow" semantics, wrongly shrink the state back to just those
+    // cities. So drop the subsumed cities — the state now carries the
+    // breadth. Cities in states we did NOT derive (shouldn't happen
+    // here, but defensive) are kept.
+    const stateSet = new Set(states);
+    s.preferredLocations = s.preferredLocations.filter((loc) => {
+      const st = stateCodeOfCityDisplay(loc);
+      return !(st !== null && stateSet.has(st));
+    });
     s.geoMigrated = true;
     await writeDb(db);
   }
