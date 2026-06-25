@@ -1099,6 +1099,25 @@ export default function ListingsPage() {
     [listings, locationMatcher]
   );
 
+  // Per-location-option counts for the unified location tab row. Each
+  // option gets a matcher over its own pref slice; we count how many
+  // role/auth/exclusion-filtered listings match it. Cheap: a handful
+  // of options × the already-narrowed `listings` set.
+  const locationOptionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const o of locationOptions) {
+      const m = buildLocationMatcher({
+        preferredLocations: o.slice.preferredLocations ?? [],
+        preferredStates: o.slice.preferredStates ?? [],
+        preferredCountries: o.slice.preferredCountries ?? [],
+        workModes: prefs.workMode ?? [],
+        workAuthCountries: prefs.workAuthCountries ?? ['US'],
+      });
+      counts[o.key] = listings.filter((l) => m(l.location)).length;
+    }
+    return counts;
+  }, [locationOptions, listings, prefs.workMode, prefs.workAuthCountries]);
+
   // Apply text search + dropdown filters + location preset
   const filtered = useMemo(() => {
     let result = listings;
@@ -1723,85 +1742,106 @@ export default function ListingsPage() {
               </button>
             </div>
 
-            {/* Location preset (Preferred Locations vs All) — moved
-                inside the filters drawer per UX revision. */}
+            {/* Unified location filter — a single row of toggle tabs.
+                "All Locations" shows everything (ignores prefs). Each
+                preferred location (state / country / city the user
+                picked in Preferences) is a toggle: with none of them
+                individually selected, ALL preferred locations match
+                (default); selecting a subset narrows to just those.
+                Clicking a preferred tab from "All Locations" focuses
+                on that one. */}
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-medium text-slate-500 mr-1">
                 <MapPin className="w-3 h-3 inline -mt-0.5" /> Location:
               </span>
+
+              {/* All Locations */}
               <button
-                onClick={() => setLocationPreset('wa-remote')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  locationPreset === 'wa-remote'
-                    ? 'bg-indigo-500 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
-                }`}
-              >
-                {prefs.preferredLocations && prefs.preferredLocations.length > 0
-                  ? `Preferred Locations (${waRemoteCount})`
-                  : `Washington & Remote (${waRemoteCount})`
-                }
-              </button>
-              <button
-                onClick={() => setLocationPreset('all')}
-                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                type="button"
+                aria-pressed={locationPreset === 'all'}
+                onClick={() => {
+                  setLocationPreset('all');
+                  setSelectedLocationKeys(new Set());
+                }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
                   locationPreset === 'all'
-                    ? 'bg-indigo-500 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-gray-200'
+                    ? 'bg-indigo-500 text-white border-indigo-500'
+                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                 }`}
               >
                 All Locations ({listings.length})
               </button>
-            </div>
 
-            {/* Per-location toggles. One chip per location the user
-                picked in Preferences (states, countries, cities).
-                Multi-select: none active = all preferred locations;
-                selecting a subset narrows to just those. Only shown
-                when on the Preferred-Locations preset and the user
-                actually has 2+ locations to choose between. */}
-            {locationPreset === 'wa-remote' && locationOptions.length > 1 && (
-              <div className="flex items-center gap-2 flex-wrap pl-0">
-                <span className="text-xs font-medium text-slate-500 mr-1 w-full sm:w-auto">
-                  Filter to:
-                </span>
-                {locationOptions.map((o) => {
-                  const on = selectedLocationKeys.has(o.key);
+              {/* Preferred-location tabs. When the user has no saved
+                  locations yet, fall back to a single "Preferred" tab
+                  representing the full preferred matcher. */}
+              {locationOptions.length === 0 ? (
+                <button
+                  type="button"
+                  aria-pressed={locationPreset === 'wa-remote'}
+                  onClick={() => { setLocationPreset('wa-remote'); setSelectedLocationKeys(new Set()); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
+                    locationPreset === 'wa-remote'
+                      ? 'bg-indigo-500 text-white border-indigo-500'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                  }`}
+                >
+                  Preferred ({waRemoteCount})
+                </button>
+              ) : (
+                locationOptions.map((o) => {
+                  // Active when on the preferred preset AND either no
+                  // subset is chosen (all preferred) OR this one is in
+                  // the chosen subset.
+                  const on =
+                    locationPreset === 'wa-remote' &&
+                    (selectedLocationKeys.size === 0 || selectedLocationKeys.has(o.key));
                   return (
                     <button
                       key={o.key}
                       type="button"
                       aria-pressed={on}
-                      onClick={() =>
+                      onClick={() => {
+                        if (locationPreset === 'all') {
+                          // From "All Locations" → focus on this one.
+                          setLocationPreset('wa-remote');
+                          setSelectedLocationKeys(new Set([o.key]));
+                          return;
+                        }
                         setSelectedLocationKeys((prev) => {
+                          if (prev.size === 0) {
+                            // All preferred shown → focus on this one.
+                            return new Set([o.key]);
+                          }
                           const next = new Set(prev);
                           if (next.has(o.key)) next.delete(o.key);
                           else next.add(o.key);
-                          return next;
-                        })
-                      }
+                          return next; // empty → back to all preferred
+                        });
+                      }}
                       className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
                         on
-                          ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
+                          ? 'bg-indigo-500 text-white border-indigo-500'
                           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                       }`}
                     >
-                      {on && <Check className="w-3 h-3" aria-hidden="true" />}
-                      {o.label}
+                      {o.label} ({locationOptionCounts[o.key] ?? 0})
                     </button>
                   );
-                })}
-                {selectedLocationKeys.size > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedLocationKeys(new Set())}
-                    className="text-xs text-slate-500 hover:text-slate-700 underline ml-1"
-                  >
-                    Clear ({selectedLocationKeys.size})
-                  </button>
-                )}
-              </div>
-            )}
+                })
+              )}
+
+              {/* Quick reset to all-preferred when a subset is active. */}
+              {locationPreset === 'wa-remote' && selectedLocationKeys.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedLocationKeys(new Set())}
+                  className="text-xs text-slate-500 hover:text-slate-700 underline ml-1"
+                >
+                  All preferred ({waRemoteCount})
+                </button>
+              )}
+            </div>
 
             {/* Excluded companies — also moved into the filters drawer.
                 Compact form: chips inline + tiny add input. */}
