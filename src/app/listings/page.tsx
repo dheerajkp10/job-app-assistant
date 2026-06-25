@@ -341,6 +341,21 @@ export default function ListingsPage() {
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
   const [showFlagged, setShowFlagged] = useState(false);
 
+  // Company slugs the user has rejected. Rejecting ANY listing at a
+  // company records the company in /api/company-rejections; here we
+  // hide EVERY listing from that company — including ones fetched
+  // after the rejection that never got an individual 'rejected' flag.
+  // (Per-listing flag hiding alone missed those, leaving e.g. newly-
+  // scraped Google roles visible after the user rejected Google.)
+  const [rejectedSlugs, setRejectedSlugs] = useState<Set<string>>(new Set());
+  const loadRejections = useCallback(async () => {
+    try {
+      const r = await fetch('/api/company-rejections', { cache: 'no-store' });
+      const data: { companySlug: string }[] = await r.json();
+      setRejectedSlugs(new Set((data ?? []).map((x) => x.companySlug.toLowerCase())));
+    } catch { /* keep prior set on error */ }
+  }, []);
+
   const setFlagFor = useCallback(async (listingId: string, flag: ListingFlag | null) => {
     // Optimistic update
     setFlags((prev) => {
@@ -390,12 +405,19 @@ export default function ListingsPage() {
           bc.postMessage({ type: 'flags-updated' });
           bc.close();
         } catch { /* unsupported — no-op */ }
+        // Same-tab refresh of the company-rejection set. A 'rejected'
+        // flag adds the company to /api/company-rejections; we refetch
+        // so EVERY listing from that company (including ones never
+        // individually flagged) drops out of the page immediately.
+        // BroadcastChannel doesn't deliver to the sending tab, so the
+        // listener above won't cover this — hence the direct call.
+        if (flag === 'rejected') loadRejections();
       }
     } catch {
       // If the request fails, refetch the source of truth to repair state.
       fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
     }
-  }, []);
+  }, [loadRejections]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -665,6 +687,7 @@ export default function ListingsPage() {
   const [excludedCompanies, setExcludedCompanies] = useState<string[]>([]);
   const [excludeInitialized, setExcludeInitialized] = useState(false);
   const [autoDetected, setAutoDetected] = useState<string | null>(null);
+  useEffect(() => { loadRejections(); }, [loadRejections]);
 
   useEffect(() => {
     loadListings();
@@ -784,6 +807,7 @@ export default function ListingsPage() {
     const refreshFlagsAndScores = () => {
       fetch('/api/scores-cache', { cache: 'no-store' }).then(r => r.json()).then(setScoreCache).catch(() => {});
       fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
+      loadRejections();
     };
     const tryRefresh = () => {
       if (expandedId !== null) {
@@ -814,7 +838,7 @@ export default function ListingsPage() {
       window.removeEventListener('focus', onVisible);
       bc?.close();
     };
-  }, [loadListings, expandedId]);
+  }, [loadListings, loadRejections, expandedId]);
 
   // Replay any deferred refresh when the user collapses the card.
   useEffect(() => {
@@ -824,7 +848,8 @@ export default function ListingsPage() {
     loadListings();
     fetch('/api/scores-cache', { cache: 'no-store' }).then(r => r.json()).then(setScoreCache).catch(() => {});
     fetch('/api/listing-flags', { cache: 'no-store' }).then(r => r.json()).then(setFlags).catch(() => {});
-  }, [expandedId, loadListings]);
+    loadRejections();
+  }, [expandedId, loadListings, loadRejections]);
 
   // Persist excludedCompanies whenever the user edits the list.
   const saveExcludedCompanies = useCallback((next: string[]) => {
@@ -869,9 +894,17 @@ export default function ListingsPage() {
   const listings = useMemo(() => {
     const roleMatched = filterByUserPreferences(allListings, prefs.preferredRoles ?? []);
     const authFiltered = roleMatched.filter((l) => isWorkAuthorized(l.location, authCountries));
-    if (excludedAliases.length === 0) return authFiltered;
-    return authFiltered.filter((l) => !isExcludedCompany(l.company, excludedAliases));
-  }, [allListings, prefs.preferredRoles, excludedAliases, authCountries]);
+    // Drop every listing from a company the user has rejected — the
+    // same slug rule the rejection cascade + pipeline page use.
+    const notRejected = rejectedSlugs.size === 0
+      ? authFiltered
+      : authFiltered.filter((l) => {
+          const slug = (l.companySlug || l.company.trim().toLowerCase());
+          return !rejectedSlugs.has(slug.toLowerCase());
+        });
+    if (excludedAliases.length === 0) return notRejected;
+    return notRejected.filter((l) => !isExcludedCompany(l.company, excludedAliases));
+  }, [allListings, prefs.preferredRoles, excludedAliases, authCountries, rejectedSlugs]);
 
   // Count of listings hidden by the current-employer filter, for a small
   // info banner so the user understands what's being excluded.
