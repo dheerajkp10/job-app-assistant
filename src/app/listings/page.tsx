@@ -25,6 +25,7 @@ import {
 } from '@/lib/current-company';
 import { isUnscorableAts } from '@/lib/scorable';
 import { buildLocationMatcher } from '@/lib/location-match';
+import { COUNTRIES, STATE_BY_CODE, COUNTRY_OF_STATE } from '@/lib/geo-data';
 import { diffResume } from '@/lib/text-diff';
 import { isNonUsdSalary } from '@/lib/salary-parser';
 
@@ -336,6 +337,84 @@ export default function ListingsPage() {
     }),
     [prefs.preferredLocations, prefs.preferredStates, prefs.preferredCountries, prefs.workMode, prefs.workAuthCountries],
   );
+
+  // ─── Per-location filter toggles ─────────────────────────────────
+  // Each location the user picked in Preferences (countries, states,
+  // cities) becomes a toggle in the Filters drawer. With none active,
+  // the page matches ALL preferred locations (default). Selecting a
+  // subset narrows to just those — e.g. user has WA + CA + India, taps
+  // "California" → only CA listings.
+  const countryNameByCode = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const c of COUNTRIES) m[c.code] = c.name;
+    return m;
+  }, []);
+  const locationOptions = useMemo(() => {
+    // Order: countries, then states, then specific cities. Each option
+    // carries the structured pref slice needed to build a matcher for
+    // JUST that option.
+    const opts: {
+      key: string;
+      label: string;
+      slice: { preferredCountries?: string[]; preferredStates?: string[]; preferredLocations?: string[] };
+    }[] = [];
+    // Countries that have a state selected under them are navigation
+    // scopes, not standalone "all of country" locations — skip them
+    // so the toggle list mirrors the user's actual location intent
+    // (e.g. WA + CA + India shows "Washington", "California",
+    // "India", NOT a misleading "United States"). Mirrors the
+    // matcher's scopedCountries rule.
+    const scopedCountries = new Set<string>();
+    for (const sc of prefs.preferredStates ?? []) {
+      const parent = COUNTRY_OF_STATE[sc];
+      if (parent) scopedCountries.add(parent);
+    }
+    for (const code of prefs.preferredCountries ?? []) {
+      if (scopedCountries.has(code)) continue;
+      const label = code === 'REMOTE' ? 'Remote (anywhere)' : (countryNameByCode[code] ?? code);
+      opts.push({ key: `country:${code}`, label, slice: { preferredCountries: [code] } });
+    }
+    for (const code of prefs.preferredStates ?? []) {
+      opts.push({ key: `state:${code}`, label: STATE_BY_CODE[code]?.name ?? code, slice: { preferredStates: [code] } });
+    }
+    for (const city of prefs.preferredLocations ?? []) {
+      opts.push({ key: `city:${city}`, label: city, slice: { preferredLocations: [city] } });
+    }
+    return opts;
+  }, [prefs.preferredCountries, prefs.preferredStates, prefs.preferredLocations, countryNameByCode]);
+
+  // Which location toggles are active. Empty = all preferred (default).
+  const [selectedLocationKeys, setSelectedLocationKeys] = useState<Set<string>>(new Set());
+  // Drop any selected keys that no longer exist after a prefs change.
+  useEffect(() => {
+    setSelectedLocationKeys((prev) => {
+      const valid = new Set(locationOptions.map((o) => o.key));
+      const next = new Set([...prev].filter((k) => valid.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [locationOptions]);
+
+  // The active location matcher: a subset matcher when toggles are on,
+  // else the full preferred-locations matcher.
+  const activeLocationMatcher = useMemo(() => {
+    if (selectedLocationKeys.size === 0) return locationMatcher;
+    const countries: string[] = [];
+    const states: string[] = [];
+    const cities: string[] = [];
+    for (const o of locationOptions) {
+      if (!selectedLocationKeys.has(o.key)) continue;
+      if (o.slice.preferredCountries) countries.push(...o.slice.preferredCountries);
+      if (o.slice.preferredStates) states.push(...o.slice.preferredStates);
+      if (o.slice.preferredLocations) cities.push(...o.slice.preferredLocations);
+    }
+    return buildLocationMatcher({
+      preferredLocations: cities,
+      preferredStates: states,
+      preferredCountries: countries,
+      workModes: prefs.workMode ?? [],
+      workAuthCountries: prefs.workAuthCountries ?? ['US'],
+    });
+  }, [selectedLocationKeys, locationOptions, locationMatcher, prefs.workMode, prefs.workAuthCountries]);
 
   // User-set flags (applied / incorrect / not-applicable) on listings.
   const [flags, setFlags] = useState<Record<string, ListingFlagEntry>>({});
@@ -1102,7 +1181,7 @@ export default function ListingsPage() {
       result = result.filter((l) => l.company === selectedCompany);
     }
     if (locationPreset === 'wa-remote') {
-      result = result.filter((l) => locationMatcher(l.location));
+      result = result.filter((l) => activeLocationMatcher(l.location));
     }
     // Work-mode preference filter (remote / hybrid / onsite)
     if (prefs.workMode && prefs.workMode.length > 0) {
@@ -1198,7 +1277,7 @@ export default function ListingsPage() {
       return new Date(b.updatedAt || b.fetchedAt).getTime() - new Date(a.updatedAt || a.fetchedAt).getTime();
     });
     return result;
-  }, [listings, search, searchInJd, jdMatchIds, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, locationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore, onlyNewSinceVisit, lastVisitedAt]);
+  }, [listings, search, searchInJd, jdMatchIds, selectedCompany, locationPreset, selectedDepartment, scoreCache, flags, showFlagged, activeLocationMatcher, prefs.workMode, minSalary, maxSalary, salaryOnly, selectedLevels, hideStale, datePosted, minScore, maxScore, onlyNewSinceVisit, lastVisitedAt]);
 
   const flaggedCount = useMemo(
     () => listings.filter((l) => flags[l.id]).length,
@@ -1242,7 +1321,7 @@ export default function ListingsPage() {
   }, [weakCategory, autoExpandedForWeakCat, paginated]);
 
   // Reset page when filters change
-  useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels]);
+  useEffect(() => { setPage(1); }, [search, selectedCompany, locationPreset, selectedDepartment, minSalary, maxSalary, salaryOnly, selectedLevels, selectedLocationKeys]);
 
   // Fire the JD full-text search whenever the query or toggle
   // changes. Debounced 300ms so each keystroke doesn't kick a
@@ -1674,6 +1753,55 @@ export default function ListingsPage() {
                 All Locations ({listings.length})
               </button>
             </div>
+
+            {/* Per-location toggles. One chip per location the user
+                picked in Preferences (states, countries, cities).
+                Multi-select: none active = all preferred locations;
+                selecting a subset narrows to just those. Only shown
+                when on the Preferred-Locations preset and the user
+                actually has 2+ locations to choose between. */}
+            {locationPreset === 'wa-remote' && locationOptions.length > 1 && (
+              <div className="flex items-center gap-2 flex-wrap pl-0">
+                <span className="text-xs font-medium text-slate-500 mr-1 w-full sm:w-auto">
+                  Filter to:
+                </span>
+                {locationOptions.map((o) => {
+                  const on = selectedLocationKeys.has(o.key);
+                  return (
+                    <button
+                      key={o.key}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        setSelectedLocationKeys((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(o.key)) next.delete(o.key);
+                          else next.add(o.key);
+                          return next;
+                        })
+                      }
+                      className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300 ${
+                        on
+                          ? 'bg-indigo-100 text-indigo-700 border-indigo-200 hover:bg-indigo-200'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
+                      }`}
+                    >
+                      {on && <Check className="w-3 h-3" aria-hidden="true" />}
+                      {o.label}
+                    </button>
+                  );
+                })}
+                {selectedLocationKeys.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedLocationKeys(new Set())}
+                    className="text-xs text-slate-500 hover:text-slate-700 underline ml-1"
+                  >
+                    Clear ({selectedLocationKeys.size})
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Excluded companies — also moved into the filters drawer.
                 Compact form: chips inline + tiny add input. */}
